@@ -378,6 +378,13 @@ def index():
     return render_template("index.html")
 
 
+@app.route("/api/config")
+def config():
+    """Return server-side config so the frontend can auto-fill the token."""
+    token = os.environ.get("APIFY_TOKEN", "")
+    return jsonify({"apify_token": token})
+
+
 @app.route("/api/parse-cv", methods=["POST"])
 def parse_cv():
     if "file" not in request.files:

@@ -627,11 +627,23 @@ document.addEventListener('DOMContentLoaded', () => {
   jobDetailModal   = new bootstrap.Modal(document.getElementById('jobDetailModal'));
   coverLetterModal = new bootstrap.Modal(document.getElementById('coverLetterModal'));
 
-  // Restore from localStorage
+  // Restore token: prefer localStorage, then fall back to server env var
   const savedToken = localStorage.getItem('apify_token') || '';
   if (savedToken) {
     document.getElementById('tokenInput').value = savedToken;
     showTokenSaved(true);
+  } else {
+    // Try to load token from server environment variable (APIFY_TOKEN)
+    fetch('/api/config')
+      .then(r => r.json())
+      .then(cfg => {
+        if (cfg.apify_token) {
+          document.getElementById('tokenInput').value = cfg.apify_token;
+          localStorage.setItem('apify_token', cfg.apify_token);
+          showTokenSaved(true);
+        }
+      })
+      .catch(() => {});
   }
 
   const savedSkills = localStorage.getItem('job_search_skills');
