@@ -1,0 +1,1217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Job Search" />
+  <meta name="theme-color" content="#0d6efd" />
+  <title>Remote Job Search</title>
+
+  <!-- Bootstrap 5.3 -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <!-- Bootstrap Icons -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet" />
+
+  <style>
+    :root {
+      --bs-body-bg: #f0f4f8;
+    }
+    body {
+      background: var(--bs-body-bg);
+      padding-bottom: 40px;
+    }
+
+    /* ── Header ─────────────────────────────────────────── */
+    .app-header {
+      background: linear-gradient(135deg, #0d6efd 0%, #0043a8 100%);
+      color: white;
+      padding: 14px 16px 12px;
+      position: sticky;
+      top: 0;
+      z-index: 1030;
+      box-shadow: 0 2px 8px rgba(0,0,0,.25);
+    }
+    .app-header h1 {
+      font-size: 1.25rem;
+      font-weight: 700;
+      margin: 0;
+      letter-spacing: .3px;
+    }
+    .app-header .subtitle {
+      font-size: .75rem;
+      opacity: .8;
+      margin: 0;
+    }
+
+    /* ── Step indicator ──────────────────────────────────── */
+    .step-bar {
+      display: flex;
+      gap: 0;
+      overflow-x: auto;
+      scrollbar-width: none;
+      background: white;
+      border-bottom: 1px solid #dee2e6;
+      padding: 0 8px;
+    }
+    .step-bar::-webkit-scrollbar { display: none; }
+    .step-item {
+      flex: 1;
+      min-width: 70px;
+      text-align: center;
+      padding: 8px 4px 6px;
+      font-size: .7rem;
+      font-weight: 600;
+      color: #adb5bd;
+      border-bottom: 3px solid transparent;
+      cursor: pointer;
+      transition: all .2s;
+      white-space: nowrap;
+    }
+    .step-item.active {
+      color: #0d6efd;
+      border-bottom-color: #0d6efd;
+    }
+    .step-item.done {
+      color: #198754;
+    }
+    .step-item i {
+      display: block;
+      font-size: 1.1rem;
+      margin-bottom: 2px;
+    }
+
+    /* ── Cards ───────────────────────────────────────────── */
+    .section-card {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,.08);
+      margin: 12px;
+      padding: 16px;
+    }
+    .section-card .card-title {
+      font-size: .95rem;
+      font-weight: 700;
+      color: #212529;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .section-card .card-title i {
+      color: #0d6efd;
+      font-size: 1.1rem;
+    }
+
+    /* ── Token section ───────────────────────────────────── */
+    .token-saved-badge {
+      display: none;
+      align-items: center;
+      gap: 4px;
+      color: #198754;
+      font-size: .85rem;
+      font-weight: 600;
+    }
+    .token-saved-badge.visible { display: flex; }
+
+    /* ── Skills chips ────────────────────────────────────── */
+    .skills-container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      min-height: 38px;
+      padding: 6px;
+      background: #f8f9fa;
+      border-radius: 8px;
+      border: 1px solid #dee2e6;
+      margin-bottom: 10px;
+    }
+    .skill-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: #0d6efd;
+      color: white;
+      border-radius: 20px;
+      padding: 3px 10px 3px 12px;
+      font-size: .8rem;
+      font-weight: 500;
+      animation: chipIn .15s ease;
+    }
+    @keyframes chipIn {
+      from { transform: scale(0.7); opacity: 0; }
+      to   { transform: scale(1);   opacity: 1; }
+    }
+    .skill-chip .remove-btn {
+      background: none;
+      border: none;
+      color: rgba(255,255,255,.8);
+      padding: 0;
+      cursor: pointer;
+      line-height: 1;
+      font-size: .85rem;
+      margin-left: 2px;
+    }
+    .skill-chip .remove-btn:hover { color: white; }
+    .skills-empty {
+      color: #adb5bd;
+      font-size: .85rem;
+      font-style: italic;
+      padding: 6px 4px;
+    }
+
+    /* ── Search card ─────────────────────────────────────── */
+    .time-btn-group .btn {
+      font-weight: 600;
+      font-size: .85rem;
+    }
+    .search-btn-main {
+      font-size: 1.05rem;
+      font-weight: 700;
+      padding: 12px;
+      border-radius: 10px;
+      letter-spacing: .3px;
+    }
+
+    /* ── Results summary bar ─────────────────────────────── */
+    .results-summary {
+      background: white;
+      border-bottom: 1px solid #dee2e6;
+      padding: 8px 12px;
+      font-size: .82rem;
+      color: #495057;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .sort-btns .btn {
+      font-size: .75rem;
+      padding: 3px 9px;
+    }
+
+    /* ── Job cards ───────────────────────────────────────── */
+    .job-card {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 1px 6px rgba(0,0,0,.07);
+      margin: 8px 12px;
+      padding: 14px;
+      cursor: pointer;
+      transition: box-shadow .15s, transform .15s;
+      border-left: 4px solid #dee2e6;
+    }
+    .job-card:active { transform: scale(.985); }
+    .job-card.match-high  { border-left-color: #198754; }
+    .job-card.match-good  { border-left-color: #ffc107; }
+    .job-card.match-low   { border-left-color: #adb5bd; }
+
+    .match-badge {
+      font-size: .75rem;
+      font-weight: 700;
+      padding: 3px 9px;
+      border-radius: 20px;
+      white-space: nowrap;
+    }
+    .match-high  { background: #d1e7dd; color: #0f5132; }
+    .match-good  { background: #fff3cd; color: #664d03; }
+    .match-low   { background: #e9ecef; color: #495057; }
+
+    .job-title {
+      font-size: .95rem;
+      font-weight: 700;
+      color: #212529;
+      margin: 4px 0 2px;
+      line-height: 1.3;
+    }
+    .job-meta {
+      font-size: .78rem;
+      color: #6c757d;
+      line-height: 1.5;
+    }
+    .job-meta .dot { margin: 0 4px; }
+    .job-why {
+      font-size: .75rem;
+      color: #0d6efd;
+      font-style: italic;
+      margin-top: 4px;
+      line-height: 1.4;
+    }
+    .hire-badge {
+      display: inline-block;
+      font-size: .7rem;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 20px;
+      margin-top: 4px;
+    }
+    .hire-high   { background: #d1e7dd; color: #0f5132; }
+    .hire-good   { background: #cfe2ff; color: #084298; }
+    .hire-mod    { background: #fff3cd; color: #664d03; }
+    .hire-low    { background: #f8d7da; color: #842029; }
+
+    .job-actions {
+      display: flex;
+      gap: 6px;
+      margin-top: 10px;
+      flex-wrap: wrap;
+    }
+    .job-actions .btn {
+      font-size: .78rem;
+      padding: 5px 12px;
+      border-radius: 8px;
+      flex: 1;
+      min-width: 80px;
+    }
+
+    /* ── Loading overlay ─────────────────────────────────── */
+    .loading-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.55);
+      z-index: 2000;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 16px;
+      color: white;
+    }
+    .loading-overlay.active { display: flex; }
+    .loading-overlay .spinner-border {
+      width: 3rem;
+      height: 3rem;
+    }
+    .loading-overlay p {
+      font-size: 1rem;
+      font-weight: 600;
+      text-align: center;
+      max-width: 240px;
+      line-height: 1.5;
+    }
+    .loading-overlay small {
+      font-size: .8rem;
+      opacity: .8;
+    }
+
+    /* ── Toast ────────────────────────────────────────────── */
+    .toast-container {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 3000;
+      width: calc(100% - 32px);
+      max-width: 420px;
+    }
+
+    /* ── Modal tweaks ────────────────────────────────────── */
+    .modal-fullscreen-sm-down .modal-content {
+      border-radius: 0;
+    }
+    .job-desc-scroll {
+      max-height: 280px;
+      overflow-y: auto;
+      background: #f8f9fa;
+      border-radius: 8px;
+      padding: 12px;
+      font-size: .82rem;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .cover-letter-box {
+      background: #f8f9fa;
+      border-radius: 8px;
+      padding: 14px;
+      font-size: .82rem;
+      line-height: 1.7;
+      white-space: pre-wrap;
+      max-height: 340px;
+      overflow-y: auto;
+      border: 1px solid #dee2e6;
+    }
+
+    /* ── No results ──────────────────────────────────────── */
+    .empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: #adb5bd;
+    }
+    .empty-state i { font-size: 3rem; margin-bottom: 12px; display: block; }
+
+    /* ── Upload area ─────────────────────────────────────── */
+    .upload-area {
+      border: 2px dashed #0d6efd;
+      border-radius: 12px;
+      padding: 24px 16px;
+      text-align: center;
+      background: #f0f6ff;
+      cursor: pointer;
+      transition: background .15s;
+      position: relative;
+    }
+    .upload-area:hover { background: #dbeafe; }
+    .upload-area input[type=file] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+      width: 100%;
+      height: 100%;
+    }
+    .upload-area i { font-size: 2rem; color: #0d6efd; }
+    .upload-area p { margin: 6px 0 0; font-size: .85rem; color: #495057; }
+    .upload-area .upload-hint { font-size: .75rem; color: #adb5bd; }
+
+    /* Status dot on job card */
+    .status-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      margin-right: 4px;
+    }
+    .status-applied     { background: #0d6efd; }
+    .status-interviewing{ background: #198754; }
+    .status-favourite   { background: #ffc107; }
+    .status-rejected    { background: #dc3545; }
+    .status-not_applied { background: #dee2e6; }
+  </style>
+</head>
+<body>
+
+<!-- ══ Header ═══════════════════════════════════════════════════════════════ -->
+<header class="app-header">
+  <div class="d-flex align-items-center gap-2">
+    <i class="bi bi-search fs-5"></i>
+    <div>
+      <h1>Remote Job Search</h1>
+      <p class="subtitle">CV-matched · Mobile PWA</p>
+    </div>
+  </div>
+</header>
+
+<!-- ══ Step bar ══════════════════════════════════════════════════════════════ -->
+<div class="step-bar" id="stepBar">
+  <div class="step-item active" id="step1Indicator" onclick="scrollToSection('tokenSection')">
+    <i class="bi bi-key"></i>Token
+  </div>
+  <div class="step-item" id="step2Indicator" onclick="scrollToSection('cvSection')">
+    <i class="bi bi-file-person"></i>CV
+  </div>
+  <div class="step-item" id="step3Indicator" onclick="scrollToSection('searchSection')">
+    <i class="bi bi-search"></i>Search
+  </div>
+  <div class="step-item" id="step4Indicator" onclick="scrollToSection('resultsSection')">
+    <i class="bi bi-list-ul"></i>Results
+  </div>
+</div>
+
+<!-- ══ Section 1: Token ══════════════════════════════════════════════════════ -->
+<div id="tokenSection" class="section-card">
+  <div class="card-title"><i class="bi bi-key-fill"></i> Apify API Token</div>
+  <div class="input-group mb-2">
+    <input type="password" class="form-control" id="tokenInput"
+           placeholder="apify_api_..." autocomplete="off"
+           oninput="onTokenInput()" />
+    <button class="btn btn-outline-secondary" type="button" id="showTokenBtn"
+            onclick="toggleToken()">
+      <i class="bi bi-eye" id="tokenEyeIcon"></i>
+    </button>
+  </div>
+  <div class="d-flex align-items-center gap-3">
+    <button class="btn btn-primary" onclick="saveToken()">
+      <i class="bi bi-floppy"></i> Save Token
+    </button>
+    <span class="token-saved-badge" id="tokenSavedBadge">
+      <i class="bi bi-check-circle-fill"></i> Saved
+    </span>
+  </div>
+  <p class="mt-2 mb-0" style="font-size:.75rem; color:#6c757d;">
+    Get your free token at <a href="https://apify.com" target="_blank">apify.com</a> → Settings → Integrations.
+  </p>
+</div>
+
+<!-- ══ Section 2: CV Upload ══════════════════════════════════════════════════ -->
+<div id="cvSection" class="section-card">
+  <div class="card-title"><i class="bi bi-file-earmark-person-fill"></i> Upload Your CV</div>
+
+  <div class="upload-area" id="uploadArea">
+    <input type="file" id="cvFileInput" accept=".pdf,.docx,.txt" onchange="uploadCV(this)" />
+    <i class="bi bi-cloud-upload"></i>
+    <p><strong>Tap to upload your CV</strong></p>
+    <p class="upload-hint">PDF, DOCX, or TXT · Skills extracted automatically</p>
+  </div>
+
+  <div id="cvStatus" class="mt-2" style="display:none;">
+    <div class="d-flex align-items-center gap-2 text-success fw-bold" id="cvStatusText"></div>
+  </div>
+
+  <!-- Skills chips -->
+  <div class="mt-3">
+    <div class="d-flex align-items-center justify-content-between mb-1">
+      <label class="form-label mb-0 fw-semibold" style="font-size:.85rem;">
+        Your Skills
+        <span id="skillCount" class="badge bg-primary ms-1">0</span>
+      </label>
+      <button class="btn btn-sm btn-outline-danger" onclick="clearAllSkills()"
+              id="clearSkillsBtn" style="font-size:.7rem; display:none;">
+        Clear all
+      </button>
+    </div>
+    <div class="skills-container" id="skillsContainer">
+      <span class="skills-empty" id="skillsEmpty">Upload your CV or add skills manually</span>
+    </div>
+    <div class="input-group input-group-sm">
+      <input type="text" class="form-control" id="newSkillInput"
+             placeholder="Add a skill..." maxlength="50"
+             onkeydown="if(event.key==='Enter') addSkill()" />
+      <button class="btn btn-outline-primary" type="button" onclick="addSkill()">
+        <i class="bi bi-plus-lg"></i> Add
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ Section 3: Search ═════════════════════════════════════════════════════ -->
+<div id="searchSection" class="section-card">
+  <div class="card-title"><i class="bi bi-search"></i> Search Jobs</div>
+
+  <div class="mb-3">
+    <label class="form-label mb-1 fw-semibold" style="font-size:.85rem;">Time Range</label>
+    <div class="btn-group w-100 time-btn-group" role="group" id="timeRangeGroup">
+      <input type="radio" class="btn-check" name="timeRange" id="tr24h" value="24h" autocomplete="off" />
+      <label class="btn btn-outline-secondary" for="tr24h">Last 24h</label>
+      <input type="radio" class="btn-check" name="timeRange" id="tr7d" value="7d" autocomplete="off" checked />
+      <label class="btn btn-outline-secondary" for="tr7d">Last 7 days</label>
+      <input type="radio" class="btn-check" name="timeRange" id="tr6m" value="6m" autocomplete="off" />
+      <label class="btn btn-outline-secondary" for="tr6m">Last 6 months</label>
+    </div>
+  </div>
+
+  <button class="btn btn-warning search-btn-main w-100" onclick="searchJobs()" id="searchBtn">
+    <i class="bi bi-rocket-takeoff-fill me-2"></i>Find My Top Jobs
+  </button>
+  <p class="text-muted mt-2 mb-0 text-center" style="font-size:.75rem;">
+    Searches 150+ remote jobs and scores them against your CV
+  </p>
+</div>
+
+<!-- ══ Section 4: Results ════════════════════════════════════════════════════ -->
+<div id="resultsSection" style="display:none;">
+  <div class="results-summary">
+    <span id="resultsSummary">No results yet</span>
+    <div class="sort-btns btn-group" role="group">
+      <button class="btn btn-outline-secondary active" id="sortMatch" onclick="sortJobs('match')">
+        Match %
+      </button>
+      <button class="btn btn-outline-secondary" id="sortDate" onclick="sortJobs('date')">
+        Date
+      </button>
+      <button class="btn btn-outline-secondary" id="sortSalary" onclick="sortJobs('salary')">
+        Salary
+      </button>
+    </div>
+  </div>
+  <div id="jobsList"></div>
+</div>
+
+<!-- ══ Loading overlay ═══════════════════════════════════════════════════════ -->
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="spinner-border text-light" role="status"></div>
+  <p>Searching remote jobs...<br/><small>This takes 20–40 seconds</small></p>
+</div>
+
+<!-- ══ Toast container ═══════════════════════════════════════════════════════ -->
+<div class="toast-container" id="toastContainer"></div>
+
+<!-- ══ Job Detail Modal ══════════════════════════════════════════════════════ -->
+<div class="modal fade" id="jobDetailModal" tabindex="-1" aria-labelledby="jobDetailTitle" aria-hidden="true">
+  <div class="modal-dialog modal-fullscreen-sm-down modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header" style="background:#0d6efd; color:white;">
+        <h5 class="modal-title" id="jobDetailTitle" style="font-size:.95rem; font-weight:700;">Job Details</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-3">
+
+        <!-- Match / hire row -->
+        <div class="d-flex gap-2 flex-wrap mb-3" id="detailBadgeRow"></div>
+
+        <!-- Key info grid -->
+        <div class="row g-2 mb-3" id="detailInfoGrid"></div>
+
+        <!-- Description -->
+        <h6 class="fw-bold mb-2" style="font-size:.85rem;">Job Description</h6>
+        <div class="job-desc-scroll" id="detailDescription"></div>
+
+        <!-- Status -->
+        <div class="mt-3">
+          <label class="form-label fw-semibold" style="font-size:.85rem;">Application Status</label>
+          <select class="form-select form-select-sm" id="detailStatusSelect" onchange="saveJobStatus()">
+            <option value="not_applied">Not Applied</option>
+            <option value="favourite">Favourite ⭐</option>
+            <option value="applied">Applied</option>
+            <option value="interviewing">Interviewing</option>
+            <option value="rejected">Rejected</option>
+          </select>
+        </div>
+
+      </div>
+      <div class="modal-footer flex-column gap-2 p-3">
+        <button class="btn btn-primary w-100" onclick="generateCoverLetter()">
+          <i class="bi bi-file-earmark-text me-2"></i>Generate Cover Letter
+        </button>
+        <a class="btn btn-outline-secondary w-100" id="detailApplyBtn" href="#" target="_blank" rel="noopener">
+          <i class="bi bi-box-arrow-up-right me-2"></i>Open Job Posting
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ Cover Letter Modal ════════════════════════════════════════════════════ -->
+<div class="modal fade" id="coverLetterModal" tabindex="-1" aria-labelledby="clModalTitle" aria-hidden="true">
+  <div class="modal-dialog modal-fullscreen-sm-down modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header" style="background:#198754; color:white;">
+        <h5 class="modal-title" id="clModalTitle" style="font-size:.95rem; font-weight:700;">
+          <i class="bi bi-file-earmark-text me-2"></i>Cover Letter
+        </h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-3">
+        <div id="clLoadingSpinner" class="text-center py-4" style="display:none;">
+          <div class="spinner-border text-success" role="status"></div>
+          <p class="mt-2 text-muted">Generating cover letter...</p>
+        </div>
+        <div id="clContent" style="display:none;">
+          <div class="cover-letter-box" id="coverLetterText"></div>
+        </div>
+      </div>
+      <div class="modal-footer flex-column gap-2 p-3" id="clFooter" style="display:none!important;">
+        <button class="btn btn-success w-100" onclick="copyToClipboard()">
+          <i class="bi bi-clipboard me-2"></i>Copy to Clipboard
+        </button>
+        <button class="btn btn-outline-secondary w-100" onclick="downloadCoverLetter()">
+          <i class="bi bi-download me-2"></i>Download as .txt
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Bootstrap 5.3 JS -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+<script>
+// ════════════════════════════════════════════════════════════════════════
+//  State
+// ════════════════════════════════════════════════════════════════════════
+let skills       = [];
+let jobs         = [];
+let currentJob   = null;
+let currentCLJob = null;
+let jobStatuses  = {};
+let sortMode     = 'match';
+let jobDetailModal, coverLetterModal;
+
+// ════════════════════════════════════════════════════════════════════════
+//  Init
+// ════════════════════════════════════════════════════════════════════════
+document.addEventListener('DOMContentLoaded', () => {
+  jobDetailModal   = new bootstrap.Modal(document.getElementById('jobDetailModal'));
+  coverLetterModal = new bootstrap.Modal(document.getElementById('coverLetterModal'));
+
+  // Restore from localStorage
+  const savedToken = localStorage.getItem('apify_token') || '';
+  if (savedToken) {
+    document.getElementById('tokenInput').value = savedToken;
+    showTokenSaved(true);
+  }
+
+  const savedSkills = localStorage.getItem('job_search_skills');
+  if (savedSkills) {
+    try {
+      skills = JSON.parse(savedSkills);
+      renderSkills();
+    } catch(e) { skills = []; }
+  }
+
+  const savedStatuses = localStorage.getItem('job_statuses');
+  if (savedStatuses) {
+    try { jobStatuses = JSON.parse(savedStatuses); } catch(e) { jobStatuses = {}; }
+  }
+
+  updateStepIndicators();
+});
+
+// ════════════════════════════════════════════════════════════════════════
+//  Token
+// ════════════════════════════════════════════════════════════════════════
+function saveToken() {
+  const val = document.getElementById('tokenInput').value.trim();
+  if (!val) { showToast('Please enter your Apify token first', 'warning'); return; }
+  localStorage.setItem('apify_token', val);
+  showTokenSaved(true);
+  showToast('Token saved successfully', 'success');
+  updateStepIndicators();
+}
+
+function showTokenSaved(show) {
+  const badge = document.getElementById('tokenSavedBadge');
+  if (show) badge.classList.add('visible');
+  else      badge.classList.remove('visible');
+}
+
+function onTokenInput() {
+  showTokenSaved(false);
+}
+
+function toggleToken() {
+  const inp  = document.getElementById('tokenInput');
+  const icon = document.getElementById('tokenEyeIcon');
+  if (inp.type === 'password') {
+    inp.type = 'text';
+    icon.className = 'bi bi-eye-slash';
+  } else {
+    inp.type = 'password';
+    icon.className = 'bi bi-eye';
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════
+//  CV Upload
+// ════════════════════════════════════════════════════════════════════════
+async function uploadCV(input) {
+  const file = input.files[0];
+  if (!file) return;
+
+  const area    = document.getElementById('uploadArea');
+  const status  = document.getElementById('cvStatus');
+  const statusT = document.getElementById('cvStatusText');
+
+  // Show uploading state
+  area.style.opacity = '0.6';
+  statusT.innerHTML  = '<div class="spinner-border spinner-border-sm me-2"></div> Parsing CV...';
+  status.style.display = 'block';
+
+  const fd = new FormData();
+  fd.append('file', file);
+
+  try {
+    const resp = await fetch('/api/parse-cv', { method: 'POST', body: fd });
+    const data = await resp.json();
+    area.style.opacity = '1';
+
+    if (!resp.ok) {
+      showToast(data.error || 'Failed to parse CV', 'danger');
+      statusT.innerHTML = '<i class="bi bi-x-circle-fill text-danger me-1"></i> Parse failed';
+      return;
+    }
+
+    const newSkills = data.skills || [];
+    // Merge without duplicates
+    const existing = new Set(skills.map(s => s.toLowerCase()));
+    let added = 0;
+    for (const sk of newSkills) {
+      if (!existing.has(sk.toLowerCase())) {
+        skills.push(sk);
+        existing.add(sk.toLowerCase());
+        added++;
+      }
+    }
+    saveSkillsToStorage();
+    renderSkills();
+
+    statusT.innerHTML = `<i class="bi bi-check-circle-fill me-1"></i>
+      <strong>${data.skill_count} skills found</strong> in ${file.name}
+      ${added < data.skill_count ? `(${added} new added)` : ''}`;
+
+    showToast(`CV parsed — ${data.skill_count} skills extracted`, 'success');
+    updateStepIndicators();
+
+  } catch(e) {
+    area.style.opacity = '1';
+    showToast('Network error parsing CV', 'danger');
+    statusT.innerHTML = '<i class="bi bi-x-circle-fill text-danger me-1"></i> Error';
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════
+//  Skills management
+// ════════════════════════════════════════════════════════════════════════
+function renderSkills() {
+  const container = document.getElementById('skillsContainer');
+  const empty     = document.getElementById('skillsEmpty');
+  const count     = document.getElementById('skillCount');
+  const clearBtn  = document.getElementById('clearSkillsBtn');
+
+  container.innerHTML = '';
+  count.textContent = skills.length;
+
+  if (skills.length === 0) {
+    container.appendChild(empty);
+    empty.style.display = 'inline';
+    clearBtn.style.display = 'none';
+    return;
+  }
+
+  clearBtn.style.display = 'inline-block';
+  skills.forEach((sk, i) => {
+    const chip = document.createElement('span');
+    chip.className = 'skill-chip';
+    chip.innerHTML = `${escHtml(sk)}
+      <button class="remove-btn" onclick="removeSkill(${i})" title="Remove ${escHtml(sk)}">
+        <i class="bi bi-x"></i>
+      </button>`;
+    container.appendChild(chip);
+  });
+}
+
+function addSkill() {
+  const inp = document.getElementById('newSkillInput');
+  const val = inp.value.trim().toLowerCase();
+  if (!val) return;
+  if (skills.map(s=>s.toLowerCase()).includes(val)) {
+    showToast('Skill already in list', 'info');
+    return;
+  }
+  skills.push(val);
+  inp.value = '';
+  saveSkillsToStorage();
+  renderSkills();
+  updateStepIndicators();
+}
+
+function removeSkill(index) {
+  skills.splice(index, 1);
+  saveSkillsToStorage();
+  renderSkills();
+  updateStepIndicators();
+}
+
+function clearAllSkills() {
+  if (!confirm('Remove all skills?')) return;
+  skills = [];
+  saveSkillsToStorage();
+  renderSkills();
+  updateStepIndicators();
+}
+
+function saveSkillsToStorage() {
+  localStorage.setItem('job_search_skills', JSON.stringify(skills));
+}
+
+// ════════════════════════════════════════════════════════════════════════
+//  Search
+// ════════════════════════════════════════════════════════════════════════
+async function searchJobs() {
+  const token = localStorage.getItem('apify_token') || document.getElementById('tokenInput').value.trim();
+  if (!token) { showToast('Please save your Apify token first', 'warning'); return; }
+  if (skills.length === 0) { showToast('Please add at least one skill', 'warning'); return; }
+
+  const timeRange = document.querySelector('input[name="timeRange"]:checked')?.value || '7d';
+
+  setLoading(true);
+
+  try {
+    const resp = await fetch('/api/search', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ token, skills, time_range: timeRange })
+    });
+    const data = await resp.json();
+    setLoading(false);
+
+    if (!resp.ok) {
+      showToast(data.error || 'Search failed', 'danger');
+      return;
+    }
+
+    jobs = data.jobs || [];
+    sortMode = 'match';
+    renderResults(data);
+    updateStepIndicators();
+
+    if (jobs.length === 0) {
+      showToast('No remote jobs found. Try different skills or a wider time range.', 'info');
+    } else {
+      showToast(`Found ${jobs.length} matching jobs!`, 'success');
+      scrollToSection('resultsSection');
+    }
+
+  } catch(e) {
+    setLoading(false);
+    showToast('Network error. Is the server running?', 'danger');
+  }
+}
+
+function renderResults(data) {
+  const section = document.getElementById('resultsSection');
+  const summary = document.getElementById('resultsSummary');
+  const list    = document.getElementById('jobsList');
+
+  section.style.display = 'block';
+
+  summary.textContent =
+    `Showing ${data.total_shown} jobs  ·  ${data.total_remote} remote from ${data.total_fetched} fetched`;
+
+  updateSortButtons();
+  renderJobCards();
+}
+
+function renderJobCards() {
+  const list = document.getElementById('jobsList');
+  list.innerHTML = '';
+
+  if (jobs.length === 0) {
+    list.innerHTML = `<div class="empty-state">
+      <i class="bi bi-search"></i>
+      <p>No matching jobs found.<br>Try adjusting your skills or time range.</p>
+    </div>`;
+    return;
+  }
+
+  jobs.forEach((job, i) => {
+    const pct      = job.match_pct || 0;
+    const matchCls = pct >= 70 ? 'match-high' : pct >= 40 ? 'match-good' : 'match-low';
+    const hireCls  = hireClass(job);
+    const hireLabel = hireLabel_str(job);
+    const sal      = job.salary_clean || '';
+    const date     = job.date_fmt || '';
+    const status   = jobStatuses[job.url] || 'not_applied';
+    const statusLabel = statusText(status);
+    const dotCls   = `status-dot status-${status}`;
+
+    const card = document.createElement('div');
+    card.className = `job-card ${matchCls}`;
+    card.innerHTML = `
+      <div class="d-flex align-items-start justify-content-between gap-2">
+        <div class="d-flex flex-wrap align-items-center gap-2">
+          <span class="match-badge ${matchCls}">${pct}% Match</span>
+          ${hireLabel ? `<span class="hire-badge ${hireCls}">${hireLabel}</span>` : ''}
+          ${status !== 'not_applied' ? `<span style="font-size:.7rem; color:#6c757d;"><span class="${dotCls}"></span>${statusLabel}</span>` : ''}
+        </div>
+        <span style="font-size:.7rem; color:#adb5bd; white-space:nowrap;">#${i+1}</span>
+      </div>
+      <div class="job-title mt-1">${escHtml(job.title || 'Untitled')}</div>
+      <div class="job-meta">
+        ${escHtml(job.company_name || '')}
+        ${job.location ? `<span class="dot">·</span>${escHtml(job.location)}` : ''}
+        ${sal ? `<span class="dot">·</span><strong>${escHtml(sal)}</strong>` : ''}
+        ${date ? `<span class="dot">·</span>${escHtml(date)}` : ''}
+      </div>
+      ${job.match_why ? `<div class="job-why"><i class="bi bi-lightning-fill me-1"></i>${escHtml(job.match_why)}</div>` : ''}
+      <div class="job-actions">
+        <button class="btn btn-outline-primary btn-sm" onclick="showJobDetail(${i}); event.stopPropagation();">
+          <i class="bi bi-info-circle me-1"></i>Details
+        </button>
+        <button class="btn btn-outline-success btn-sm" onclick="openCoverLetter(${i}); event.stopPropagation();">
+          <i class="bi bi-file-earmark-text me-1"></i>Cover Letter
+        </button>
+        <a class="btn btn-outline-dark btn-sm" href="${escHtml(job.url || '#')}" target="_blank" rel="noopener"
+           onclick="event.stopPropagation();">
+          <i class="bi bi-box-arrow-up-right me-1"></i>Apply
+        </a>
+      </div>`;
+
+    card.addEventListener('click', () => showJobDetail(i));
+    list.appendChild(card);
+  });
+}
+
+// ════════════════════════════════════════════════════════════════════════
+//  Sort
+// ════════════════════════════════════════════════════════════════════════
+function sortJobs(mode) {
+  sortMode = mode;
+  if (mode === 'match') {
+    jobs.sort((a,b) => (b.match_pct||0) - (a.match_pct||0));
+  } else if (mode === 'date') {
+    jobs.sort((a,b) => (a.days_old||999) - (b.days_old||999));
+  } else if (mode === 'salary') {
+    jobs.sort((a,b) => extractSalaryNum(b.salary_clean) - extractSalaryNum(a.salary_clean));
+  }
+  updateSortButtons();
+  renderJobCards();
+}
+
+function extractSalaryNum(s) {
+  if (!s) return 0;
+  const m = s.match(/\$(\d+)k/i);
+  if (m) return parseInt(m[1]);
+  const n = s.match(/\d+/);
+  return n ? parseInt(n[0]) : 0;
+}
+
+function updateSortButtons() {
+  ['sortMatch','sortDate','sortSalary'].forEach(id => {
+    document.getElementById(id).classList.remove('active');
+  });
+  const map = { match: 'sortMatch', date: 'sortDate', salary: 'sortSalary' };
+  document.getElementById(map[sortMode]).classList.add('active');
+}
+
+// ════════════════════════════════════════════════════════════════════════
+//  Job detail modal
+// ════════════════════════════════════════════════════════════════════════
+function showJobDetail(index) {
+  currentJob = jobs[index];
+  const job  = currentJob;
+  const pct  = job.match_pct || 0;
+  const matchCls  = pct >= 70 ? 'match-high' : pct >= 40 ? 'match-good' : 'match-low';
+  const hireCls   = hireClass(job);
+  const hireLabel_v = hireLabel_str(job);
+
+  document.getElementById('jobDetailTitle').textContent = job.title || 'Job Details';
+
+  document.getElementById('detailBadgeRow').innerHTML = `
+    <span class="match-badge ${matchCls}">${pct}% Match</span>
+    ${hireLabel_v ? `<span class="hire-badge ${hireCls}">${hireLabel_v}</span>` : ''}
+    ${job.years_req > 0 ? `<span class="badge bg-secondary">${job.years_req}yr exp</span>` : '<span class="badge bg-success">No exp req.</span>'}
+    ${job.days_old < 999 ? `<span class="badge bg-info text-dark">${job.days_old}d ago</span>` : ''}
+  `;
+
+  document.getElementById('detailInfoGrid').innerHTML = `
+    ${infoCol('bi-building', 'Company', job.company_name)}
+    ${infoCol('bi-geo-alt', 'Location', job.location)}
+    ${infoCol('bi-currency-dollar', 'Salary', job.salary_clean || job.salary || 'Not listed')}
+    ${infoCol('bi-calendar', 'Posted', job.date_fmt || 'Unknown')}
+    ${infoCol('bi-lightning', 'Why it matches', job.match_why)}
+  `;
+
+  const desc = (job.description || 'No description available.');
+  document.getElementById('detailDescription').textContent = desc;
+
+  const status = jobStatuses[job.url] || 'not_applied';
+  document.getElementById('detailStatusSelect').value = status;
+
+  document.getElementById('detailApplyBtn').href = job.url || '#';
+
+  jobDetailModal.show();
+}
+
+function infoCol(icon, label, value) {
+  if (!value) return '';
+  return `<div class="col-6">
+    <div style="font-size:.7rem; color:#6c757d; font-weight:600; text-transform:uppercase; letter-spacing:.4px;">
+      <i class="bi ${icon} me-1"></i>${label}
+    </div>
+    <div style="font-size:.82rem; color:#212529; word-break:break-word;">${escHtml(String(value))}</div>
+  </div>`;
+}
+
+// ════════════════════════════════════════════════════════════════════════
+//  Job status
+// ════════════════════════════════════════════════════════════════════════
+function saveJobStatus() {
+  if (!currentJob) return;
+  const val = document.getElementById('detailStatusSelect').value;
+  jobStatuses[currentJob.url] = val;
+  localStorage.setItem('job_statuses', JSON.stringify(jobStatuses));
+  renderJobCards(); // refresh cards to show updated status dot
+}
+
+function statusText(s) {
+  const map = {
+    not_applied:  'Not Applied',
+    favourite:    'Favourite',
+    applied:      'Applied',
+    interviewing: 'Interviewing',
+    rejected:     'Rejected',
+  };
+  return map[s] || s;
+}
+
+// ════════════════════════════════════════════════════════════════════════
+//  Cover letter
+// ════════════════════════════════════════════════════════════════════════
+async function openCoverLetter(index) {
+  currentCLJob = jobs[index];
+  document.getElementById('clModalTitle').textContent =
+    `Cover Letter — ${currentCLJob.title || 'Job'}`;
+  document.getElementById('clLoadingSpinner').style.display = 'block';
+  document.getElementById('clContent').style.display = 'none';
+  document.getElementById('clFooter').style.removeProperty('display');
+  coverLetterModal.show();
+  await _fetchCoverLetter(currentCLJob);
+}
+
+async function generateCoverLetter() {
+  if (!currentJob) return;
+  currentCLJob = currentJob;
+  jobDetailModal.hide();
+  document.getElementById('clModalTitle').textContent =
+    `Cover Letter — ${currentCLJob.title || 'Job'}`;
+  document.getElementById('clLoadingSpinner').style.display = 'block';
+  document.getElementById('clContent').style.display = 'none';
+  document.getElementById('clFooter').style.removeProperty('display');
+  setTimeout(() => coverLetterModal.show(), 300);
+  await _fetchCoverLetter(currentCLJob);
+}
+
+async function _fetchCoverLetter(job) {
+  try {
+    const resp = await fetch('/api/cover-letter', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ job, skills })
+    });
+
+    document.getElementById('clLoadingSpinner').style.display = 'none';
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      showToast(err.error || 'Failed to generate cover letter', 'danger');
+      return;
+    }
+
+    const text = await resp.text();
+    document.getElementById('coverLetterText').textContent = text;
+    document.getElementById('clContent').style.display = 'block';
+    document.getElementById('clFooter').style.removeProperty('display');
+
+  } catch(e) {
+    document.getElementById('clLoadingSpinner').style.display = 'none';
+    showToast('Network error generating cover letter', 'danger');
+  }
+}
+
+function copyToClipboard() {
+  const text = document.getElementById('coverLetterText').textContent;
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(text).then(() => showToast('Copied to clipboard!', 'success'));
+  } else {
+    // Fallback
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    showToast('Copied to clipboard!', 'success');
+  }
+}
+
+function downloadCoverLetter() {
+  if (!currentCLJob) return;
+  const text = document.getElementById('coverLetterText').textContent;
+  const safe = (currentCLJob.title || 'cover_letter').replace(/[^a-z0-9]/gi,'_').toLowerCase();
+  downloadFile(text, `cover_letter_${safe}.txt`, 'text/plain');
+}
+
+function downloadFile(content, filename, mimeType) {
+  const blob = new Blob([content], { type: mimeType });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// ════════════════════════════════════════════════════════════════════════
+//  Helpers
+// ════════════════════════════════════════════════════════════════════════
+function hireClass(job) {
+  const pct = job.match_pct || 0;
+  if (pct >= 70) return 'hire-high';
+  if (pct >= 50) return 'hire-good';
+  if (pct >= 30) return 'hire-mod';
+  return 'hire-low';
+}
+
+function hireLabel_str(job) {
+  const pct = job.match_pct || 0;
+  if (pct >= 70) return 'HIGH chance';
+  if (pct >= 50) return 'GOOD chance';
+  if (pct >= 30) return 'MODERATE';
+  return 'LOW';
+}
+
+function setLoading(on) {
+  const overlay = document.getElementById('loadingOverlay');
+  const btn     = document.getElementById('searchBtn');
+  if (on) {
+    overlay.classList.add('active');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Searching...';
+  } else {
+    overlay.classList.remove('active');
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-rocket-takeoff-fill me-2"></i>Find My Top Jobs';
+  }
+}
+
+function scrollToSection(id) {
+  const el = document.getElementById(id);
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function updateStepIndicators() {
+  const token   = localStorage.getItem('apify_token') || '';
+  const hasSkills = skills.length > 0;
+  const hasJobs   = jobs.length > 0;
+
+  const s1 = document.getElementById('step1Indicator');
+  const s2 = document.getElementById('step2Indicator');
+  const s3 = document.getElementById('step3Indicator');
+  const s4 = document.getElementById('step4Indicator');
+
+  [s1,s2,s3,s4].forEach(s => s.classList.remove('active','done'));
+
+  if (hasJobs) {
+    s1.classList.add('done'); s2.classList.add('done');
+    s3.classList.add('done'); s4.classList.add('active');
+  } else if (hasSkills) {
+    s1.classList.add('done'); s2.classList.add('done'); s3.classList.add('active');
+  } else if (token) {
+    s1.classList.add('done'); s2.classList.add('active');
+  } else {
+    s1.classList.add('active');
+  }
+}
+
+function showToast(message, type) {
+  const colors = {
+    success: '#198754', danger: '#dc3545', warning: '#ffc107', info: '#0dcaf0'
+  };
+  const textColors = {
+    success: 'white', danger: 'white', warning: '#212529', info: '#212529'
+  };
+  const container = document.getElementById('toastContainer');
+  const div = document.createElement('div');
+  div.className = 'toast align-items-center border-0 show';
+  div.style.background = colors[type] || '#6c757d';
+  div.style.color = textColors[type] || 'white';
+  div.style.borderRadius = '10px';
+  div.style.boxShadow = '0 4px 12px rgba(0,0,0,.25)';
+  div.innerHTML = `
+    <div class="d-flex">
+      <div class="toast-body fw-semibold" style="font-size:.85rem;">${escHtml(message)}</div>
+      <button type="button" class="btn-close btn-close-white me-2 m-auto"
+              onclick="this.closest('.toast').remove()"></button>
+    </div>`;
+  container.appendChild(div);
+  setTimeout(() => div.remove(), 4000);
+}
+
+function escHtml(s) {
+  if (s == null) return '';
+  return String(s)
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;')
+    .replace(/'/g,'&#39;');
+}
+</script>
+</body>
+</html>
