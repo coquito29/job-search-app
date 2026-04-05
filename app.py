@@ -1,18 +1,16 @@
 """
-app.py  —  Remote Job Search Mobile PWA (Flask backend)
+app.py  —  Remote Job Search Mobile PWA
+Sources: Remotive · RemoteOK · Jobicy · Arbeitnow · Himalayas · Apify · Adzuna · JSearch
+AI Cover Letters: Claude Haiku (set ANTHROPIC_API_KEY env var)
 """
-
-import io
-import os
-import re
-import socket
-import json
+import io, os, re, socket
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime
 from typing import List, Dict, Any
 
-import requests
-from flask import Flask, request, jsonify, render_template, send_file, Response
+import requests as http_req
+from flask import Flask, request, jsonify, render_template, send_file
 
 try:
     from pdfminer.high_level import extract_text as pdf_extract_text
@@ -24,14 +22,16 @@ try:
 except ImportError:
     _docx = None
 
+try:
+    import anthropic as _anthropic
+except ImportError:
+    _anthropic = None
+
 app = Flask(__name__)
 
-# ── Constants ────────────────────────────────────────────────────────────────
-
-TOP_JOBS_LIMIT    = 30
-FETCH_LIMIT       = 150
+TOP_JOBS_LIMIT = 50
+FETCH_LIMIT = 150
 DEFAULT_TIMERANGE = "7d"
-
 NO_GO_TERMS = ["cold calling", "commission only", "door to door"]
 
 KNOWN_SKILLS = [
@@ -52,9 +52,6 @@ KNOWN_SKILLS = [
     "spanish","french","mandarin","voip","go","ruby",
 ]
 
-
-# ── Data classes ─────────────────────────────────────────────────────────────
-
 @dataclass
 class UserProfile:
     summary: str
@@ -62,9 +59,245 @@ class UserProfile:
     no_go_terms: List[str]
 
 
-# ── Core logic (verbatim from job_search_gui.py) ─────────────────────────────
+# ── Fetch functions ───────────────────────────────────────────────────────────
+
+def fetch_remotive(skills, limit=100):
+    try:
+        query = " ".join(skills[:5])
+        url = f"https://remotive.com/api/remote-jobs?search={http_req.utils.quote(query)}&limit={limit}"
+        r = http_req.get(url, timeout=20)
+        r.raise_for_status()
+        jobs_raw = r.json().get("jobs", [])
+        results = []
+        for j in jobs_raw:
+            sal = j.get("salary", "") or ""
+            results.append({
+                "url": j.get("url", ""),
+                "title": j.get("title", ""),
+                "company_name": j.get("company_name", ""),
+                "location": j.get("candidate_required_location") or "Remote",
+                "salary": sal,
+                "description": j.get("description", ""),
+                "posted": j.get("publication_date", ""),
+                "source": "Remotive",
+            })
+        return results
+    except Exception:
+        return []
+
+
+def fetch_remoteok(skills, limit=100):
+    try:
+        tag = skills[0].replace(" ", "-") if skills else "remote"
+        url = f"https://remoteok.com/api?tag={http_req.utils.quote(tag)}"
+        r = http_req.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=20)
+        r.raise_for_status()
+        data = r.json()
+        if not isinstance(data, list) or len(data) < 2:
+            return []
+        results = []
+        for j in data[1:]:
+            if not isinstance(j, dict):
+                continue
+            sal_min = j.get("salary_min")
+            sal_max = j.get("salary_max")
+            if sal_min and sal_max:
+                sal = f"${int(sal_min)//1000}k–${int(sal_max)//1000}k"
+            elif sal_min:
+                sal = f"${int(sal_min)//1000}k"
+            else:
+                sal = ""
+            results.append({
+                "url": j.get("url", ""),
+                "title": j.get("position", ""),
+                "company_name": j.get("company", ""),
+                "location": j.get("location", "Remote") or "Remote",
+                "salary": sal,
+                "description": j.get("description", ""),
+                "posted": j.get("date", ""),
+                "source": "RemoteOK",
+            })
+        return results
+    except Exception:
+        return []
+
+
+def fetch_jobicy(skills, limit=50):
+    try:
+        query = " ".join(skills[:3])
+        url = f"https://jobicy.com/api/v2/remote-jobs?count={limit}&search={http_req.utils.quote(query)}"
+        r = http_req.get(url, timeout=20)
+        r.raise_for_status()
+        jobs_raw = r.json().get("jobs", [])
+        results = []
+        for j in jobs_raw:
+            sal_min = j.get("annualSalaryMin")
+            sal_max = j.get("annualSalaryMax")
+            if sal_min and sal_max:
+                sal = f"${int(sal_min)//1000}k–${int(sal_max)//1000}k"
+            elif sal_min:
+                sal = f"${int(sal_min)//1000}k"
+            else:
+                sal = ""
+            results.append({
+                "url": j.get("url", ""),
+                "title": j.get("jobTitle", ""),
+                "company_name": j.get("companyName", ""),
+                "location": j.get("jobGeo") or "Remote",
+                "salary": sal,
+                "description": j.get("jobDescription", ""),
+                "posted": j.get("pubDate", ""),
+                "source": "Jobicy",
+            })
+        return results
+    except Exception:
+        return []
+
+
+def fetch_arbeitnow(limit=50):
+    try:
+        url = "https://www.arbeitnow.com/api/job-board-api"
+        r = http_req.get(url, timeout=20)
+        r.raise_for_status()
+        data = r.json().get("data", [])
+        results = []
+        for j in data:
+            if not isinstance(j, dict):
+                continue
+            if not j.get("remote", False):
+                continue
+            results.append({
+                "url": j.get("url", ""),
+                "title": j.get("title", ""),
+                "company_name": j.get("company_name", ""),
+                "location": j.get("location", "Remote") or "Remote",
+                "salary": "",
+                "description": j.get("description", ""),
+                "posted": str(j.get("created_at", "")),
+                "source": "Arbeitnow",
+            })
+        return results
+    except Exception:
+        return []
+
+
+def fetch_himalayas(skills, limit=50):
+    try:
+        query = " ".join(skills[:3])
+        url = f"https://himalayas.app/jobs/api?q={http_req.utils.quote(query)}&limit={limit}"
+        r = http_req.get(url, timeout=20)
+        r.raise_for_status()
+        jobs_raw = r.json().get("jobs", [])
+        results = []
+        for j in jobs_raw:
+            results.append({
+                "url": j.get("applicationLink") or j.get("url", ""),
+                "title": j.get("title", ""),
+                "company_name": j.get("companyName", ""),
+                "location": "Remote",
+                "salary": j.get("salary", ""),
+                "description": j.get("description", ""),
+                "posted": j.get("createdAt", ""),
+                "source": "Himalayas",
+            })
+        return results
+    except Exception:
+        return []
+
+
+def fetch_adzuna(skills, app_id, app_key, limit=50):
+    """Fetch from Adzuna API (free key from developer.adzuna.com)."""
+    if not app_id or not app_key:
+        return []
+    query = " ".join(skills[:5])
+    try:
+        r = http_req.get(
+            "https://api.adzuna.com/v1/api/jobs/us/search/1",
+            params={
+                "app_id": app_id,
+                "app_key": app_key,
+                "results_per_page": limit,
+                "what": query,
+                "content-type": "application/json",
+            },
+            timeout=20,
+        )
+        r.raise_for_status()
+        jobs = r.json().get("results", [])
+    except Exception:
+        return []
+    results = []
+    for j in jobs:
+        url = j.get("redirect_url", "")
+        if not url:
+            continue
+        sal = ""
+        lo = j.get("salary_min")
+        hi = j.get("salary_max")
+        if lo and hi:
+            sal = f"${int(lo)//1000}k-${int(hi)//1000}k"
+        elif lo:
+            sal = f"${int(lo)//1000}k+"
+        results.append({
+            "title": j.get("title", ""),
+            "company_name": (j.get("company") or {}).get("display_name", ""),
+            "location": (j.get("location") or {}).get("display_name", "Remote"),
+            "salary": sal,
+            "description": j.get("description", ""),
+            "url": url,
+            "posted": j.get("created", ""),
+            "id": url,
+            "source": "Adzuna",
+        })
+    return results
+
+
+def fetch_jsearch(skills, rapidapi_key, limit=50):
+    """Fetch from JSearch via RapidAPI — searches Indeed, LinkedIn, Glassdoor (free key from rapidapi.com)."""
+    if not rapidapi_key:
+        return []
+    query = " ".join(skills[:4]) + " remote"
+    try:
+        r = http_req.get(
+            "https://jsearch.p.rapidapi.com/search",
+            headers={
+                "X-RapidAPI-Key": rapidapi_key,
+                "X-RapidAPI-Host": "jsearch.p.rapidapi.com",
+            },
+            params={"query": query, "page": "1", "num_pages": "3", "remote_jobs_only": "true"},
+            timeout=20,
+        )
+        r.raise_for_status()
+        jobs = r.json().get("data", [])
+    except Exception:
+        return []
+    results = []
+    for j in jobs[:limit]:
+        url = j.get("job_apply_link", "") or j.get("job_google_link", "")
+        if not url:
+            continue
+        sal = ""
+        lo = j.get("job_min_salary")
+        hi = j.get("job_max_salary")
+        if lo and hi:
+            sal = f"${int(lo)//1000}k-${int(hi)//1000}k"
+        results.append({
+            "title": j.get("job_title", ""),
+            "company_name": j.get("employer_name", ""),
+            "location": j.get("job_city", "") or j.get("job_country", "Remote"),
+            "salary": sal,
+            "description": j.get("job_description", ""),
+            "url": url,
+            "posted": j.get("job_posted_at_datetime_utc", ""),
+            "id": url,
+            "source": "JSearch",
+        })
+    return results
+
 
 def fetch_apify_jobs(skills, token, limit=150, time_range="7d"):
+    if not token:
+        return []
     run_input = {
         "timeRange": time_range,
         "limit": int(max(10, min(limit, 5000))),
@@ -76,7 +309,7 @@ def fetch_apify_jobs(skills, token, limit=150, time_range="7d"):
     }
     url = ("https://api.apify.com/v2/acts/fantastic-jobs~career-site-job-listing-api"
            "/run-sync-get-dataset-items")
-    r = requests.post(url, params={"token": token}, json=run_input, timeout=120)
+    r = http_req.post(url, params={"token": token}, json=run_input, timeout=120)
     r.raise_for_status()
     items = r.json()
     if not isinstance(items, list):
@@ -104,7 +337,7 @@ def fetch_apify_jobs(skills, token, limit=150, time_range="7d"):
         sal = ""
         if sv:
             if isinstance(sv, dict):
-                cur = sv.get("currency","")
+                cur = sv.get("currency", "")
                 v   = sv.get("value")
                 if isinstance(v, dict):
                     lo, hi = v.get("minValue") or v.get("value"), v.get("maxValue")
@@ -121,11 +354,16 @@ def fetch_apify_jobs(skills, token, limit=150, time_range="7d"):
         seen.add(url_val)
         posted = pick(item.get("date_posted"), item.get("posted"),
                       item.get("published_at"), item.get("publication_date"))
-        results.append({"title": title, "company_name": company, "location": loc,
-                         "salary": sal, "description": str(desc), "url": url_val,
-                         "posted": posted, "id": pick(item.get("id"), url_val)})
+        results.append({
+            "title": title, "company_name": company, "location": loc,
+            "salary": sal, "description": str(desc), "url": url_val,
+            "posted": posted, "id": pick(item.get("id"), url_val),
+            "source": "Apify",
+        })
     return results
 
+
+# ── Helper functions ──────────────────────────────────────────────────────────
 
 def _parse_years_required(text):
     text = text.lower()
@@ -155,7 +393,7 @@ def _days_since_posted(posted):
             return max(0, (now - datetime.utcfromtimestamp(float(posted))).days)
         except Exception:
             return 999
-    s = str(posted).replace("Z","").replace("T"," ").strip()
+    s = str(posted).replace("Z", "").replace("T", " ").strip()
     for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%Y-%m-%d %H:%M"):
         try:
             return max(0, (now - datetime.strptime(s, fmt)).days)
@@ -168,8 +406,8 @@ def _days_since_posted(posted):
 
 
 def score_job(job, profile):
-    title = (job.get("title","") or "").lower()
-    desc  = (job.get("description","") or "").lower()
+    title = (job.get("title", "") or "").lower()
+    desc  = (job.get("description", "") or "").lower()
     combo = title + " " + desc
     matched_t = [sk for sk in profile.skills if sk.lower() in title]
     matched_d = [sk for sk in profile.skills if sk.lower() in desc and sk not in matched_t]
@@ -259,9 +497,9 @@ def score_job(job, profile):
 
 
 def is_remote_job(job):
-    loc   = (job.get("location","") or "").lower()
-    title = (job.get("title","") or "").lower()
-    desc  = (job.get("description","") or "").lower()[:400]
+    loc   = (job.get("location", "") or "").lower()
+    title = (job.get("title", "") or "").lower()
+    desc  = (job.get("description", "") or "").lower()[:400]
     non_remote = [
         "on-site","onsite","in office","in-office","on site",
         "hybrid only","office based","office-based","must be local",
@@ -276,7 +514,7 @@ def is_remote_job(job):
 
 
 def _clean_salary(sal):
-    if not sal or sal.strip() in ("-","","None"):
+    if not sal or sal.strip() in ("-", "", "None"):
         return ""
     sal = sal.strip()
     nums = [int(n.replace(",","")) for n in re.findall(r"[\d,]+", sal) if n.replace(",","").isdigit()]
@@ -305,12 +543,21 @@ def fmt_date(posted):
 
 
 def extract_skills_from_text(text):
-    """Extract known skills from CV/resume text."""
+    """Extract known skills from CV/resume text, with fallback word frequency."""
     text_lower = text.lower()
     found = []
     for skill in KNOWN_SKILLS:
         if skill.lower() in text_lower and skill not in found:
             found.append(skill)
+    # Fallback: if very few skills found, also grab frequent capitalized words
+    if len(found) < 3:
+        words = re.findall(r'\b[A-Za-z][a-z]{2,}\b', text)
+        freq = {}
+        for w in words:
+            freq[w.lower()] = freq.get(w.lower(), 0) + 1
+        extras = [w for w, c in sorted(freq.items(), key=lambda x: -x[1])
+                  if c >= 2 and w not in found and len(w) > 3][:10]
+        found.extend(extras)
     return found
 
 
@@ -338,29 +585,61 @@ def _parse_txt(file_bytes):
     return file_bytes.decode("utf-8", errors="replace")
 
 
-# ── Cover letter generator ────────────────────────────────────────────────────
+# ── Cover letter generation ───────────────────────────────────────────────────
 
 def generate_cover_letter(job, skills):
-    title   = job.get("title", "this position")
-    company = job.get("company_name", "your company")
-    desc    = (job.get("description", "") or "")[:1200]
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if api_key and _anthropic:
+        try:
+            return _generate_cover_letter_ai(job, skills, api_key)
+        except Exception:
+            pass
+    return _generate_cover_letter_template(job, skills)
+
+
+def _generate_cover_letter_ai(job, skills, api_key):
+    client = _anthropic.Anthropic(api_key=api_key)
+    desc_excerpt = re.sub(r"<[^>]+>", "", job.get("description", "") or "")[:1500]
     matched = job.get("matched_skills", skills[:8])
     skills_str = ", ".join(matched[:8]) if matched else ", ".join(skills[:8])
-    salary_line = ""
-    if job.get("salary"):
-        salary_line = f"\n\nRegarding compensation, I noted the listed range of {job['salary']} and this aligns with my expectations."
+    prompt = f"""Write a professional, personalized cover letter for this job application.
 
-    letter = f"""Dear Hiring Team at {company},
+Job Title: {job.get('title', 'the position')}
+Company: {job.get('company_name', 'the company')}
+Match Score: {job.get('match_pct', 0)}% skill match
+Matched Skills: {skills_str}
 
-I am writing to express my strong interest in the {title} role. Having reviewed the job description, I am confident that my background and skills make me an excellent fit for this position.
+Job Description:
+{desc_excerpt}
 
-My relevant skills include: {skills_str}. These align directly with the requirements outlined in your posting, and I am eager to bring this expertise to {company}.
+Write 3 paragraphs:
+1. Opening: genuine interest in this specific role and company
+2. Middle: 2-3 specific skills that match job requirements with brief real examples
+3. Closing: call to action
 
-{desc[:300].strip()}{"..." if len(desc) > 300 else ""}
+Start with "Dear Hiring Team," and end with "Sincerely,\\n[Your Name]\\n[Your Email]\\n[Your Phone]"
+Be specific, genuine, concise. No generic filler."""
+    message = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=800,
+        messages=[{"role": "user", "content": prompt}]
+    )
+    return message.content[0].text
 
-I thrive in remote work environments and have a proven ability to collaborate effectively across distributed teams. I am detail-oriented, self-motivated, and committed to delivering high-quality results.{salary_line}
 
-I would welcome the opportunity to discuss how my background aligns with your team's goals. Thank you for your time and consideration.
+def _generate_cover_letter_template(job, skills):
+    title = job.get("title", "this position")
+    company = job.get("company_name", "your company")
+    matched = job.get("matched_skills", skills[:8])
+    skills_str = ", ".join(matched[:8]) if matched else ", ".join(skills[:8])
+    pct = job.get("match_pct", 0)
+    return f"""Dear Hiring Team at {company},
+
+I am writing to express my strong interest in the {title} role. Having reviewed the job description, I am confident that my background makes me an excellent fit — with a {pct}% match to your requirements.
+
+My relevant skills include: {skills_str}. These align directly with what you are looking for, and I am eager to bring this expertise to {company}. I thrive in remote environments and excel at collaborating across distributed teams.
+
+I would welcome the opportunity to discuss how I can contribute to your team. Thank you for your time and consideration.
 
 Sincerely,
 [Your Name]
@@ -368,7 +647,6 @@ Sincerely,
 [Your Phone]
 [LinkedIn / Portfolio URL]
 """
-    return letter
 
 
 # ── Flask routes ──────────────────────────────────────────────────────────────
@@ -380,9 +658,84 @@ def index():
 
 @app.route("/api/config")
 def config():
-    """Return server-side config so the frontend can auto-fill the token."""
+    """Return server-side config so the frontend can auto-fill the token and check AI."""
     token = os.environ.get("APIFY_TOKEN", "")
-    return jsonify({"apify_token": token})
+    ai_enabled = bool(os.environ.get("ANTHROPIC_API_KEY") and _anthropic)
+    return jsonify({
+        "apify_token": token,
+        "ai_enabled": ai_enabled,
+        "adzuna_enabled": bool(os.environ.get("ADZUNA_APP_ID") and os.environ.get("ADZUNA_APP_KEY")),
+        "jsearch_enabled": bool(os.environ.get("RAPIDAPI_KEY")),
+    })
+
+
+@app.route("/api/status")
+def status():
+    """Visual status page — open this in your browser to check all sources."""
+    sources = {
+        "Remotive":  {"free": True,  "ok": None},
+        "RemoteOK":  {"free": True,  "ok": None},
+        "Jobicy":    {"free": True,  "ok": None},
+        "Arbeitnow": {"free": True,  "ok": None},
+        "Himalayas": {"free": True,  "ok": None},
+        "Apify":     {"free": False, "ok": bool(os.environ.get("APIFY_TOKEN"))},
+        "Adzuna":    {"free": False, "ok": bool(os.environ.get("ADZUNA_APP_ID") and os.environ.get("ADZUNA_APP_KEY"))},
+        "JSearch":   {"free": False, "ok": bool(os.environ.get("RAPIDAPI_KEY"))},
+        "Reed":      {"free": False, "ok": bool(os.environ.get("REED_API_KEY"))},
+    }
+    # Quick ping test for the free sources
+    ping_urls = {
+        "Remotive":  "https://remotive.com/api/remote-jobs?limit=1",
+        "RemoteOK":  "https://remoteok.com/api?limit=1",
+        "Jobicy":    "https://jobicy.com/api/v2/remote-jobs?count=1",
+        "Arbeitnow": "https://www.arbeitnow.com/api/job-board-api",
+        "Himalayas": "https://himalayas.app/jobs/api?limit=1",
+    }
+    for name, url in ping_urls.items():
+        try:
+            r = http_req.get(url, timeout=8, headers={"User-Agent": "Mozilla/5.0"})
+            sources[name]["ok"] = r.status_code == 200
+        except Exception:
+            sources[name]["ok"] = False
+
+    ai_ok = bool(os.environ.get("ANTHROPIC_API_KEY") and _anthropic)
+
+    rows = ""
+    for name, info in sources.items():
+        if info["ok"] is True:
+            icon, color, label = "✅", "#198754", "Connected"
+        elif info["ok"] is False and not info["free"]:
+            icon, color, label = "🔑", "#dc3545", "No API key set"
+        elif info["ok"] is False:
+            icon, color, label = "❌", "#dc3545", "Unreachable"
+        else:
+            icon, color, label = "❓", "#6c757d", "Unknown"
+        rows += f"<tr><td><b>{name}</b></td><td>{'Free' if info['free'] else 'API Key'}</td><td style='color:{color}'>{icon} {label}</td></tr>"
+
+    ai_row = f"<tr><td><b>AI Cover Letters (Claude)</b></td><td>API Key</td><td style='color:{'#198754' if ai_ok else '#dc3545'}'>{'✅ Enabled' if ai_ok else '🔑 No ANTHROPIC_API_KEY set'}</td></tr>"
+
+    html = f"""<!DOCTYPE html>
+<html><head><meta charset='UTF-8'>
+<meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>Job Search App — Status</title>
+<style>
+  body{{font-family:system-ui,sans-serif;max-width:600px;margin:40px auto;padding:16px;background:#f8f9fa}}
+  h1{{color:#0d6efd;font-size:1.4rem}}
+  table{{width:100%;border-collapse:collapse;background:white;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.1)}}
+  th{{background:#0d6efd;color:white;padding:10px 14px;text-align:left;font-size:.85rem}}
+  td{{padding:10px 14px;border-bottom:1px solid #dee2e6;font-size:.9rem}}
+  tr:last-child td{{border:none}}
+  .refresh{{margin-top:16px;color:#6c757d;font-size:.8rem;text-align:center}}
+</style></head>
+<body>
+<h1>🔍 Remote Job Search — Source Status</h1>
+<table>
+  <tr><th>Source</th><th>Type</th><th>Status</th></tr>
+  {rows}{ai_row}
+</table>
+<p class='refresh'>Refreshed live · <a href='/api/status'>Reload</a> · <a href='/'>Back to App</a></p>
+</body></html>"""
+    return html
 
 
 @app.route("/api/parse-cv", methods=["POST"])
@@ -407,7 +760,6 @@ def parse_cv():
         return jsonify({"error": f"Failed to parse file: {str(e)}"}), 500
 
     skills = extract_skills_from_text(text)
-    # Build a brief summary from the first non-empty lines
     lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
     summary = " ".join(lines[:5])[:300] if lines else ""
 
@@ -420,25 +772,69 @@ def search_jobs():
     token      = (data.get("token") or "").strip()
     skills     = data.get("skills") or []
     time_range = data.get("time_range") or DEFAULT_TIMERANGE
+    sources    = data.get("sources") or ["remotive","remoteok","jobicy","arbeitnow","himalayas","apify"]
 
-    if not token:
-        return jsonify({"error": "Apify token is required"}), 400
     if not skills:
         return jsonify({"error": "At least one skill is required"}), 400
 
-    try:
-        raw_jobs = fetch_apify_jobs(skills, token, limit=FETCH_LIMIT, time_range=time_range)
-    except Exception as e:
-        return jsonify({"error": f"API call failed: {str(e)}"}), 502
+    # Build fetch tasks based on selected sources
+    fetch_tasks = {}
+    if "remotive" in sources:
+        fetch_tasks["remotive"] = lambda: fetch_remotive(skills, limit=100)
+    if "remoteok" in sources:
+        fetch_tasks["remoteok"] = lambda: fetch_remoteok(skills, limit=100)
+    if "jobicy" in sources:
+        fetch_tasks["jobicy"] = lambda: fetch_jobicy(skills, limit=50)
+    if "arbeitnow" in sources:
+        fetch_tasks["arbeitnow"] = lambda: fetch_arbeitnow(limit=50)
+    if "himalayas" in sources:
+        fetch_tasks["himalayas"] = lambda: fetch_himalayas(skills, limit=50)
+    if "apify" in sources and token:
+        fetch_tasks["apify"] = lambda: fetch_apify_jobs(skills, token, limit=FETCH_LIMIT, time_range=time_range)
+    adzuna_id  = os.environ.get("ADZUNA_APP_ID", "")
+    adzuna_key = os.environ.get("ADZUNA_APP_KEY", "")
+    if "adzuna" in sources and adzuna_id and adzuna_key:
+        fetch_tasks["adzuna"] = lambda: fetch_adzuna(skills, adzuna_id, adzuna_key, limit=50)
+    rapidapi_key = os.environ.get("RAPIDAPI_KEY", "")
+    if "jsearch" in sources and rapidapi_key:
+        fetch_tasks["jsearch"] = lambda: fetch_jsearch(skills, rapidapi_key, limit=50)
 
-    total_fetched = len(raw_jobs)
+    # Run all sources in parallel
+    source_results = {src: [] for src in fetch_tasks}
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        future_to_src = {executor.submit(fn): src for src, fn in fetch_tasks.items()}
+        for future in as_completed(future_to_src):
+            src = future_to_src[future]
+            try:
+                source_results[src] = future.result()
+            except Exception:
+                source_results[src] = []
+
+    # Merge and deduplicate by URL
+    seen_urls = set()
+    all_jobs = []
+    for src, jobs_list in source_results.items():
+        for job in jobs_list:
+            url = job.get("url", "")
+            if not url or url in seen_urls:
+                continue
+            seen_urls.add(url)
+            all_jobs.append(job)
+
+    total_fetched = len(all_jobs)
+
+    # Source counts (before filtering)
+    source_counts = {}
+    for job in all_jobs:
+        src = job.get("source", "Unknown")
+        source_counts[src] = source_counts.get(src, 0) + 1
 
     # Enrich with days_old
-    for job in raw_jobs:
+    for job in all_jobs:
         job["days_old"] = _days_since_posted(job.get("posted"))
 
     # Filter remote only
-    remote_jobs = [j for j in raw_jobs if is_remote_job(j)]
+    remote_jobs = [j for j in all_jobs if is_remote_job(j)]
     total_remote = len(remote_jobs)
 
     # Score and sort
@@ -447,7 +843,7 @@ def search_jobs():
     for job in remote_jobs:
         s = score_job(job, profile)
         job.update(s)
-        job["salary_clean"] = _clean_salary(job.get("salary",""))
+        job["salary_clean"] = _clean_salary(job.get("salary", ""))
         job["date_fmt"] = fmt_date(job.get("posted"))
         scored.append(job)
 
@@ -459,6 +855,7 @@ def search_jobs():
         "total_fetched": total_fetched,
         "total_remote": total_remote,
         "total_shown": len(top),
+        "source_counts": source_counts,
     })
 
 
@@ -472,7 +869,7 @@ def cover_letter():
 
     buf = io.BytesIO(text.encode("utf-8"))
     buf.seek(0)
-    safe_title = re.sub(r"[^\w\s-]", "", job.get("title","cover_letter")).strip().replace(" ","_").lower()
+    safe_title = re.sub(r"[^\w\s-]", "", job.get("title", "cover_letter")).strip().replace(" ", "_").lower()
     filename = f"cover_letter_{safe_title}.txt"
 
     return send_file(
@@ -499,11 +896,14 @@ def _get_local_ip():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     local_ip = _get_local_ip()
-    print("=" * 50)
-    print("  Remote Job Search - Mobile PWA")
-    print("=" * 50)
+    ai_enabled = bool(os.environ.get("ANTHROPIC_API_KEY") and _anthropic)
+    print("=" * 56)
+    print("  Remote Job Search — Mobile PWA")
+    print("=" * 56)
     print(f"  Local:    http://localhost:{port}")
-    print(f"  Network:  http://{local_ip}:{port}")
-    print("  (Open the Network URL on your phone)")
-    print("=" * 50)
+    print(f"  Network:  http://{local_ip}:{port}  << open on phone")
+    print("  Sources:  Remotive, RemoteOK, Jobicy, Arbeitnow")
+    print("            Himalayas, Apify")
+    print(f"  AI Cover Letters: {'Enabled (Claude Haiku)' if ai_enabled else 'Disabled (set ANTHROPIC_API_KEY)'}")
+    print("=" * 56)
     app.run(host="0.0.0.0", port=port, debug=False)
