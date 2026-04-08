@@ -46,6 +46,22 @@
       margin: 0;
     }
 
+    /* ── AI badge in header ──────────────────────────────── */
+    .ai-badge {
+      display: none;
+      align-items: center;
+      gap: 4px;
+      background: rgba(255,255,255,.18);
+      border: 1px solid rgba(255,255,255,.35);
+      border-radius: 20px;
+      padding: 3px 10px;
+      font-size: .72rem;
+      font-weight: 700;
+      color: #a7f3d0;
+      white-space: nowrap;
+    }
+    .ai-badge.visible { display: flex; }
+
     /* ── Step indicator ──────────────────────────────────── */
     .step-bar {
       display: flex;
@@ -175,6 +191,68 @@
       letter-spacing: .3px;
     }
 
+    /* ── Source toggles ──────────────────────────────────── */
+    .source-toggles-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .source-toggle {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      border-radius: 20px;
+      border: 2px solid;
+      font-size: .78rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all .15s;
+      user-select: none;
+      flex: 1 1 calc(50% - 8px);
+      min-width: 110px;
+      max-width: 180px;
+    }
+    .source-toggle input { display: none; }
+    .source-toggle.checked { color: white !important; }
+
+    .source-toggle-remotive  { border-color: #7c3aed; color: #7c3aed; }
+    .source-toggle-remoteok  { border-color: #0d9488; color: #0d9488; }
+    .source-toggle-jobicy    { border-color: #ea580c; color: #ea580c; }
+    .source-toggle-arbeitnow { border-color: #2563eb; color: #2563eb; }
+    .source-toggle-himalayas { border-color: #4f46e5; color: #4f46e5; }
+    .source-toggle-apify     { border-color: #dc2626; color: #dc2626; }
+    .source-toggle-adzuna    { border-color: #059669; color: #059669; }
+    .source-toggle-jsearch   { border-color: #b45309; color: #b45309; }
+
+    .source-toggle-remotive.checked  { background: #7c3aed; }
+    .source-toggle-remoteok.checked  { background: #0d9488; }
+    .source-toggle-jobicy.checked    { background: #ea580c; }
+    .source-toggle-arbeitnow.checked { background: #2563eb; }
+    .source-toggle-himalayas.checked { background: #4f46e5; }
+    .source-toggle-apify.checked     { background: #dc2626; }
+    .source-toggle-adzuna.checked    { background: #059669; }
+    .source-toggle-jsearch.checked   { background: #b45309; }
+
+    /* ── Source badges (results + cards) ─────────────────── */
+    .source-badge {
+      font-size: .65rem;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 20px;
+      white-space: nowrap;
+    }
+    .source-remotive   { background: #ede9fe; color: #7c3aed; }
+    .source-remoteok   { background: #ccfbf1; color: #0d9488; }
+    .source-jobicy     { background: #ffedd5; color: #ea580c; }
+    .source-arbeitnow  { background: #dbeafe; color: #2563eb; }
+    .source-himalayas  { background: #e0e7ff; color: #4f46e5; }
+    .source-apify      { background: #fee2e2; color: #dc2626; }
+    .source-adzuna     { background: #d1fae5; color: #059669; }
+    .source-jsearch    { background: #fef3c7; color: #b45309; }
+    .source-unknown    { background: #e9ecef; color: #6c757d; }
+
     /* ── Results summary bar ─────────────────────────────── */
     .results-summary {
       background: white;
@@ -182,11 +260,19 @@
       padding: 8px 12px;
       font-size: .82rem;
       color: #495057;
+    }
+    .results-summary-top {
       display: flex;
       align-items: center;
       justify-content: space-between;
       flex-wrap: wrap;
       gap: 6px;
+    }
+    .source-counts-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      margin-top: 6px;
     }
     .sort-btns .btn {
       font-size: .75rem;
@@ -289,7 +375,7 @@
       font-size: 1rem;
       font-weight: 600;
       text-align: center;
-      max-width: 240px;
+      max-width: 260px;
       line-height: 1.5;
     }
     .loading-overlay small {
@@ -375,22 +461,219 @@
       border-radius: 50%;
       margin-right: 4px;
     }
-    .status-applied     { background: #0d6efd; }
-    .status-interviewing{ background: #198754; }
-    .status-favourite   { background: #ffc107; }
-    .status-rejected    { background: #dc3545; }
-    .status-not_applied { background: #dee2e6; }
+    .status-applied      { background: #0d6efd; }
+    .status-interviewing { background: #198754; }
+    .status-favourite    { background: #ffc107; }
+    .status-rejected     { background: #dc3545; }
+    .status-not_applied  { background: #dee2e6; }
+
+    /* ── Sources collapsible label ───────────────────────── */
+    .sources-label {
+      font-size: .85rem;
+      font-weight: 600;
+      color: #212529;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      user-select: none;
+    }
+    .sources-label .chevron {
+      transition: transform .2s;
+      font-size: .75rem;
+    }
+    .sources-label.open .chevron {
+      transform: rotate(180deg);
+    }
+
+    /* ── Dark mode toggle button ─────────────────────────── */
+    .dark-toggle-btn {
+      background: rgba(255,255,255,.15);
+      border: 1px solid rgba(255,255,255,.3);
+      border-radius: 20px;
+      color: white;
+      padding: 4px 10px;
+      font-size: .78rem;
+      cursor: pointer;
+      transition: background .2s;
+      white-space: nowrap;
+    }
+    .dark-toggle-btn:hover { background: rgba(255,255,255,.25); }
+
+    /* ── Salary filter ───────────────────────────────────── */
+    .salary-filter-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      background: white;
+      border-bottom: 1px solid #dee2e6;
+      flex-wrap: wrap;
+    }
+    .salary-filter-bar label {
+      font-size: .8rem;
+      font-weight: 600;
+      color: #495057;
+      white-space: nowrap;
+      margin: 0;
+    }
+    .salary-filter-bar input {
+      width: 100px;
+      font-size: .82rem;
+      padding: 3px 8px;
+    }
+    .salary-filter-bar .clear-filter {
+      font-size: .75rem;
+      color: #dc3545;
+      cursor: pointer;
+      text-decoration: underline;
+      background: none;
+      border: none;
+      padding: 0;
+    }
+
+    /* ── Bookmark button on card ─────────────────────────── */
+    .bookmark-btn {
+      background: none;
+      border: none;
+      padding: 4px 6px;
+      cursor: pointer;
+      font-size: 1rem;
+      color: #adb5bd;
+      transition: color .15s, transform .15s;
+      border-radius: 6px;
+    }
+    .bookmark-btn:hover { color: #ffc107; transform: scale(1.15); }
+    .bookmark-btn.bookmarked { color: #ffc107; }
+
+    /* ── Tracker section ─────────────────────────────────── */
+    .tracker-empty {
+      text-align: center;
+      padding: 40px 20px;
+      color: #adb5bd;
+    }
+    .tracker-empty i { font-size: 3rem; margin-bottom: 12px; display: block; }
+    .tracker-card {
+      background: white;
+      border-radius: 10px;
+      box-shadow: 0 1px 5px rgba(0,0,0,.07);
+      margin: 8px 12px;
+      padding: 12px 14px;
+      border-left: 4px solid #dee2e6;
+    }
+    .tracker-card.status-applied      { border-left-color: #0d6efd; }
+    .tracker-card.status-interviewing { border-left-color: #198754; }
+    .tracker-card.status-favourite    { border-left-color: #ffc107; }
+    .tracker-card.status-rejected     { border-left-color: #dc3545; }
+    .status-pill {
+      display: inline-block;
+      font-size: .7rem;
+      font-weight: 700;
+      padding: 2px 9px;
+      border-radius: 20px;
+    }
+    .pill-applied      { background: #cfe2ff; color: #084298; }
+    .pill-interviewing { background: #d1e7dd; color: #0f5132; }
+    .pill-favourite    { background: #fff3cd; color: #664d03; }
+    .pill-rejected     { background: #f8d7da; color: #842029; }
+
+    /* ── Source error badge ──────────────────────────────── */
+    .source-badge-error { opacity: .45; }
+
+    /* ══ Dark mode overrides ═══════════════════════════════ */
+    body.dark-mode {
+      background: #12151a !important;
+      color: #e9ecef;
+    }
+    body.dark-mode .step-bar {
+      background: #1e2128;
+      border-bottom-color: #2d3139;
+    }
+    body.dark-mode .step-item { color: #6c757d; }
+    body.dark-mode .step-item.active { color: #4d9fff; border-bottom-color: #4d9fff; }
+    body.dark-mode .step-item.done { color: #4dbb77; }
+    body.dark-mode .section-card {
+      background: #1e2128;
+      box-shadow: 0 2px 8px rgba(0,0,0,.35);
+    }
+    body.dark-mode .section-card .card-title { color: #e9ecef; }
+    body.dark-mode .form-control,
+    body.dark-mode .form-select {
+      background: #2d3139;
+      border-color: #3d4349;
+      color: #e9ecef;
+    }
+    body.dark-mode .form-control::placeholder { color: #6c757d; }
+    body.dark-mode .skills-container {
+      background: #2d3139;
+      border-color: #3d4349;
+    }
+    body.dark-mode .upload-area {
+      background: #1a2233;
+      border-color: #4d9fff;
+    }
+    body.dark-mode .upload-area:hover { background: #1e2a3d; }
+    body.dark-mode .upload-area p,
+    body.dark-mode .upload-area .upload-hint { color: #adb5bd; }
+    body.dark-mode .sources-label { color: #e9ecef; }
+    body.dark-mode .results-summary,
+    body.dark-mode .salary-filter-bar {
+      background: #1e2128;
+      border-bottom-color: #2d3139;
+      color: #adb5bd;
+    }
+    body.dark-mode .salary-filter-bar label { color: #adb5bd; }
+    body.dark-mode .salary-filter-bar input {
+      background: #2d3139;
+      border-color: #3d4349;
+      color: #e9ecef;
+    }
+    body.dark-mode .job-card {
+      background: #1e2128;
+      box-shadow: 0 1px 6px rgba(0,0,0,.3);
+    }
+    body.dark-mode .job-title { color: #e9ecef; }
+    body.dark-mode .job-meta { color: #adb5bd; }
+    body.dark-mode .tracker-card { background: #1e2128; }
+    body.dark-mode .btn-outline-primary { color: #4d9fff; border-color: #4d9fff; }
+    body.dark-mode .btn-outline-primary:hover { background: #4d9fff; color: white; }
+    body.dark-mode .btn-outline-secondary { color: #adb5bd; border-color: #3d4349; }
+    body.dark-mode .btn-outline-success { color: #4dbb77; border-color: #4dbb77; }
+    body.dark-mode .btn-outline-success:hover { background: #4dbb77; color: white; }
+    body.dark-mode .btn-outline-dark { color: #adb5bd; border-color: #3d4349; }
+    body.dark-mode .modal-content { background: #1e2128; color: #e9ecef; }
+    body.dark-mode .modal-body { background: #1e2128; }
+    body.dark-mode .modal-footer { background: #1e2128; border-top-color: #2d3139; }
+    body.dark-mode .job-desc-scroll,
+    body.dark-mode .cover-letter-box { background: #2d3139; color: #e9ecef; }
+    body.dark-mode .form-select option { background: #2d3139; }
+    body.dark-mode .btn-check + .btn-outline-secondary { color: #adb5bd; border-color: #3d4349; }
+    body.dark-mode p { color: #adb5bd; }
+    body.dark-mode a { color: #4d9fff; }
+    body.dark-mode .text-muted { color: #6c757d !important; }
+    body.dark-mode .source-toggle { background: #2d3139 !important; }
+    body.dark-mode .source-toggle.checked { opacity: 1; }
   </style>
 </head>
 <body>
 
 <!-- ══ Header ═══════════════════════════════════════════════════════════════ -->
 <header class="app-header">
-  <div class="d-flex align-items-center gap-2">
-    <i class="bi bi-search fs-5"></i>
-    <div>
-      <h1>Remote Job Search</h1>
-      <p class="subtitle">CV-matched · Mobile PWA</p>
+  <div class="d-flex align-items-center justify-content-between gap-2">
+    <div class="d-flex align-items-center gap-2">
+      <i class="bi bi-search fs-5"></i>
+      <div>
+        <h1>Remote Job Search</h1>
+        <p class="subtitle">CV-matched · 6 Sources · Mobile PWA</p>
+      </div>
+    </div>
+    <div class="d-flex align-items-center gap-2">
+      <span class="ai-badge" id="aiBadge">
+        <i class="bi bi-stars"></i> AI
+      </span>
+      <button class="dark-toggle-btn" id="darkToggleBtn" onclick="toggleDarkMode()" title="Toggle dark mode">
+        <i class="bi bi-moon-fill" id="darkToggleIcon"></i>
+      </button>
     </div>
   </div>
 </header>
@@ -408,6 +691,10 @@
   </div>
   <div class="step-item" id="step4Indicator" onclick="scrollToSection('resultsSection')">
     <i class="bi bi-list-ul"></i>Results
+  </div>
+  <div class="step-item" id="step5Indicator" onclick="showTrackerTab()">
+    <i class="bi bi-bookmark-check"></i>Tracker
+    <span class="badge bg-primary ms-1" id="trackerBadge" style="display:none;font-size:.6rem;padding:1px 5px;"></span>
   </div>
 </div>
 
@@ -433,6 +720,7 @@
   </div>
   <p class="mt-2 mb-0" style="font-size:.75rem; color:#6c757d;">
     Get your free token at <a href="https://apify.com" target="_blank">apify.com</a> → Settings → Integrations.
+    Token only required if Apify source is selected.
   </p>
 </div>
 
@@ -481,6 +769,7 @@
 <div id="searchSection" class="section-card">
   <div class="card-title"><i class="bi bi-search"></i> Search Jobs</div>
 
+  <!-- Time Range -->
   <div class="mb-3">
     <label class="form-label mb-1 fw-semibold" style="font-size:.85rem;">Time Range</label>
     <div class="btn-group w-100 time-btn-group" role="group" id="timeRangeGroup">
@@ -493,37 +782,120 @@
     </div>
   </div>
 
+  <!-- Job Sources collapsible -->
+  <div class="mb-3">
+    <div class="sources-label open" id="sourcesLabel" onclick="toggleSources()">
+      <i class="bi bi-database-fill-check" style="color:#0d6efd;"></i>
+      Job Sources
+      <span class="badge bg-primary ms-1" id="sourcesCount">6</span>
+      <i class="bi bi-chevron-down chevron ms-auto"></i>
+    </div>
+    <div id="sourcesPanel" class="source-toggles-grid mt-2">
+      <label class="source-toggle source-toggle-remotive checked" id="lbl-remotive">
+        <input type="checkbox" value="remotive" checked onchange="onSourceToggle(this)" />
+        <i class="bi bi-check2" id="chk-icon-remotive"></i>
+        Remotive <span style="opacity:.7;font-weight:400;">(free)</span>
+      </label>
+      <label class="source-toggle source-toggle-remoteok checked" id="lbl-remoteok">
+        <input type="checkbox" value="remoteok" checked onchange="onSourceToggle(this)" />
+        <i class="bi bi-check2" id="chk-icon-remoteok"></i>
+        RemoteOK <span style="opacity:.7;font-weight:400;">(free)</span>
+      </label>
+      <label class="source-toggle source-toggle-jobicy checked" id="lbl-jobicy">
+        <input type="checkbox" value="jobicy" checked onchange="onSourceToggle(this)" />
+        <i class="bi bi-check2" id="chk-icon-jobicy"></i>
+        Jobicy <span style="opacity:.7;font-weight:400;">(free)</span>
+      </label>
+      <label class="source-toggle source-toggle-arbeitnow checked" id="lbl-arbeitnow">
+        <input type="checkbox" value="arbeitnow" checked onchange="onSourceToggle(this)" />
+        <i class="bi bi-check2" id="chk-icon-arbeitnow"></i>
+        Arbeitnow <span style="opacity:.7;font-weight:400;">(free)</span>
+      </label>
+      <label class="source-toggle source-toggle-himalayas checked" id="lbl-himalayas">
+        <input type="checkbox" value="himalayas" checked onchange="onSourceToggle(this)" />
+        <i class="bi bi-check2" id="chk-icon-himalayas"></i>
+        Himalayas <span style="opacity:.7;font-weight:400;">(free)</span>
+      </label>
+      <label class="source-toggle source-toggle-apify checked" id="lbl-apify">
+        <input type="checkbox" value="apify" checked onchange="onSourceToggle(this)" />
+        <i class="bi bi-check2" id="chk-icon-apify"></i>
+        Apify <span style="opacity:.7;font-weight:400;">(your key)</span>
+      </label>
+      <label class="source-toggle source-toggle-adzuna" id="lbl-adzuna" style="display:none;">
+        <input type="checkbox" value="adzuna" checked onchange="onSourceToggle(this)" />
+        <i class="bi bi-check2" id="chk-icon-adzuna"></i>
+        Adzuna <span style="opacity:.7;font-weight:400;">(key)</span>
+      </label>
+      <label class="source-toggle source-toggle-jsearch" id="lbl-jsearch" style="display:none;">
+        <input type="checkbox" value="jsearch" checked onchange="onSourceToggle(this)" />
+        <i class="bi bi-check2" id="chk-icon-jsearch"></i>
+        JSearch <span style="opacity:.7;font-weight:400;">(Indeed+LinkedIn)</span>
+      </label>
+    </div>
+  </div>
+
   <button class="btn btn-warning search-btn-main w-100" onclick="searchJobs()" id="searchBtn">
     <i class="bi bi-rocket-takeoff-fill me-2"></i>Find My Top Jobs
   </button>
   <p class="text-muted mt-2 mb-0 text-center" style="font-size:.75rem;">
-    Searches 150+ remote jobs and scores them against your CV
+    Searches 6 sources in parallel and scores results against your CV
   </p>
 </div>
 
 <!-- ══ Section 4: Results ════════════════════════════════════════════════════ -->
 <div id="resultsSection" style="display:none;">
   <div class="results-summary">
-    <span id="resultsSummary">No results yet</span>
-    <div class="sort-btns btn-group" role="group">
-      <button class="btn btn-outline-secondary active" id="sortMatch" onclick="sortJobs('match')">
-        Match %
-      </button>
-      <button class="btn btn-outline-secondary" id="sortDate" onclick="sortJobs('date')">
-        Date
-      </button>
-      <button class="btn btn-outline-secondary" id="sortSalary" onclick="sortJobs('salary')">
-        Salary
-      </button>
+    <div class="results-summary-top">
+      <span id="resultsSummary">No results yet</span>
+      <div class="sort-btns btn-group" role="group">
+        <button class="btn btn-outline-secondary active" id="sortMatch" onclick="sortJobs('match')">
+          Match %
+        </button>
+        <button class="btn btn-outline-secondary" id="sortDate" onclick="sortJobs('date')">
+          Date
+        </button>
+        <button class="btn btn-outline-secondary" id="sortSalary" onclick="sortJobs('salary')">
+          Salary
+        </button>
+      </div>
     </div>
+    <div class="source-counts-bar" id="sourceCountsBar"></div>
+  </div>
+  <!-- Salary filter bar -->
+  <div class="salary-filter-bar" id="salaryFilterBar" style="display:none;">
+    <i class="bi bi-currency-dollar text-success"></i>
+    <label for="salaryMinInput">Min salary:</label>
+    <input type="number" class="form-control form-control-sm" id="salaryMinInput"
+           placeholder="e.g. 50" min="0" step="5"
+           oninput="applySalaryFilter()" style="width:90px;" />
+    <span style="font-size:.78rem; color:#6c757d;">k/yr</span>
+    <button class="clear-filter" onclick="clearSalaryFilter()">Clear</button>
+    <span id="salaryFilterCount" style="font-size:.75rem; color:#6c757d; margin-left:auto;"></span>
   </div>
   <div id="jobsList"></div>
+</div>
+
+<!-- ══ Section 5: Tracker ════════════════════════════════════════════════════ -->
+<div id="trackerSection" style="display:none;">
+  <div class="results-summary">
+    <div class="results-summary-top">
+      <span id="trackerSummary">My Applications</span>
+      <div class="btn-group" role="group">
+        <button class="btn btn-outline-secondary btn-sm active" id="trackerFilterAll" onclick="filterTracker('all')">All</button>
+        <button class="btn btn-outline-warning btn-sm" id="trackerFilterFav" onclick="filterTracker('favourite')">⭐ Saved</button>
+        <button class="btn btn-outline-primary btn-sm" id="trackerFilterApplied" onclick="filterTracker('applied')">Applied</button>
+        <button class="btn btn-outline-success btn-sm" id="trackerFilterInt" onclick="filterTracker('interviewing')">Interview</button>
+      </div>
+    </div>
+  </div>
+  <div id="trackerList"></div>
 </div>
 
 <!-- ══ Loading overlay ═══════════════════════════════════════════════════════ -->
 <div class="loading-overlay" id="loadingOverlay">
   <div class="spinner-border text-light" role="status"></div>
-  <p>Searching remote jobs...<br/><small>This takes 20–40 seconds</small></p>
+  <p id="loadingMessage">Searching all sources in parallel...<br/><small>This takes 20–60 seconds</small></p>
+  <small id="loadingTimer" style="opacity:.6;"></small>
 </div>
 
 <!-- ══ Toast container ═══════════════════════════════════════════════════════ -->
@@ -612,13 +984,31 @@
 // ════════════════════════════════════════════════════════════════════════
 //  State
 // ════════════════════════════════════════════════════════════════════════
-let skills       = [];
-let jobs         = [];
-let currentJob   = null;
-let currentCLJob = null;
-let jobStatuses  = {};
-let sortMode     = 'match';
+let skills         = [];
+let jobs           = [];
+let currentJob     = null;
+let currentCLJob   = null;
+let jobStatuses    = {};
+let savedJobs      = {};   // url → full job object (for tracker)
+let sortMode       = 'match';
+let lastSourceData = {};
 let jobDetailModal, coverLetterModal;
+let sourcesOpen    = true;
+let trackerFilter  = 'all';
+let loadingTimer   = null;
+let loadingInterval= null;
+
+// Source key → CSS class slug mapping
+const SOURCE_CLASS = {
+  'Remotive':   'remotive',
+  'RemoteOK':   'remoteok',
+  'Jobicy':     'jobicy',
+  'Arbeitnow':  'arbeitnow',
+  'Himalayas':  'himalayas',
+  'Apify':      'apify',
+  'Adzuna':     'adzuna',
+  'JSearch':    'jsearch',
+};
 
 // ════════════════════════════════════════════════════════════════════════
 //  Init
@@ -632,8 +1022,11 @@ document.addEventListener('DOMContentLoaded', () => {
   if (savedToken) {
     document.getElementById('tokenInput').value = savedToken;
     showTokenSaved(true);
+    fetch('/api/config').then(r => r.json()).then(cfg => {
+      if (cfg.ai_enabled) showAiBadge();
+      applySourceConfig(cfg);
+    }).catch(() => {});
   } else {
-    // Try to load token from server environment variable (APIFY_TOKEN)
     fetch('/api/config')
       .then(r => r.json())
       .then(cfg => {
@@ -642,6 +1035,8 @@ document.addEventListener('DOMContentLoaded', () => {
           localStorage.setItem('apify_token', cfg.apify_token);
           showTokenSaved(true);
         }
+        if (cfg.ai_enabled) showAiBadge();
+        applySourceConfig(cfg);
       })
       .catch(() => {});
   }
@@ -659,8 +1054,36 @@ document.addEventListener('DOMContentLoaded', () => {
     try { jobStatuses = JSON.parse(savedStatuses); } catch(e) { jobStatuses = {}; }
   }
 
+  const savedJobsData = localStorage.getItem('saved_jobs');
+  if (savedJobsData) {
+    try { savedJobs = JSON.parse(savedJobsData); } catch(e) { savedJobs = {}; }
+  }
+
+  // Restore dark mode
+  if (localStorage.getItem('dark_mode') === '1') {
+    document.body.classList.add('dark-mode');
+    document.getElementById('darkToggleIcon').className = 'bi bi-sun-fill';
+  }
+
   updateStepIndicators();
+  updateSourcesCount();
+  updateTrackerBadge();
 });
+
+function showAiBadge() {
+  document.getElementById('aiBadge').classList.add('visible');
+}
+
+function applySourceConfig(cfg) {
+  if (cfg.adzuna_enabled) {
+    const lbl = document.getElementById('lbl-adzuna');
+    if (lbl) { lbl.style.display = ''; lbl.classList.add('checked'); }
+  }
+  if (cfg.jsearch_enabled) {
+    const lbl = document.getElementById('lbl-jsearch');
+    if (lbl) { lbl.style.display = ''; lbl.classList.add('checked'); }
+  }
+}
 
 // ════════════════════════════════════════════════════════════════════════
 //  Token
@@ -682,6 +1105,156 @@ function showTokenSaved(show) {
 
 function onTokenInput() {
   showTokenSaved(false);
+}
+
+// ════════════════════════════════════════════════════════════════════════
+//  Dark mode
+// ════════════════════════════════════════════════════════════════════════
+function toggleDarkMode() {
+  const isDark = document.body.classList.toggle('dark-mode');
+  const icon = document.getElementById('darkToggleIcon');
+  icon.className = isDark ? 'bi bi-sun-fill' : 'bi bi-moon-fill';
+  localStorage.setItem('dark_mode', isDark ? '1' : '0');
+}
+
+// ════════════════════════════════════════════════════════════════════════
+//  Salary filter
+// ════════════════════════════════════════════════════════════════════════
+function applySalaryFilter() {
+  const minK = parseInt(document.getElementById('salaryMinInput').value) || 0;
+  const cards = document.querySelectorAll('#jobsList .job-card');
+  let visible = 0;
+  cards.forEach((card, i) => {
+    if (minK === 0) { card.style.display = ''; visible++; return; }
+    const sal = extractSalaryNum(jobs[i]?.salary_clean || '');
+    const show = sal === 0 || sal >= minK;
+    card.style.display = show ? '' : 'none';
+    if (show) visible++;
+  });
+  const countEl = document.getElementById('salaryFilterCount');
+  if (minK > 0) countEl.textContent = `Showing ${visible} of ${jobs.length} jobs`;
+  else countEl.textContent = '';
+}
+
+function clearSalaryFilter() {
+  document.getElementById('salaryMinInput').value = '';
+  applySalaryFilter();
+}
+
+// ════════════════════════════════════════════════════════════════════════
+//  Tracker tab
+// ════════════════════════════════════════════════════════════════════════
+function showTrackerTab() {
+  document.getElementById('trackerSection').style.display = 'block';
+  document.getElementById('resultsSection').style.display = 'none';
+  const s5 = document.getElementById('step5Indicator');
+  document.querySelectorAll('.step-item').forEach(s => s.classList.remove('active'));
+  s5.classList.add('active');
+  renderTrackerTab();
+  scrollToSection('trackerSection');
+}
+
+function filterTracker(f) {
+  trackerFilter = f;
+  ['All','Fav','Applied','Int'].forEach(n => {
+    document.getElementById('trackerFilter' + n).classList.remove('active');
+  });
+  const map = { all:'All', favourite:'Fav', applied:'Applied', interviewing:'Int' };
+  document.getElementById('trackerFilter' + map[f]).classList.add('active');
+  renderTrackerTab();
+}
+
+function renderTrackerTab() {
+  const list = document.getElementById('trackerList');
+  const summary = document.getElementById('trackerSummary');
+
+  // Collect all tracked jobs (status != not_applied)
+  const tracked = Object.entries(jobStatuses)
+    .filter(([url, status]) => status !== 'not_applied')
+    .filter(([url, status]) => trackerFilter === 'all' || status === trackerFilter)
+    .map(([url, status]) => ({ url, status, job: savedJobs[url] || null }));
+
+  summary.textContent = `My Applications (${Object.values(jobStatuses).filter(s => s !== 'not_applied').length} tracked)`;
+
+  if (tracked.length === 0) {
+    list.innerHTML = `<div class="tracker-empty">
+      <i class="bi bi-bookmark-x"></i>
+      <p>No jobs tracked yet.<br>Open a job and set its status to save it here.</p>
+    </div>`;
+    return;
+  }
+
+  const pillClass = { applied:'pill-applied', interviewing:'pill-interviewing', favourite:'pill-favourite', rejected:'pill-rejected' };
+  const pillLabel = { applied:'Applied', interviewing:'Interviewing', favourite:'⭐ Saved', rejected:'Rejected' };
+
+  list.innerHTML = tracked.map(({ url, status, job }) => {
+    const title   = job?.title || 'Unknown Job';
+    const company = job?.company_name || '';
+    const sal     = job?.salary_clean || '';
+    const date    = job?.date_fmt || '';
+    const src     = job?.source || '';
+    const srcCls  = SOURCE_CLASS[src] || 'unknown';
+    return `<div class="tracker-card status-${status}">
+      <div class="d-flex align-items-start justify-content-between gap-2">
+        <span class="status-pill ${pillClass[status] || ''}">${pillLabel[status] || status}</span>
+        ${src ? `<span class="source-badge source-${srcCls}" style="font-size:.62rem;">${escHtml(src)}</span>` : ''}
+      </div>
+      <div class="job-title mt-1" style="font-size:.88rem;">${escHtml(title)}</div>
+      <div class="job-meta">
+        ${escHtml(company)}
+        ${sal ? `<span class="dot">·</span><strong>${escHtml(sal)}</strong>` : ''}
+        ${date ? `<span class="dot">·</span>${escHtml(date)}` : ''}
+      </div>
+      <div class="d-flex gap-2 mt-2 flex-wrap">
+        <a class="btn btn-outline-secondary btn-sm" href="${escHtml(url)}" target="_blank" rel="noopener" style="font-size:.75rem;">
+          <i class="bi bi-box-arrow-up-right me-1"></i>Open
+        </a>
+        <button class="btn btn-outline-danger btn-sm" onclick="removeFromTracker('${escHtml(url)}')" style="font-size:.75rem;">
+          <i class="bi bi-trash me-1"></i>Remove
+        </button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function removeFromTracker(url) {
+  delete jobStatuses[url];
+  delete savedJobs[url];
+  localStorage.setItem('job_statuses', JSON.stringify(jobStatuses));
+  localStorage.setItem('saved_jobs', JSON.stringify(savedJobs));
+  updateTrackerBadge();
+  renderTrackerTab();
+  renderJobCards();
+}
+
+function updateTrackerBadge() {
+  const count = Object.values(jobStatuses).filter(s => s !== 'not_applied').length;
+  const badge = document.getElementById('trackerBadge');
+  if (count > 0) {
+    badge.textContent = count;
+    badge.style.display = 'inline';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+function quickBookmark(index, event) {
+  event.stopPropagation();
+  const job = jobs[index];
+  if (!job) return;
+  const url = job.url;
+  const current = jobStatuses[url] || 'not_applied';
+  const newStatus = current === 'favourite' ? 'not_applied' : 'favourite';
+  jobStatuses[url] = newStatus;
+  if (newStatus !== 'not_applied') {
+    savedJobs[url] = job;
+  } else {
+    delete savedJobs[url];
+  }
+  localStorage.setItem('job_statuses', JSON.stringify(jobStatuses));
+  localStorage.setItem('saved_jobs', JSON.stringify(savedJobs));
+  updateTrackerBadge();
+  renderJobCards();
 }
 
 function toggleToken() {
@@ -707,7 +1280,6 @@ async function uploadCV(input) {
   const status  = document.getElementById('cvStatus');
   const statusT = document.getElementById('cvStatusText');
 
-  // Show uploading state
   area.style.opacity = '0.6';
   statusT.innerHTML  = '<div class="spinner-border spinner-border-sm me-2"></div> Parsing CV...';
   status.style.display = 'block';
@@ -727,7 +1299,6 @@ async function uploadCV(input) {
     }
 
     const newSkills = data.skills || [];
-    // Merge without duplicates
     const existing = new Set(skills.map(s => s.toLowerCase()));
     let added = 0;
     for (const sk of newSkills) {
@@ -741,7 +1312,7 @@ async function uploadCV(input) {
     renderSkills();
 
     statusT.innerHTML = `<i class="bi bi-check-circle-fill me-1"></i>
-      <strong>${data.skill_count} skills found</strong> in ${file.name}
+      <strong>${data.skill_count} skills found</strong> in ${escHtml(file.name)}
       ${added < data.skill_count ? `(${added} new added)` : ''}`;
 
     showToast(`CV parsed — ${data.skill_count} skills extracted`, 'success');
@@ -789,7 +1360,7 @@ function addSkill() {
   const inp = document.getElementById('newSkillInput');
   const val = inp.value.trim().toLowerCase();
   if (!val) return;
-  if (skills.map(s=>s.toLowerCase()).includes(val)) {
+  if (skills.map(s => s.toLowerCase()).includes(val)) {
     showToast('Skill already in list', 'info');
     return;
   }
@@ -820,12 +1391,58 @@ function saveSkillsToStorage() {
 }
 
 // ════════════════════════════════════════════════════════════════════════
+//  Sources panel
+// ════════════════════════════════════════════════════════════════════════
+function toggleSources() {
+  sourcesOpen = !sourcesOpen;
+  const panel = document.getElementById('sourcesPanel');
+  const label = document.getElementById('sourcesLabel');
+  panel.style.display = sourcesOpen ? 'flex' : 'none';
+  if (sourcesOpen) label.classList.add('open');
+  else             label.classList.remove('open');
+}
+
+function onSourceToggle(checkbox) {
+  const src = checkbox.value;
+  const lbl = document.getElementById('lbl-' + src);
+  const iconEl = document.getElementById('chk-icon-' + src);
+  if (checkbox.checked) {
+    lbl.classList.add('checked');
+    if (iconEl) { iconEl.className = 'bi bi-check2'; }
+  } else {
+    lbl.classList.remove('checked');
+    if (iconEl) { iconEl.className = 'bi bi-circle'; }
+  }
+  updateSourcesCount();
+}
+
+function updateSourcesCount() {
+  const checked = document.querySelectorAll('#sourcesPanel input[type=checkbox]:checked').length;
+  document.getElementById('sourcesCount').textContent = checked;
+}
+
+function getSelectedSources() {
+  return Array.from(document.querySelectorAll('#sourcesPanel input[type=checkbox]:checked'))
+    .map(cb => cb.value);
+}
+
+// ════════════════════════════════════════════════════════════════════════
 //  Search
 // ════════════════════════════════════════════════════════════════════════
 async function searchJobs() {
   const token = localStorage.getItem('apify_token') || document.getElementById('tokenInput').value.trim();
-  if (!token) { showToast('Please save your Apify token first', 'warning'); return; }
   if (skills.length === 0) { showToast('Please add at least one skill', 'warning'); return; }
+
+  const selectedSources = getSelectedSources();
+  if (selectedSources.length === 0) {
+    showToast('Please select at least one job source', 'warning');
+    return;
+  }
+
+  // Warn if Apify selected but no token
+  if (selectedSources.includes('apify') && !token) {
+    showToast('Apify selected but no token saved — Apify results will be skipped', 'info');
+  }
 
   const timeRange = document.querySelector('input[name="timeRange"]:checked')?.value || '7d';
 
@@ -835,7 +1452,7 @@ async function searchJobs() {
     const resp = await fetch('/api/search', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ token, skills, time_range: timeRange })
+      body: JSON.stringify({ token, skills, time_range: timeRange, sources: selectedSources })
     });
     const data = await resp.json();
     setLoading(false);
@@ -846,6 +1463,7 @@ async function searchJobs() {
     }
 
     jobs = data.jobs || [];
+    lastSourceData = data.source_counts || {};
     sortMode = 'match';
     renderResults(data);
     updateStepIndicators();
@@ -863,15 +1481,38 @@ async function searchJobs() {
   }
 }
 
+// ════════════════════════════════════════════════════════════════════════
+//  Results rendering
+// ════════════════════════════════════════════════════════════════════════
 function renderResults(data) {
   const section = document.getElementById('resultsSection');
   const summary = document.getElementById('resultsSummary');
-  const list    = document.getElementById('jobsList');
+  const bar     = document.getElementById('sourceCountsBar');
 
   section.style.display = 'block';
+  document.getElementById('trackerSection').style.display = 'none';
+  document.getElementById('salaryMinInput').value = '';  // reset salary filter
 
   summary.textContent =
-    `Showing ${data.total_shown} jobs  ·  ${data.total_remote} remote from ${data.total_fetched} fetched`;
+    `Showing ${data.total_shown} jobs · ${data.total_remote} remote from ${data.total_fetched} fetched`;
+
+  // Source counts badges — show all sources, dim ones with 0 results
+  bar.innerHTML = '';
+  const counts = data.source_counts || {};
+  const selectedSrcs = getSelectedSources();
+  // Show counts for sources that were queried
+  for (const [src, cnt] of Object.entries(counts)) {
+    const cls = SOURCE_CLASS[src] || 'unknown';
+    const pill = document.createElement('span');
+    pill.className = `source-badge source-${cls}${cnt === 0 ? ' source-badge-error' : ''}`;
+    pill.title = cnt === 0 ? `${src}: no results returned` : `${src}: ${cnt} jobs`;
+    pill.textContent = cnt === 0 ? `${src} ✗` : `${src} ${cnt}`;
+    bar.appendChild(pill);
+  }
+
+  // Show salary filter bar if any jobs have salary data
+  const hasSalary = (data.jobs || []).some(j => j.salary_clean);
+  document.getElementById('salaryFilterBar').style.display = hasSalary ? 'flex' : 'none';
 
   updateSortButtons();
   renderJobCards();
@@ -899,6 +1540,8 @@ function renderJobCards() {
     const status   = jobStatuses[job.url] || 'not_applied';
     const statusLabel = statusText(status);
     const dotCls   = `status-dot status-${status}`;
+    const srcName  = job.source || '';
+    const srcCls   = SOURCE_CLASS[srcName] || 'unknown';
 
     const card = document.createElement('div');
     card.className = `job-card ${matchCls}`;
@@ -909,7 +1552,14 @@ function renderJobCards() {
           ${hireLabel ? `<span class="hire-badge ${hireCls}">${hireLabel}</span>` : ''}
           ${status !== 'not_applied' ? `<span style="font-size:.7rem; color:#6c757d;"><span class="${dotCls}"></span>${statusLabel}</span>` : ''}
         </div>
-        <span style="font-size:.7rem; color:#adb5bd; white-space:nowrap;">#${i+1}</span>
+        <div class="d-flex align-items-center gap-1">
+          ${srcName ? `<span class="source-badge source-${srcCls}">${escHtml(srcName)}</span>` : ''}
+          <button class="bookmark-btn ${status === 'favourite' ? 'bookmarked' : ''}"
+                  onclick="quickBookmark(${i}, event)"
+                  title="${status === 'favourite' ? 'Remove from saved' : 'Save job'}">
+            <i class="bi bi-star${status === 'favourite' ? '-fill' : ''}"></i>
+          </button>
+        </div>
       </div>
       <div class="job-title mt-1">${escHtml(job.title || 'Untitled')}</div>
       <div class="job-meta">
@@ -943,11 +1593,11 @@ function renderJobCards() {
 function sortJobs(mode) {
   sortMode = mode;
   if (mode === 'match') {
-    jobs.sort((a,b) => (b.match_pct||0) - (a.match_pct||0));
+    jobs.sort((a, b) => (b.match_pct || 0) - (a.match_pct || 0));
   } else if (mode === 'date') {
-    jobs.sort((a,b) => (a.days_old||999) - (b.days_old||999));
+    jobs.sort((a, b) => (a.days_old || 999) - (b.days_old || 999));
   } else if (mode === 'salary') {
-    jobs.sort((a,b) => extractSalaryNum(b.salary_clean) - extractSalaryNum(a.salary_clean));
+    jobs.sort((a, b) => extractSalaryNum(b.salary_clean) - extractSalaryNum(a.salary_clean));
   }
   updateSortButtons();
   renderJobCards();
@@ -962,7 +1612,7 @@ function extractSalaryNum(s) {
 }
 
 function updateSortButtons() {
-  ['sortMatch','sortDate','sortSalary'].forEach(id => {
+  ['sortMatch', 'sortDate', 'sortSalary'].forEach(id => {
     document.getElementById(id).classList.remove('active');
   });
   const map = { match: 'sortMatch', date: 'sortDate', salary: 'sortSalary' };
@@ -976,9 +1626,11 @@ function showJobDetail(index) {
   currentJob = jobs[index];
   const job  = currentJob;
   const pct  = job.match_pct || 0;
-  const matchCls  = pct >= 70 ? 'match-high' : pct >= 40 ? 'match-good' : 'match-low';
-  const hireCls   = hireClass(job);
+  const matchCls    = pct >= 70 ? 'match-high' : pct >= 40 ? 'match-good' : 'match-low';
+  const hireCls     = hireClass(job);
   const hireLabel_v = hireLabel_str(job);
+  const srcName     = job.source || '';
+  const srcCls      = SOURCE_CLASS[srcName] || 'unknown';
 
   document.getElementById('jobDetailTitle').textContent = job.title || 'Job Details';
 
@@ -987,6 +1639,7 @@ function showJobDetail(index) {
     ${hireLabel_v ? `<span class="hire-badge ${hireCls}">${hireLabel_v}</span>` : ''}
     ${job.years_req > 0 ? `<span class="badge bg-secondary">${job.years_req}yr exp</span>` : '<span class="badge bg-success">No exp req.</span>'}
     ${job.days_old < 999 ? `<span class="badge bg-info text-dark">${job.days_old}d ago</span>` : ''}
+    ${srcName ? `<span class="source-badge source-${srcCls}">${escHtml(srcName)}</span>` : ''}
   `;
 
   document.getElementById('detailInfoGrid').innerHTML = `
@@ -1025,8 +1678,15 @@ function saveJobStatus() {
   if (!currentJob) return;
   const val = document.getElementById('detailStatusSelect').value;
   jobStatuses[currentJob.url] = val;
+  if (val !== 'not_applied') {
+    savedJobs[currentJob.url] = currentJob;
+  } else {
+    delete savedJobs[currentJob.url];
+  }
   localStorage.setItem('job_statuses', JSON.stringify(jobStatuses));
-  renderJobCards(); // refresh cards to show updated status dot
+  localStorage.setItem('saved_jobs', JSON.stringify(savedJobs));
+  updateTrackerBadge();
+  renderJobCards();
 }
 
 function statusText(s) {
@@ -1099,7 +1759,6 @@ function copyToClipboard() {
   if (navigator.clipboard) {
     navigator.clipboard.writeText(text).then(() => showToast('Copied to clipboard!', 'success'));
   } else {
-    // Fallback
     const ta = document.createElement('textarea');
     ta.value = text;
     document.body.appendChild(ta);
@@ -1113,7 +1772,7 @@ function copyToClipboard() {
 function downloadCoverLetter() {
   if (!currentCLJob) return;
   const text = document.getElementById('coverLetterText').textContent;
-  const safe = (currentCLJob.title || 'cover_letter').replace(/[^a-z0-9]/gi,'_').toLowerCase();
+  const safe = (currentCLJob.title || 'cover_letter').replace(/[^a-z0-9]/gi, '_').toLowerCase();
   downloadFile(text, `cover_letter_${safe}.txt`, 'text/plain');
 }
 
@@ -1149,16 +1808,32 @@ function hireLabel_str(job) {
 }
 
 function setLoading(on) {
-  const overlay = document.getElementById('loadingOverlay');
-  const btn     = document.getElementById('searchBtn');
+  const overlay  = document.getElementById('loadingOverlay');
+  const btn      = document.getElementById('searchBtn');
+  const msgEl    = document.getElementById('loadingMessage');
+  const timerEl  = document.getElementById('loadingTimer');
   if (on) {
     overlay.classList.add('active');
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Searching...';
+    msgEl.innerHTML = 'Searching all sources in parallel...<br/><small>This takes 20–60 seconds</small>';
+    timerEl.textContent = '';
+    const start = Date.now();
+    // After 10s hint about Render cold start
+    loadingTimer = setTimeout(() => {
+      msgEl.innerHTML = 'Still fetching...<br/><small>The server may be waking up (Render free tier). Hang tight!</small>';
+    }, 10000);
+    // Live elapsed timer
+    loadingInterval = setInterval(() => {
+      const s = Math.floor((Date.now() - start) / 1000);
+      timerEl.textContent = `${s}s elapsed`;
+    }, 1000);
   } else {
     overlay.classList.remove('active');
     btn.disabled = false;
     btn.innerHTML = '<i class="bi bi-rocket-takeoff-fill me-2"></i>Find My Top Jobs';
+    if (loadingTimer)   { clearTimeout(loadingTimer);   loadingTimer = null; }
+    if (loadingInterval){ clearInterval(loadingInterval); loadingInterval = null; }
   }
 }
 
@@ -1168,7 +1843,7 @@ function scrollToSection(id) {
 }
 
 function updateStepIndicators() {
-  const token   = localStorage.getItem('apify_token') || '';
+  const token    = localStorage.getItem('apify_token') || '';
   const hasSkills = skills.length > 0;
   const hasJobs   = jobs.length > 0;
 
@@ -1176,8 +1851,9 @@ function updateStepIndicators() {
   const s2 = document.getElementById('step2Indicator');
   const s3 = document.getElementById('step3Indicator');
   const s4 = document.getElementById('step4Indicator');
+  const s5 = document.getElementById('step5Indicator');
 
-  [s1,s2,s3,s4].forEach(s => s.classList.remove('active','done'));
+  [s1, s2, s3, s4, s5].forEach(s => s.classList.remove('active', 'done'));
 
   if (hasJobs) {
     s1.classList.add('done'); s2.classList.add('done');
@@ -1190,6 +1866,18 @@ function updateStepIndicators() {
     s1.classList.add('active');
   }
 }
+
+// Override Results step click to restore results view
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('step4Indicator').addEventListener('click', () => {
+    document.getElementById('trackerSection').style.display = 'none';
+    if (jobs.length > 0) {
+      document.getElementById('resultsSection').style.display = 'block';
+    }
+    updateStepIndicators();
+    scrollToSection('resultsSection');
+  });
+});
 
 function showToast(message, type) {
   const colors = {
@@ -1218,11 +1906,11 @@ function showToast(message, type) {
 function escHtml(s) {
   if (s == null) return '';
   return String(s)
-    .replace(/&/g,'&amp;')
-    .replace(/</g,'&lt;')
-    .replace(/>/g,'&gt;')
-    .replace(/"/g,'&quot;')
-    .replace(/'/g,'&#39;');
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 </script>
 </body>

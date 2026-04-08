@@ -3,3 +3,4 @@ requests
 pdfminer.six
 python-docx
 gunicorn
+anthropic
