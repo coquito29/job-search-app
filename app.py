@@ -34,6 +34,12 @@ FETCH_LIMIT = 150
 DEFAULT_TIMERANGE = "7d"
 NO_GO_TERMS = ["cold calling", "commission only", "door to door"]
 
+# Domains that require sign-in to view/apply — skip any job URL from these
+SIGNIN_WALL_DOMAINS = [
+    "indeed.com", "linkedin.com", "glassdoor.com", "ziprecruiter.com",
+    "monster.com", "careerbuilder.com", "simplyhired.com",
+]
+
 KNOWN_SKILLS = [
     "html","css","javascript","python","sql","php","java","react","angular","node.js",
     "typescript","c++","c#","linux","windows","macos","networking","network",
@@ -948,7 +954,7 @@ def search_jobs():
             except Exception:
                 source_results[src] = []
 
-    # Merge and deduplicate by URL
+    # Merge, deduplicate by URL, and remove sign-in-wall domains
     seen_urls = set()
     all_jobs = []
     for src, jobs_list in source_results.items():
@@ -956,6 +962,8 @@ def search_jobs():
             url = job.get("url", "")
             if not url or url in seen_urls:
                 continue
+            if any(d in url for d in SIGNIN_WALL_DOMAINS):
+                continue  # skip Indeed, LinkedIn, Glassdoor etc.
             seen_urls.add(url)
             all_jobs.append(job)
 
