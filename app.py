@@ -3,7 +3,7 @@ app.py  —  Remote Job Search Mobile PWA
 Sources: Remotive · RemoteOK · Jobicy · Arbeitnow · Himalayas · Apify · Adzuna · JSearch
 AI Cover Letters: Claude Haiku (set ANTHROPIC_API_KEY env var)
 """
-import io, os, re, socket
+import io, json, os, re, socket, xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime
@@ -363,6 +363,85 @@ def fetch_apify_jobs(skills, token, limit=150, time_range="7d"):
     return results
 
 
+def fetch_themuse(skills, limit=50):
+    """Fetch from The Muse API (free, no auth required)."""
+    try:
+        query = skills[0] if skills else "remote"
+        r = http_req.get(
+            "https://www.themuse.com/api/public/jobs",
+            params={"page": 0, "level": "Entry Level", "category": query},
+            timeout=20,
+        )
+        r.raise_for_status()
+        results = []
+        for j in r.json().get("results", [])[:limit]:
+            locs = j.get("locations", [])
+            loc  = locs[0].get("name", "Remote") if locs else "Remote"
+            url  = (j.get("refs") or {}).get("landing_page", "")
+            if not url:
+                continue
+            results.append({
+                "url": url,
+                "title": j.get("name", ""),
+                "company_name": (j.get("company") or {}).get("name", ""),
+                "location": loc,
+                "salary": "",
+                "description": re.sub(r"<[^>]+>", " ", j.get("contents", "") or ""),
+                "posted": j.get("publication_date", ""),
+                "source": "TheMuse",
+            })
+        return results
+    except Exception:
+        return []
+
+
+def fetch_weworkremotely(skills, limit=50):
+    """Fetch from We Work Remotely RSS feed (free, no auth)."""
+    try:
+        r = http_req.get(
+            "https://weworkremotely.com/remote-jobs.rss",
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=20,
+        )
+        r.raise_for_status()
+        root    = ET.fromstring(r.content)
+        channel = root.find("channel")
+        if channel is None:
+            return []
+        skill_lower = [s.lower() for s in skills]
+        results = []
+        for item in channel.findall("item"):
+            title   = (item.findtext("title") or "").strip()
+            link    = (item.findtext("link") or "").strip()
+            desc    = re.sub(r"<[^>]+>", " ", item.findtext("description") or "").strip()
+            pub     = (item.findtext("pubDate") or "").strip()
+            company = ""
+            if ": " in title:
+                parts   = title.split(": ", 1)
+                company = parts[0].strip()
+                title   = parts[1].strip()
+            if not link:
+                continue
+            combo = (title + " " + desc).lower()
+            if skill_lower and not any(s in combo for s in skill_lower):
+                continue
+            results.append({
+                "url": link,
+                "title": title,
+                "company_name": company,
+                "location": "Remote",
+                "salary": "",
+                "description": desc,
+                "posted": pub,
+                "source": "WeWorkRemotely",
+            })
+            if len(results) >= limit:
+                break
+        return results
+    except Exception:
+        return []
+
+
 # ── Helper functions ──────────────────────────────────────────────────────────
 
 def _parse_years_required(text):
@@ -585,43 +664,90 @@ def _parse_txt(file_bytes):
     return file_bytes.decode("utf-8", errors="replace")
 
 
+# ── AI CV parsing ────────────────────────────────────────────────────────────
+
+def _parse_cv_ai(text, api_key):
+    """Use Claude Sonnet to extract a rich structured profile from CV text."""
+    client  = _anthropic.Anthropic(api_key=api_key)
+    excerpt = text[:5000]
+    prompt  = f"""Analyse this CV/resume and extract structured information.
+
+CV TEXT:
+{excerpt}
+
+Return ONLY valid JSON (no markdown, no extra text):
+{{
+  "skills": ["skill1", "skill2", ...],
+  "summary": "<2-3 sentence professional summary of this person>",
+  "job_titles": ["<most recent job title>", "<second title>"],
+  "experience_years": <estimated total years of work experience as integer>,
+  "education": "<highest education level, e.g. Bachelor's in Computer Science>",
+  "search_terms": ["<job title to search for 1>", "<job title 2>", "<job title 3>"]
+}}
+
+skills: all technical tools, languages, frameworks, soft skills, domain expertise (max 35, all lowercase).
+search_terms: 3-5 specific job titles this person should search for based on their background."""
+
+    message = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=900,
+        messages=[{"role": "user", "content": prompt}]
+    )
+    raw = message.content[0].text.strip()
+    m   = re.search(r'\{.*\}', raw, re.DOTALL)
+    result = json.loads(m.group() if m else raw)
+
+    return jsonify({
+        "skills":           result.get("skills", []),
+        "summary":          result.get("summary", ""),
+        "skill_count":      len(result.get("skills", [])),
+        "job_titles":       result.get("job_titles", []),
+        "experience_years": result.get("experience_years", 0),
+        "education":        result.get("education", ""),
+        "search_terms":     result.get("search_terms", []),
+        "ai_parsed":        True,
+    })
+
+
 # ── Cover letter generation ───────────────────────────────────────────────────
 
-def generate_cover_letter(job, skills):
+def generate_cover_letter(job, skills, resume_summary=""):
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
     if api_key and _anthropic:
         try:
-            return _generate_cover_letter_ai(job, skills, api_key)
+            return _generate_cover_letter_ai(job, skills, api_key, resume_summary)
         except Exception:
             pass
     return _generate_cover_letter_template(job, skills)
 
 
-def _generate_cover_letter_ai(job, skills, api_key):
+def _generate_cover_letter_ai(job, skills, api_key, resume_summary=""):
     client = _anthropic.Anthropic(api_key=api_key)
-    desc_excerpt = re.sub(r"<[^>]+>", "", job.get("description", "") or "")[:1500]
-    matched = job.get("matched_skills", skills[:8])
-    skills_str = ", ".join(matched[:8]) if matched else ", ".join(skills[:8])
-    prompt = f"""Write a professional, personalized cover letter for this job application.
+    desc_excerpt = re.sub(r"<[^>]+>", "", job.get("description", "") or "")[:2000]
+    matched = job.get("matched_skills", skills[:10])
+    skills_str = ", ".join(matched[:10]) if matched else ", ".join(skills[:10])
+    summary_line = f"\nMy Background: {resume_summary}" if resume_summary else ""
+    prompt = f"""You are an expert career coach writing a highly personalized, compelling cover letter.
 
-Job Title: {job.get('title', 'the position')}
+CANDIDATE PROFILE:
+Skills: {skills_str}{summary_line}
+
+JOB POSTING:
+Title: {job.get('title', 'the position')}
 Company: {job.get('company_name', 'the company')}
-Match Score: {job.get('match_pct', 0)}% skill match
-Matched Skills: {skills_str}
-
-Job Description:
+Description:
 {desc_excerpt}
 
-Write 3 paragraphs:
-1. Opening: genuine interest in this specific role and company
-2. Middle: 2-3 specific skills that match job requirements with brief real examples
-3. Closing: call to action
+Write a 3-paragraph cover letter that:
+1. Opening: Shows genuine enthusiasm for THIS specific role. Reference something concrete from the job description (a tool, responsibility, or company mission).
+2. Middle: Connects 2-3 of my exact skills to specific requirements in the job description. Use brief, concrete examples that demonstrate real value. Be specific, not generic.
+3. Closing: Confident call to action. Express readiness to contribute immediately.
 
 Start with "Dear Hiring Team," and end with "Sincerely,\\n[Your Name]\\n[Your Email]\\n[Your Phone]"
-Be specific, genuine, concise. No generic filler."""
+Rules: No generic filler phrases ("I am excited to apply", "I believe I am a great fit"). Be direct, specific, and professional. Reference actual job requirements by name."""
     message = client.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=800,
+        model="claude-sonnet-4-6",
+        max_tokens=1200,
         messages=[{"role": "user", "content": prompt}]
     )
     return message.content[0].text
@@ -759,11 +885,18 @@ def parse_cv():
     except Exception as e:
         return jsonify({"error": f"Failed to parse file: {str(e)}"}), 500
 
-    skills = extract_skills_from_text(text)
-    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
-    summary = " ".join(lines[:5])[:300] if lines else ""
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if api_key and _anthropic:
+        try:
+            return _parse_cv_ai(text, api_key)
+        except Exception:
+            pass
 
-    return jsonify({"skills": skills, "summary": summary, "skill_count": len(skills)})
+    # Fallback: keyword matching
+    skills = extract_skills_from_text(text)
+    lines  = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    summary = " ".join(lines[:5])[:300] if lines else ""
+    return jsonify({"skills": skills, "summary": summary, "skill_count": len(skills), "ai_parsed": False})
 
 
 @app.route("/api/search", methods=["POST"])
@@ -772,7 +905,7 @@ def search_jobs():
     token      = (data.get("token") or "").strip()
     skills     = data.get("skills") or []
     time_range = data.get("time_range") or DEFAULT_TIMERANGE
-    sources    = data.get("sources") or ["remotive","remoteok","jobicy","arbeitnow","himalayas","apify"]
+    sources    = data.get("sources") or ["remotive","remoteok","jobicy","arbeitnow","himalayas","apify","themuse","weworkremotely"]
 
     if not skills:
         return jsonify({"error": "At least one skill is required"}), 400
@@ -798,6 +931,10 @@ def search_jobs():
     rapidapi_key = os.environ.get("RAPIDAPI_KEY", "")
     if "jsearch" in sources and rapidapi_key:
         fetch_tasks["jsearch"] = lambda: fetch_jsearch(skills, rapidapi_key, limit=50)
+    if "themuse" in sources:
+        fetch_tasks["themuse"] = lambda: fetch_themuse(skills, limit=50)
+    if "weworkremotely" in sources:
+        fetch_tasks["weworkremotely"] = lambda: fetch_weworkremotely(skills, limit=50)
 
     # Run all sources in parallel
     source_results = {src: [] for src in fetch_tasks}
@@ -861,11 +998,12 @@ def search_jobs():
 
 @app.route("/api/cover-letter", methods=["POST"])
 def cover_letter():
-    data   = request.get_json(force=True)
-    job    = data.get("job") or {}
-    skills = data.get("skills") or []
+    data           = request.get_json(force=True)
+    job            = data.get("job") or {}
+    skills         = data.get("skills") or []
+    resume_summary = data.get("resume_summary", "")
 
-    text = generate_cover_letter(job, skills)
+    text = generate_cover_letter(job, skills, resume_summary)
 
     buf = io.BytesIO(text.encode("utf-8"))
     buf.seek(0)
@@ -878,6 +1016,58 @@ def cover_letter():
         as_attachment=True,
         download_name=filename,
     )
+
+
+@app.route("/api/ai-score", methods=["POST"])
+def ai_score():
+    """Use Claude Sonnet to deeply analyse job fit and return structured feedback."""
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key or not _anthropic:
+        return jsonify({"error": "AI not available — set ANTHROPIC_API_KEY"}), 503
+
+    data           = request.get_json(force=True)
+    job            = data.get("job") or {}
+    skills         = data.get("skills") or []
+    resume_summary = data.get("resume_summary", "")
+
+    desc       = re.sub(r"<[^>]+>", "", job.get("description", "") or "")[:2500]
+    skills_str = ", ".join(skills[:20])
+    summary_line = f"\nMy Background: {resume_summary}" if resume_summary else ""
+
+    prompt = f"""Analyse this job posting and honestly assess how well the candidate fits.
+
+CANDIDATE PROFILE:
+Skills: {skills_str}{summary_line}
+
+JOB POSTING:
+Title: {job.get('title', '')}
+Company: {job.get('company_name', '')}
+Description:
+{desc}
+
+Return ONLY valid JSON (no markdown, no explanation):
+{{
+  "ai_score": <integer 0-100>,
+  "fit_summary": "<2-sentence honest assessment>",
+  "strengths": ["<strength 1>", "<strength 2>", "<strength 3>"],
+  "gaps": ["<gap 1>", "<gap 2>"],
+  "recommendation": "<apply|consider|skip>",
+  "tip": "<one specific actionable tip for this exact application>"
+}}"""
+
+    try:
+        client  = _anthropic.Anthropic(api_key=api_key)
+        message = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=600,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        text = message.content[0].text.strip()
+        m    = re.search(r'\{.*\}', text, re.DOTALL)
+        result = json.loads(m.group() if m else text)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 # ── Startup ───────────────────────────────────────────────────────────────────
@@ -903,7 +1093,7 @@ if __name__ == "__main__":
     print(f"  Local:    http://localhost:{port}")
     print(f"  Network:  http://{local_ip}:{port}  << open on phone")
     print("  Sources:  Remotive, RemoteOK, Jobicy, Arbeitnow")
-    print("            Himalayas, Apify")
-    print(f"  AI Cover Letters: {'Enabled (Claude Haiku)' if ai_enabled else 'Disabled (set ANTHROPIC_API_KEY)'}")
+    print("            Himalayas, Apify, TheMuse, WeWorkRemotely")
+    print(f"  AI (Claude Sonnet): {'Enabled — cover letters, CV parsing, job scoring' if ai_enabled else 'Disabled (set ANTHROPIC_API_KEY)'}")
     print("=" * 56)
     app.run(host="0.0.0.0", port=port, debug=False)

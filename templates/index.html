@@ -217,23 +217,27 @@
     .source-toggle input { display: none; }
     .source-toggle.checked { color: white !important; }
 
-    .source-toggle-remotive  { border-color: #7c3aed; color: #7c3aed; }
-    .source-toggle-remoteok  { border-color: #0d9488; color: #0d9488; }
-    .source-toggle-jobicy    { border-color: #ea580c; color: #ea580c; }
-    .source-toggle-arbeitnow { border-color: #2563eb; color: #2563eb; }
-    .source-toggle-himalayas { border-color: #4f46e5; color: #4f46e5; }
-    .source-toggle-apify     { border-color: #dc2626; color: #dc2626; }
-    .source-toggle-adzuna    { border-color: #059669; color: #059669; }
-    .source-toggle-jsearch   { border-color: #b45309; color: #b45309; }
+    .source-toggle-remotive      { border-color: #7c3aed; color: #7c3aed; }
+    .source-toggle-remoteok      { border-color: #0d9488; color: #0d9488; }
+    .source-toggle-jobicy        { border-color: #ea580c; color: #ea580c; }
+    .source-toggle-arbeitnow     { border-color: #2563eb; color: #2563eb; }
+    .source-toggle-himalayas     { border-color: #4f46e5; color: #4f46e5; }
+    .source-toggle-apify         { border-color: #dc2626; color: #dc2626; }
+    .source-toggle-adzuna        { border-color: #059669; color: #059669; }
+    .source-toggle-jsearch       { border-color: #b45309; color: #b45309; }
+    .source-toggle-themuse       { border-color: #db2777; color: #db2777; }
+    .source-toggle-weworkremotely{ border-color: #0891b2; color: #0891b2; }
 
-    .source-toggle-remotive.checked  { background: #7c3aed; }
-    .source-toggle-remoteok.checked  { background: #0d9488; }
-    .source-toggle-jobicy.checked    { background: #ea580c; }
-    .source-toggle-arbeitnow.checked { background: #2563eb; }
-    .source-toggle-himalayas.checked { background: #4f46e5; }
-    .source-toggle-apify.checked     { background: #dc2626; }
-    .source-toggle-adzuna.checked    { background: #059669; }
-    .source-toggle-jsearch.checked   { background: #b45309; }
+    .source-toggle-remotive.checked       { background: #7c3aed; }
+    .source-toggle-remoteok.checked       { background: #0d9488; }
+    .source-toggle-jobicy.checked         { background: #ea580c; }
+    .source-toggle-arbeitnow.checked      { background: #2563eb; }
+    .source-toggle-himalayas.checked      { background: #4f46e5; }
+    .source-toggle-apify.checked          { background: #dc2626; }
+    .source-toggle-adzuna.checked         { background: #059669; }
+    .source-toggle-jsearch.checked        { background: #b45309; }
+    .source-toggle-themuse.checked        { background: #db2777; }
+    .source-toggle-weworkremotely.checked { background: #0891b2; }
 
     /* ── Source badges (results + cards) ─────────────────── */
     .source-badge {
@@ -243,15 +247,17 @@
       border-radius: 20px;
       white-space: nowrap;
     }
-    .source-remotive   { background: #ede9fe; color: #7c3aed; }
-    .source-remoteok   { background: #ccfbf1; color: #0d9488; }
-    .source-jobicy     { background: #ffedd5; color: #ea580c; }
-    .source-arbeitnow  { background: #dbeafe; color: #2563eb; }
-    .source-himalayas  { background: #e0e7ff; color: #4f46e5; }
-    .source-apify      { background: #fee2e2; color: #dc2626; }
-    .source-adzuna     { background: #d1fae5; color: #059669; }
-    .source-jsearch    { background: #fef3c7; color: #b45309; }
-    .source-unknown    { background: #e9ecef; color: #6c757d; }
+    .source-remotive      { background: #ede9fe; color: #7c3aed; }
+    .source-remoteok      { background: #ccfbf1; color: #0d9488; }
+    .source-jobicy        { background: #ffedd5; color: #ea580c; }
+    .source-arbeitnow     { background: #dbeafe; color: #2563eb; }
+    .source-himalayas     { background: #e0e7ff; color: #4f46e5; }
+    .source-apify         { background: #fee2e2; color: #dc2626; }
+    .source-adzuna        { background: #d1fae5; color: #059669; }
+    .source-jsearch       { background: #fef3c7; color: #b45309; }
+    .source-themuse       { background: #fce7f3; color: #db2777; }
+    .source-weworkremotely{ background: #cffafe; color: #0891b2; }
+    .source-unknown       { background: #e9ecef; color: #6c757d; }
 
     /* ── Results summary bar ─────────────────────────────── */
     .results-summary {
@@ -664,7 +670,7 @@
       <i class="bi bi-search fs-5"></i>
       <div>
         <h1>Remote Job Search</h1>
-        <p class="subtitle">CV-matched · 6 Sources · Mobile PWA</p>
+        <p class="subtitle">CV-matched · 8 Sources · AI-Powered</p>
       </div>
     </div>
     <div class="d-flex align-items-center gap-2">
@@ -831,6 +837,16 @@
         <i class="bi bi-check2" id="chk-icon-jsearch"></i>
         JSearch <span style="opacity:.7;font-weight:400;">(Indeed+LinkedIn)</span>
       </label>
+      <label class="source-toggle source-toggle-themuse checked" id="lbl-themuse">
+        <input type="checkbox" value="themuse" checked onchange="onSourceToggle(this)" />
+        <i class="bi bi-check2" id="chk-icon-themuse"></i>
+        TheMuse <span style="opacity:.7;font-weight:400;">(free)</span>
+      </label>
+      <label class="source-toggle source-toggle-weworkremotely checked" id="lbl-weworkremotely">
+        <input type="checkbox" value="weworkremotely" checked onchange="onSourceToggle(this)" />
+        <i class="bi bi-check2" id="chk-icon-weworkremotely"></i>
+        WeWorkRemotely <span style="opacity:.7;font-weight:400;">(free)</span>
+      </label>
     </div>
   </div>
 
@@ -880,12 +896,17 @@
   <div class="results-summary">
     <div class="results-summary-top">
       <span id="trackerSummary">My Applications</span>
-      <div class="btn-group" role="group">
-        <button class="btn btn-outline-secondary btn-sm active" id="trackerFilterAll" onclick="filterTracker('all')">All</button>
-        <button class="btn btn-outline-warning btn-sm" id="trackerFilterFav" onclick="filterTracker('favourite')">⭐ Saved</button>
-        <button class="btn btn-outline-primary btn-sm" id="trackerFilterApplied" onclick="filterTracker('applied')">Applied</button>
-        <button class="btn btn-outline-success btn-sm" id="trackerFilterInt" onclick="filterTracker('interviewing')">Interview</button>
-      </div>
+      <button class="btn btn-outline-secondary btn-sm" onclick="exportTrackerCSV()" title="Export to CSV">
+        <i class="bi bi-download me-1"></i>CSV
+      </button>
+    </div>
+    <div id="trackerStats" class="mt-1" style="font-size:.75rem;color:#6c757d;display:flex;flex-wrap:wrap;gap:8px;"></div>
+    <div class="d-flex gap-2 mt-2 flex-wrap">
+      <button class="btn btn-outline-secondary btn-sm active" id="trackerFilterAll" onclick="filterTracker('all')">All</button>
+      <button class="btn btn-outline-warning btn-sm" id="trackerFilterFav" onclick="filterTracker('favourite')">⭐ Saved</button>
+      <button class="btn btn-outline-primary btn-sm" id="trackerFilterApplied" onclick="filterTracker('applied')">Applied</button>
+      <button class="btn btn-outline-success btn-sm" id="trackerFilterInt" onclick="filterTracker('interviewing')">Interview</button>
+      <button class="btn btn-outline-danger btn-sm" id="trackerFilterRej" onclick="filterTracker('rejected')">Rejected</button>
     </div>
   </div>
   <div id="trackerList"></div>
@@ -921,6 +942,28 @@
         <h6 class="fw-bold mb-2" style="font-size:.85rem;">Job Description</h6>
         <div class="job-desc-scroll" id="detailDescription"></div>
 
+        <!-- AI Score result (hidden until fetched) -->
+        <div id="aiScoreResult" class="mt-3" style="display:none;">
+          <div style="background:#f0f6ff;border-radius:10px;padding:12px;border:1px solid #bfdbfe;">
+            <div class="d-flex align-items-center justify-content-between mb-2">
+              <span style="font-size:.8rem;font-weight:700;color:#1d4ed8;"><i class="bi bi-stars me-1"></i>AI Analysis</span>
+              <span id="aiScoreBadge" class="badge" style="font-size:.75rem;"></span>
+            </div>
+            <p id="aiScoreSummary" style="font-size:.82rem;margin-bottom:8px;color:#374151;"></p>
+            <div class="row g-2">
+              <div class="col-6">
+                <div style="font-size:.72rem;font-weight:700;color:#059669;text-transform:uppercase;margin-bottom:3px;">Strengths</div>
+                <ul id="aiScoreStrengths" style="font-size:.78rem;padding-left:16px;margin:0;color:#374151;"></ul>
+              </div>
+              <div class="col-6">
+                <div style="font-size:.72rem;font-weight:700;color:#dc2626;text-transform:uppercase;margin-bottom:3px;">Gaps</div>
+                <ul id="aiScoreGaps" style="font-size:.78rem;padding-left:16px;margin:0;color:#374151;"></ul>
+              </div>
+            </div>
+            <div id="aiScoreTip" class="mt-2" style="font-size:.78rem;color:#6b21a8;font-style:italic;"></div>
+          </div>
+        </div>
+
         <!-- Status -->
         <div class="mt-3">
           <label class="form-label fw-semibold" style="font-size:.85rem;">Application Status</label>
@@ -933,8 +976,19 @@
           </select>
         </div>
 
+        <!-- Notes -->
+        <div class="mt-3">
+          <label class="form-label fw-semibold" style="font-size:.85rem;">Notes</label>
+          <textarea class="form-control form-control-sm" id="detailNotesInput" rows="2"
+                    placeholder="Interview date, contact name, follow-up notes..."
+                    oninput="saveJobNotes()" style="font-size:.82rem;resize:none;"></textarea>
+        </div>
+
       </div>
       <div class="modal-footer flex-column gap-2 p-3">
+        <button class="btn btn-outline-info w-100" id="aiAnalyzeBtn" onclick="aiScoreJob()">
+          <i class="bi bi-stars me-2"></i>AI Analyze Fit
+        </button>
         <button class="btn btn-primary w-100" onclick="generateCoverLetter()">
           <i class="bi bi-file-earmark-text me-2"></i>Generate Cover Letter
         </button>
@@ -990,6 +1044,8 @@ let currentJob     = null;
 let currentCLJob   = null;
 let jobStatuses    = {};
 let savedJobs      = {};   // url → full job object (for tracker)
+let jobNotes       = {};   // url → notes string
+let cvSummary      = '';   // AI-parsed resume summary
 let sortMode       = 'match';
 let lastSourceData = {};
 let jobDetailModal, coverLetterModal;
@@ -1000,14 +1056,16 @@ let loadingInterval= null;
 
 // Source key → CSS class slug mapping
 const SOURCE_CLASS = {
-  'Remotive':   'remotive',
-  'RemoteOK':   'remoteok',
-  'Jobicy':     'jobicy',
-  'Arbeitnow':  'arbeitnow',
-  'Himalayas':  'himalayas',
-  'Apify':      'apify',
-  'Adzuna':     'adzuna',
-  'JSearch':    'jsearch',
+  'Remotive':        'remotive',
+  'RemoteOK':        'remoteok',
+  'Jobicy':          'jobicy',
+  'Arbeitnow':       'arbeitnow',
+  'Himalayas':       'himalayas',
+  'Apify':           'apify',
+  'Adzuna':          'adzuna',
+  'JSearch':         'jsearch',
+  'TheMuse':         'themuse',
+  'WeWorkRemotely':  'weworkremotely',
 };
 
 // ════════════════════════════════════════════════════════════════════════
@@ -1057,6 +1115,11 @@ document.addEventListener('DOMContentLoaded', () => {
   const savedJobsData = localStorage.getItem('saved_jobs');
   if (savedJobsData) {
     try { savedJobs = JSON.parse(savedJobsData); } catch(e) { savedJobs = {}; }
+  }
+
+  const savedNotes = localStorage.getItem('job_notes');
+  if (savedNotes) {
+    try { jobNotes = JSON.parse(savedNotes); } catch(e) { jobNotes = {}; }
   }
 
   // Restore dark mode
@@ -1156,30 +1219,42 @@ function showTrackerTab() {
 
 function filterTracker(f) {
   trackerFilter = f;
-  ['All','Fav','Applied','Int'].forEach(n => {
-    document.getElementById('trackerFilter' + n).classList.remove('active');
+  ['All','Fav','Applied','Int','Rej'].forEach(n => {
+    const el = document.getElementById('trackerFilter' + n);
+    if (el) el.classList.remove('active');
   });
-  const map = { all:'All', favourite:'Fav', applied:'Applied', interviewing:'Int' };
-  document.getElementById('trackerFilter' + map[f]).classList.add('active');
+  const map = { all:'All', favourite:'Fav', applied:'Applied', interviewing:'Int', rejected:'Rej' };
+  const el = document.getElementById('trackerFilter' + map[f]);
+  if (el) el.classList.add('active');
   renderTrackerTab();
 }
 
 function renderTrackerTab() {
-  const list = document.getElementById('trackerList');
+  const list    = document.getElementById('trackerList');
   const summary = document.getElementById('trackerSummary');
+  const statsEl = document.getElementById('trackerStats');
 
-  // Collect all tracked jobs (status != not_applied)
-  const tracked = Object.entries(jobStatuses)
-    .filter(([url, status]) => status !== 'not_applied')
-    .filter(([url, status]) => trackerFilter === 'all' || status === trackerFilter)
+  const allTracked = Object.entries(jobStatuses)
+    .filter(([, s]) => s !== 'not_applied')
     .map(([url, status]) => ({ url, status, job: savedJobs[url] || null }));
 
-  summary.textContent = `My Applications (${Object.values(jobStatuses).filter(s => s !== 'not_applied').length} tracked)`;
+  // Stats bar
+  const counts = {};
+  allTracked.forEach(({ status }) => { counts[status] = (counts[status] || 0) + 1; });
+  const statColors = { favourite:'#f59e0b', applied:'#0d6efd', interviewing:'#198754', rejected:'#dc3545' };
+  const statLabels = { favourite:'⭐ Saved', applied:'Applied', interviewing:'Interviewing', rejected:'Rejected' };
+  statsEl.innerHTML = Object.entries(counts).map(([s, n]) =>
+    `<span style="color:${statColors[s]||'#6c757d'};font-weight:600;">${statLabels[s]||s}: ${n}</span>`
+  ).join('<span style="color:#dee2e6;">|</span>');
+
+  summary.textContent = `My Applications (${allTracked.length} tracked)`;
+
+  const tracked = allTracked.filter(({ status }) => trackerFilter === 'all' || status === trackerFilter);
 
   if (tracked.length === 0) {
     list.innerHTML = `<div class="tracker-empty">
       <i class="bi bi-bookmark-x"></i>
-      <p>No jobs tracked yet.<br>Open a job and set its status to save it here.</p>
+      <p>${allTracked.length === 0 ? 'No jobs tracked yet.<br>Open a job and set its status to save it here.' : 'No jobs in this category.'}</p>
     </div>`;
     return;
   }
@@ -1194,6 +1269,7 @@ function renderTrackerTab() {
     const date    = job?.date_fmt || '';
     const src     = job?.source || '';
     const srcCls  = SOURCE_CLASS[src] || 'unknown';
+    const note    = jobNotes[url] || '';
     return `<div class="tracker-card status-${status}">
       <div class="d-flex align-items-start justify-content-between gap-2">
         <span class="status-pill ${pillClass[status] || ''}">${pillLabel[status] || status}</span>
@@ -1205,6 +1281,7 @@ function renderTrackerTab() {
         ${sal ? `<span class="dot">·</span><strong>${escHtml(sal)}</strong>` : ''}
         ${date ? `<span class="dot">·</span>${escHtml(date)}` : ''}
       </div>
+      ${note ? `<div style="font-size:.75rem;color:#6c757d;margin-top:4px;font-style:italic;"><i class="bi bi-sticky me-1"></i>${escHtml(note.substring(0,80))}${note.length>80?'…':''}</div>` : ''}
       <div class="d-flex gap-2 mt-2 flex-wrap">
         <a class="btn btn-outline-secondary btn-sm" href="${escHtml(url)}" target="_blank" rel="noopener" style="font-size:.75rem;">
           <i class="bi bi-box-arrow-up-right me-1"></i>Open
@@ -1217,11 +1294,40 @@ function renderTrackerTab() {
   }).join('');
 }
 
+function exportTrackerCSV() {
+  const allTracked = Object.entries(jobStatuses)
+    .filter(([, s]) => s !== 'not_applied')
+    .map(([url, status]) => ({ url, status, job: savedJobs[url] || null }));
+
+  if (allTracked.length === 0) { showToast('No tracked jobs to export', 'info'); return; }
+
+  const esc = v => `"${String(v || '').replace(/"/g, '""')}"`;
+  const rows = [['Title','Company','Status','Salary','Location','Source','Posted','URL','Notes']];
+  allTracked.forEach(({ url, status, job }) => {
+    rows.push([
+      esc(job?.title || ''),
+      esc(job?.company_name || ''),
+      esc(status),
+      esc(job?.salary_clean || ''),
+      esc(job?.location || ''),
+      esc(job?.source || ''),
+      esc(job?.date_fmt || ''),
+      esc(url),
+      esc(jobNotes[url] || ''),
+    ]);
+  });
+  const csv = rows.map(r => r.join(',')).join('\n');
+  downloadFile(csv, `job_tracker_${new Date().toISOString().slice(0,10)}.csv`, 'text/csv');
+  showToast(`Exported ${allTracked.length} jobs to CSV`, 'success');
+}
+
 function removeFromTracker(url) {
   delete jobStatuses[url];
   delete savedJobs[url];
+  delete jobNotes[url];
   localStorage.setItem('job_statuses', JSON.stringify(jobStatuses));
   localStorage.setItem('saved_jobs', JSON.stringify(savedJobs));
+  localStorage.setItem('job_notes', JSON.stringify(jobNotes));
   updateTrackerBadge();
   renderTrackerTab();
   renderJobCards();
@@ -1311,11 +1417,25 @@ async function uploadCV(input) {
     saveSkillsToStorage();
     renderSkills();
 
-    statusT.innerHTML = `<i class="bi bi-check-circle-fill me-1"></i>
-      <strong>${data.skill_count} skills found</strong> in ${escHtml(file.name)}
-      ${added < data.skill_count ? `(${added} new added)` : ''}`;
+    // Store summary for cover letters + AI scoring
+    if (data.summary) cvSummary = data.summary;
 
-    showToast(`CV parsed — ${data.skill_count} skills extracted`, 'success');
+    const aiTag = data.ai_parsed ? ' <span class="badge bg-success ms-1" style="font-size:.65rem;">AI</span>' : '';
+    let extraInfo = '';
+    if (data.ai_parsed) {
+      if (data.job_titles && data.job_titles.length)
+        extraInfo += `<div style="font-size:.75rem;color:#6c757d;margin-top:4px;">Roles: ${data.job_titles.map(t => escHtml(t)).join(', ')}</div>`;
+      if (data.search_terms && data.search_terms.length)
+        extraInfo += `<div style="font-size:.75rem;color:#0d6efd;margin-top:2px;">Suggested searches: ${data.search_terms.map(t => escHtml(t)).join(' · ')}</div>`;
+      if (data.experience_years)
+        extraInfo += `<div style="font-size:.75rem;color:#6c757d;margin-top:2px;">Est. experience: ${data.experience_years} yr(s)</div>`;
+    }
+
+    statusT.innerHTML = `<i class="bi bi-check-circle-fill me-1"></i>
+      <strong>${data.skill_count} skills found</strong> in ${escHtml(file.name)}${aiTag}
+      ${added < data.skill_count ? `(${added} new added)` : ''}${extraInfo}`;
+
+    showToast(`CV parsed — ${data.skill_count} skills extracted${data.ai_parsed ? ' (AI)' : ''}`, 'success');
     updateStepIndicators();
 
   } catch(e) {
@@ -1658,7 +1778,75 @@ function showJobDetail(index) {
 
   document.getElementById('detailApplyBtn').href = job.url || '#';
 
+  // Reset AI score panel
+  document.getElementById('aiScoreResult').style.display = 'none';
+  const aiBtn = document.getElementById('aiAnalyzeBtn');
+  aiBtn.disabled = false;
+  aiBtn.innerHTML = '<i class="bi bi-stars me-2"></i>AI Analyze Fit';
+
+  // Load saved notes
+  document.getElementById('detailNotesInput').value = jobNotes[job.url] || '';
+
   jobDetailModal.show();
+}
+
+function saveJobNotes() {
+  if (!currentJob) return;
+  const val = document.getElementById('detailNotesInput').value;
+  if (val.trim()) {
+    jobNotes[currentJob.url] = val;
+  } else {
+    delete jobNotes[currentJob.url];
+  }
+  localStorage.setItem('job_notes', JSON.stringify(jobNotes));
+}
+
+async function aiScoreJob() {
+  if (!currentJob) return;
+  const btn = document.getElementById('aiAnalyzeBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Analysing...';
+
+  try {
+    const resp = await fetch('/api/ai-score', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ job: currentJob, skills, resume_summary: cvSummary })
+    });
+    const data = await resp.json();
+
+    if (!resp.ok || data.error) {
+      showToast(data.error || 'AI scoring failed', 'danger');
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-stars me-2"></i>AI Analyze Fit';
+      return;
+    }
+
+    const score = data.ai_score || 0;
+    const rec   = data.recommendation || 'consider';
+    const recColors = { apply: '#198754', consider: '#f59e0b', skip: '#dc3545' };
+    const recLabels = { apply: 'Apply Now', consider: 'Consider', skip: 'Skip' };
+
+    document.getElementById('aiScoreBadge').textContent = `${score}% · ${recLabels[rec] || rec}`;
+    document.getElementById('aiScoreBadge').style.background = recColors[rec] || '#6c757d';
+    document.getElementById('aiScoreBadge').style.color = '#fff';
+    document.getElementById('aiScoreSummary').textContent = data.fit_summary || '';
+
+    const strengths = document.getElementById('aiScoreStrengths');
+    strengths.innerHTML = (data.strengths || []).map(s => `<li>${escHtml(s)}</li>`).join('');
+    const gaps = document.getElementById('aiScoreGaps');
+    gaps.innerHTML = (data.gaps || []).map(g => `<li>${escHtml(g)}</li>`).join('');
+
+    document.getElementById('aiScoreTip').textContent = data.tip ? `💡 ${data.tip}` : '';
+    document.getElementById('aiScoreResult').style.display = 'block';
+
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-stars me-2"></i>Re-analyze';
+  } catch(e) {
+    showToast('Network error during AI analysis', 'danger');
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-stars me-2"></i>AI Analyze Fit';
+  }
 }
 
 function infoCol(icon, label, value) {
@@ -1732,7 +1920,7 @@ async function _fetchCoverLetter(job) {
     const resp = await fetch('/api/cover-letter', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ job, skills })
+      body: JSON.stringify({ job, skills, resume_summary: cvSummary })
     });
 
     document.getElementById('clLoadingSpinner').style.display = 'none';
