@@ -63,7 +63,8 @@ class UserProfile:
 
 def fetch_remotive(skills, limit=100):
     try:
-        query = " ".join(skills[:5])
+        # Remotive works best with a single short keyword — multi-word kills results
+        query = skills[0] if skills else "remote"
         url = f"https://remotive.com/api/remote-jobs?search={http_req.utils.quote(query)}&limit={limit}"
         r = http_req.get(url, timeout=20)
         r.raise_for_status()
@@ -124,8 +125,8 @@ def fetch_remoteok(skills, limit=100):
 
 def fetch_jobicy(skills, limit=50):
     try:
-        query = " ".join(skills[:3])
-        url = f"https://jobicy.com/api/v2/remote-jobs?count={limit}&search={http_req.utils.quote(query)}"
+        # Jobicy search param is unreliable — fetch all and let scoring rank them
+        url = f"https://jobicy.com/api/v2/remote-jobs?count={limit}"
         r = http_req.get(url, timeout=20)
         r.raise_for_status()
         jobs_raw = r.json().get("jobs", [])
@@ -366,10 +367,10 @@ def fetch_apify_jobs(skills, token, limit=150, time_range="7d"):
 def fetch_themuse(skills, limit=50):
     """Fetch from The Muse API (free, no auth required)."""
     try:
-        query = skills[0] if skills else "remote"
+        # TheMuse category uses their own taxonomy — just fetch entry-level and let scoring rank
         r = http_req.get(
             "https://www.themuse.com/api/public/jobs",
-            params={"page": 0, "level": "Entry Level", "category": query},
+            params={"page": 0, "level": "Entry Level"},
             timeout=20,
         )
         r.raise_for_status()
