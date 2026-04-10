@@ -213,10 +213,10 @@ def fetch_himalayas(skills, limit=50):
 
 
 def fetch_adzuna(skills, app_id, app_key, limit=50):
-    """Fetch from Adzuna API (free key from developer.adzuna.com)."""
+    """Fetch from Adzuna API (free key from developer.adzuna.com) — remote only."""
     if not app_id or not app_key:
         return []
-    query = " ".join(skills[:5])
+    query = " ".join(skills[:5]) + " remote"
     try:
         r = http_req.get(
             "https://api.adzuna.com/v1/api/jobs/us/search/1",
@@ -225,6 +225,7 @@ def fetch_adzuna(skills, app_id, app_key, limit=50):
                 "app_key": app_key,
                 "results_per_page": limit,
                 "what": query,
+                "where": "remote",
                 "content-type": "application/json",
             },
             timeout=20,
@@ -371,12 +372,11 @@ def fetch_apify_jobs(skills, token, limit=150, time_range="7d"):
 
 
 def fetch_themuse(skills, limit=50):
-    """Fetch from The Muse API (free, no auth required)."""
+    """Fetch from The Muse API (free, no auth required) — remote only."""
     try:
-        # TheMuse category uses their own taxonomy — just fetch entry-level and let scoring rank
         r = http_req.get(
             "https://www.themuse.com/api/public/jobs",
-            params={"page": 0, "level": "Entry Level"},
+            params={"page": 0, "level": "Entry Level", "location": "Flexible / Remote"},
             timeout=20,
         )
         r.raise_for_status()
@@ -384,6 +384,11 @@ def fetch_themuse(skills, limit=50):
         for j in r.json().get("results", [])[:limit]:
             locs = j.get("locations", [])
             loc  = locs[0].get("name", "Remote") if locs else "Remote"
+            # Double-check: skip if location has no "remote" or "flexible" hint
+            if locs and not any("remote" in l.get("name","").lower() or
+                                 "flexible" in l.get("name","").lower()
+                                 for l in locs):
+                continue
             url  = (j.get("refs") or {}).get("landing_page", "")
             if not url:
                 continue
@@ -954,7 +959,17 @@ def search_jobs():
             except Exception:
                 source_results[src] = []
 
-    # Merge, deduplicate by URL, and remove sign-in-wall domains
+    # Location keywords that signal an in-person / on-site job
+    ONSITE_SIGNALS = [
+        ", al", ", ak", ", az", ", ar", ", ca", ", co", ", ct", ", de", ", fl",
+        ", ga", ", hi", ", id", ", il", ", in", ", ia", ", ks", ", ky", ", la",
+        ", me", ", md", ", ma", ", mi", ", mn", ", ms", ", mo", ", mt", ", ne",
+        ", nv", ", nh", ", nj", ", nm", ", ny", ", nc", ", nd", ", oh", ", ok",
+        ", or", ", pa", ", ri", ", sc", ", sd", ", tn", ", tx", ", ut", ", vt",
+        ", va", ", wa", ", wv", ", wi", ", wy",
+    ]
+
+    # Merge, deduplicate by URL, remove sign-in-wall domains, keep remote only
     seen_urls = set()
     all_jobs = []
     for src, jobs_list in source_results.items():
@@ -964,6 +979,30 @@ def search_jobs():
                 continue
             if any(d in url for d in SIGNIN_WALL_DOMAINS):
                 continue  # skip Indeed, LinkedIn, Glassdoor etc.
+            # Remote-only filter: skip jobs with clear in-person location signals
+            loc_lower = (job.get("location") or "").lower().strip()
+            title_lower = (job.get("title") or "").lower()
+            # Allow if location is empty, "remote", "worldwide", "anywhere" etc.
+            is_remote = (
+                not loc_lower
+                or "remote" in loc_lower
+                or "flexible" in loc_lower
+                or "worldwide" in loc_lower
+                or "anywhere" in loc_lower
+                or "work from home" in loc_lower
+                or loc_lower in ("us", "usa", "united states", "global", "international")
+            )
+            # Also allow if title mentions remote
+            if not is_remote and "remote" in title_lower:
+                is_remote = True
+            # Block if location ends with a US state abbreviation (e.g. "Austin, TX")
+            if not is_remote and any(loc_lower.endswith(sig) for sig in ONSITE_SIGNALS):
+                continue
+            if not is_remote:
+                # One last check — if description mentions "remote" prominently keep it
+                desc_lower = (job.get("description") or "").lower()[:500]
+                if "remote" not in desc_lower and "work from home" not in desc_lower:
+                    continue
             seen_urls.add(url)
             all_jobs.append(job)
 
