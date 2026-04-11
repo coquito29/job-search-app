@@ -216,7 +216,7 @@ def fetch_adzuna(skills, app_id, app_key, limit=50):
     """Fetch from Adzuna API (free key from developer.adzuna.com) — remote only."""
     if not app_id or not app_key:
         return []
-    query = " ".join(skills[:2]) + " remote"
+    query = " ".join(skills[:3])
     try:
         r = http_req.get(
             "https://api.adzuna.com/v1/api/jobs/us/search/1",
@@ -225,6 +225,7 @@ def fetch_adzuna(skills, app_id, app_key, limit=50):
                 "app_key": app_key,
                 "results_per_page": limit,
                 "what": query,
+                "what_and": "remote",
                 "content-type": "application/json",
             },
             timeout=20,
@@ -241,8 +242,9 @@ def fetch_adzuna(skills, app_id, app_key, limit=50):
         title = j.get("title", "")
         desc  = j.get("description", "")
         # Adzuna returns city locations even for remote jobs — keep only if remote signals exist
-        remote_signals = ("remote" in title.lower() or "remote" in desc.lower()[:300]
-                          or "work from home" in desc.lower()[:300])
+        combined = (title + " " + desc).lower()
+        remote_signals = ("remote" in combined or "work from home" in combined
+                          or "wfh" in combined or "telecommut" in combined)
         if not remote_signals:
             continue
         sal = ""
