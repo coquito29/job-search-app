@@ -225,7 +225,6 @@ def fetch_adzuna(skills, app_id, app_key, limit=50):
                 "app_key": app_key,
                 "results_per_page": limit,
                 "what": query,
-                "where": "remote",
                 "content-type": "application/json",
             },
             timeout=20,
