@@ -914,10 +914,13 @@ def parse_cv():
 @app.route("/api/search", methods=["POST"])
 def search_jobs():
     data = request.get_json(force=True)
-    token      = (data.get("token") or "").strip()
-    skills     = data.get("skills") or []
-    time_range = data.get("time_range") or DEFAULT_TIMERANGE
-    sources    = data.get("sources") or ["apify","jsearch","adzuna"]
+    token        = (data.get("token") or "").strip()
+    rapidapi_key = (data.get("rapidapi_key") or os.environ.get("RAPIDAPI_KEY", "")).strip()
+    adzuna_id    = (data.get("adzuna_id") or os.environ.get("ADZUNA_APP_ID", "")).strip()
+    adzuna_key   = (data.get("adzuna_key") or os.environ.get("ADZUNA_APP_KEY", "")).strip()
+    skills       = data.get("skills") or []
+    time_range   = data.get("time_range") or DEFAULT_TIMERANGE
+    sources      = data.get("sources") or ["apify","jsearch","adzuna"]
 
     if not skills:
         return jsonify({"error": "At least one skill is required"}), 400
@@ -936,11 +939,8 @@ def search_jobs():
         fetch_tasks["himalayas"] = lambda: fetch_himalayas(skills, limit=50)
     if "apify" in sources and token:
         fetch_tasks["apify"] = lambda: fetch_apify_jobs(skills, token, limit=FETCH_LIMIT, time_range=time_range)
-    adzuna_id  = os.environ.get("ADZUNA_APP_ID", "")
-    adzuna_key = os.environ.get("ADZUNA_APP_KEY", "")
     if "adzuna" in sources and adzuna_id and adzuna_key:
         fetch_tasks["adzuna"] = lambda: fetch_adzuna(skills, adzuna_id, adzuna_key, limit=50)
-    rapidapi_key = os.environ.get("RAPIDAPI_KEY", "")
     if "jsearch" in sources and rapidapi_key:
         fetch_tasks["jsearch"] = lambda: fetch_jsearch(skills, rapidapi_key, limit=50)
     if "themuse" in sources:
