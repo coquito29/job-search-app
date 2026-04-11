@@ -804,12 +804,13 @@ def index():
 
 @app.route("/api/config")
 def config():
-    """Return server-side config so the frontend can auto-fill the token and check AI."""
-    token = os.environ.get("APIFY_TOKEN", "")
-    ai_enabled = bool(os.environ.get("ANTHROPIC_API_KEY") and _anthropic)
+    """Return server-side config so the frontend can auto-fill all API keys."""
     return jsonify({
-        "apify_token": token,
-        "ai_enabled": ai_enabled,
+        "apify_token":  os.environ.get("APIFY_TOKEN", ""),
+        "rapidapi_key": os.environ.get("RAPIDAPI_KEY", ""),
+        "adzuna_id":    os.environ.get("ADZUNA_APP_ID", ""),
+        "adzuna_key":   os.environ.get("ADZUNA_APP_KEY", ""),
+        "ai_enabled":   bool(os.environ.get("ANTHROPIC_API_KEY") and _anthropic),
         "adzuna_enabled": bool(os.environ.get("ADZUNA_APP_ID") and os.environ.get("ADZUNA_APP_KEY")),
         "jsearch_enabled": bool(os.environ.get("RAPIDAPI_KEY")),
     })

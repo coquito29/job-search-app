@@ -1151,6 +1151,22 @@ document.addEventListener('DOMContentLoaded', () => {
           localStorage.setItem('apify_token', cfg.apify_token);
           showTokenSaved(true);
         }
+        if (cfg.rapidapi_key) {
+          document.getElementById('jsearchKeyInput').value = cfg.rapidapi_key;
+          localStorage.setItem('rapidapi_key', cfg.rapidapi_key);
+          showJsearchKeySaved(true);
+          const lbl = document.getElementById('lbl-jsearch');
+          if (lbl) lbl.style.display = '';
+        }
+        if (cfg.adzuna_id && cfg.adzuna_key) {
+          document.getElementById('adzunaIdInput').value = cfg.adzuna_id;
+          document.getElementById('adzunaKeyInput').value = cfg.adzuna_key;
+          localStorage.setItem('adzuna_id', cfg.adzuna_id);
+          localStorage.setItem('adzuna_key', cfg.adzuna_key);
+          showAdzunaKeysSaved(true);
+          const lbl = document.getElementById('lbl-adzuna');
+          if (lbl) lbl.style.display = '';
+        }
         if (cfg.ai_enabled) showAiBadge();
         applySourceConfig(cfg);
       })
