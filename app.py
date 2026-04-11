@@ -216,7 +216,7 @@ def fetch_adzuna(skills, app_id, app_key, limit=50):
     """Fetch from Adzuna API (free key from developer.adzuna.com) — remote only."""
     if not app_id or not app_key:
         return []
-    query = " ".join(skills[:5]) + " remote"
+    query = " ".join(skills[:2]) + " remote"
     try:
         r = http_req.get(
             "https://api.adzuna.com/v1/api/jobs/us/search/1",
