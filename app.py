@@ -320,9 +320,9 @@ def fetch_apify_jobs(skills, token, limit=150, time_range="7d"):
         "includeAi": True,
         "includeLinkedIn": True,
         "aiWorkArrangementFilter": ["Remote OK", "Remote Solely"],
-        "remoteOnly": True,
-        "removeAgencyJobs": True,
-        "aiEmploymentTypeFilter": ["Full-time"],
+        "remote only (legacy)": True,
+        "removeAgency": True,
+        "aiEmploymentTypeFilter": ["FULL_TIME"],
         "titleSearch": skills[:10],
         "descriptionSearch": skills[:10],
     }
