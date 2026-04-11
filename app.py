@@ -238,6 +238,13 @@ def fetch_adzuna(skills, app_id, app_key, limit=50):
         url = j.get("redirect_url", "")
         if not url:
             continue
+        title = j.get("title", "")
+        desc  = j.get("description", "")
+        # Adzuna returns city locations even for remote jobs — keep only if remote signals exist
+        remote_signals = ("remote" in title.lower() or "remote" in desc.lower()[:300]
+                          or "work from home" in desc.lower()[:300])
+        if not remote_signals:
+            continue
         sal = ""
         lo = j.get("salary_min")
         hi = j.get("salary_max")
@@ -246,11 +253,11 @@ def fetch_adzuna(skills, app_id, app_key, limit=50):
         elif lo:
             sal = f"${int(lo)//1000}k+"
         results.append({
-            "title": j.get("title", ""),
+            "title": title,
             "company_name": (j.get("company") or {}).get("display_name", ""),
-            "location": (j.get("location") or {}).get("display_name", "Remote"),
+            "location": "Remote",
             "salary": sal,
-            "description": j.get("description", ""),
+            "description": desc,
             "url": url,
             "posted": j.get("created", ""),
             "id": url,
