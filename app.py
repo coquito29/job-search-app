@@ -917,7 +917,7 @@ def search_jobs():
     token      = (data.get("token") or "").strip()
     skills     = data.get("skills") or []
     time_range = data.get("time_range") or DEFAULT_TIMERANGE
-    sources    = data.get("sources") or ["remotive","remoteok","arbeitnow","himalayas","apify","themuse","weworkremotely"]
+    sources    = data.get("sources") or ["apify","jsearch","adzuna"]
 
     if not skills:
         return jsonify({"error": "At least one skill is required"}), 400
