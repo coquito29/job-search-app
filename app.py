@@ -1157,8 +1157,9 @@ def daily_digest():
     from email.mime.multipart import MIMEMultipart
     from email.mime.text import MIMEText
 
-    gmail_user = os.environ.get("GMAIL_USER", "")
+    gmail_user = os.environ.get("GMAIL_USER", "")   # account that authenticates + sends
     gmail_pass = os.environ.get("GMAIL_APP_PASSWORD", "")
+    digest_to  = os.environ.get("DIGEST_TO", gmail_user)  # recipient; defaults to sender
     apify_token = os.environ.get("APIFY_TOKEN", "")
     rapidapi_key = os.environ.get("RAPIDAPI_KEY", "")
     adzuna_id  = os.environ.get("ADZUNA_APP_ID", "")
@@ -1291,7 +1292,7 @@ def daily_digest():
     msg = MIMEMultipart("alternative")
     msg["Subject"] = f"🔍 Daily Job Digest — {today} ({len(top10)} top matches)"
     msg["From"]    = gmail_user
-    msg["To"]      = gmail_user  # send to yourself
+    msg["To"]      = digest_to
     msg.attach(MIMEText(html_body, "html"))
 
     try:
@@ -1300,11 +1301,11 @@ def daily_digest():
             server.starttls()
             server.ehlo()
             server.login(gmail_user, gmail_pass)
-            server.sendmail(gmail_user, gmail_user, msg.as_string())
+            server.sendmail(gmail_user, digest_to, msg.as_string())
     except Exception as e:
         return jsonify({"sent": False, "error": str(e)}), 500
 
-    return jsonify({"sent": True, "jobs_emailed": len(top10), "to": gmail_user})
+    return jsonify({"sent": True, "jobs_emailed": len(top10), "to": digest_to})
 
 
 # ── Startup ───────────────────────────────────────────────────────────────────
