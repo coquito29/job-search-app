@@ -1018,6 +1018,20 @@ def search_jobs():
             seen_urls.add(url)
             all_jobs.append(job)
 
+    # Secondary dedup: same title + company posted on multiple sources
+    seen_fps = set()
+    deduped  = []
+    for job in all_jobs:
+        t = re.sub(r'\s+', ' ', (job.get("title") or "").lower().strip())[:60]
+        c = re.sub(r'\s+', ' ', (job.get("company_name") or "").lower().strip())[:30]
+        if t and c:
+            fp = f"{t}|{c}"
+            if fp in seen_fps:
+                continue
+            seen_fps.add(fp)
+        deduped.append(job)
+    all_jobs = deduped
+
     total_fetched = len(all_jobs)
 
     # Source counts (before filtering)
