@@ -1168,16 +1168,26 @@ def daily_digest():
     if not gmail_user or not gmail_pass:
         return jsonify({"error": "GMAIL_USER / GMAIL_APP_PASSWORD not set"}), 500
 
-    # Skills tuned to George's Technical Support CV — entry-level IT career start
-    # Mix of help-desk/IT-support roles + entry cybersecurity + bilingual boost
+    # Skills tuned to George's FULL profile — entry IT + dev background (Cholo Tech)
+    # Pulls in help-desk, app-support, jr-dev, QA, and SOC-I roles
     skills = [
+        # Core IT support (primary target)
         "help desk", "helpdesk", "it support", "technical support",
         "desktop support", "application support", "tier 1", "tier 2",
+        "service desk", "end user support", "remote support",
         "troubleshooting", "incident response", "escalation",
-        "remote support", "service desk", "end user support",
-        "access control", "network", "sql", "javascript",
-        "cybersecurity", "security+", "soc analyst",
-        "compliance", "bilingual", "spanish"
+        # Entry-level cybersecurity
+        "cybersecurity", "security+", "soc analyst", "security analyst",
+        # Dev stack (Cholo Tech freelance)
+        "javascript", "html", "css", "angular", "node.js", "php",
+        "sql", "python", "java",
+        # Adjacent entry roles
+        "junior developer", "web developer", "qa", "test engineer",
+        # Platform / commerce
+        "shopify", "seo",
+        # Soft differentiators
+        "access control", "network", "compliance",
+        "bilingual", "spanish"
     ]
 
     # --- Run all sources in parallel (same logic as /api/search) ---
