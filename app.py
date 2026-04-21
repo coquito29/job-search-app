@@ -1168,10 +1168,16 @@ def daily_digest():
     if not gmail_user or not gmail_pass:
         return jsonify({"error": "GMAIL_USER / GMAIL_APP_PASSWORD not set"}), 500
 
-    # Default skills for the daily digest — covers a broad remote-friendly profile
+    # Skills tuned to George's Technical Support CV — entry-level IT career start
+    # Mix of help-desk/IT-support roles + entry cybersecurity + bilingual boost
     skills = [
-        "python", "sql", "data analysis", "excel", "reporting",
-        "helpdesk", "it support", "javascript", "remote", "customer support"
+        "help desk", "helpdesk", "it support", "technical support",
+        "desktop support", "application support", "tier 1", "tier 2",
+        "troubleshooting", "incident response", "escalation",
+        "remote support", "service desk", "end user support",
+        "access control", "network", "sql", "javascript",
+        "cybersecurity", "security+", "soc analyst",
+        "compliance", "bilingual", "spanish"
     ]
 
     # --- Run all sources in parallel (same logic as /api/search) ---
