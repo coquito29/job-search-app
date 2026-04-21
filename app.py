@@ -1144,6 +1144,166 @@ Return ONLY valid JSON (no markdown, no explanation):
         return jsonify({"error": str(e)}), 500
 
 
+# ── Daily Digest ──────────────────────────────────────────────────────────────
+
+@app.route("/api/digest", methods=["POST", "GET"])
+def daily_digest():
+    """
+    Run a job search with the configured skills and email the top 10 results.
+    Can be triggered via GET (GitHub Actions cron) or POST (manual/test).
+    Requires GMAIL_USER + GMAIL_APP_PASSWORD env vars on Render.
+    """
+    import smtplib
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+
+    gmail_user = os.environ.get("GMAIL_USER", "")
+    gmail_pass = os.environ.get("GMAIL_APP_PASSWORD", "")
+    apify_token = os.environ.get("APIFY_TOKEN", "")
+    rapidapi_key = os.environ.get("RAPIDAPI_KEY", "")
+    adzuna_id  = os.environ.get("ADZUNA_APP_ID", "")
+    adzuna_key = os.environ.get("ADZUNA_APP_KEY", "")
+
+    if not gmail_user or not gmail_pass:
+        return jsonify({"error": "GMAIL_USER / GMAIL_APP_PASSWORD not set"}), 500
+
+    # Default skills for the daily digest — covers a broad remote-friendly profile
+    skills = [
+        "python", "sql", "data analysis", "excel", "reporting",
+        "helpdesk", "it support", "javascript", "remote", "customer support"
+    ]
+
+    # --- Run all sources in parallel (same logic as /api/search) ---
+    fetch_tasks = {
+        "remotive":      lambda: fetch_remotive(skills, limit=100),
+        "remoteok":      lambda: fetch_remoteok(skills, limit=100),
+        "jobicy":        lambda: fetch_jobicy(skills, limit=50),
+        "arbeitnow":     lambda: fetch_arbeitnow(limit=50),
+        "himalayas":     lambda: fetch_himalayas(skills, limit=50),
+        "themuse":       lambda: fetch_themuse(skills, limit=50),
+        "weworkremotely":lambda: fetch_weworkremotely(skills, limit=50),
+    }
+    if apify_token:
+        fetch_tasks["apify"] = lambda: fetch_apify_jobs(skills, apify_token, limit=100, time_range="1d")
+    if adzuna_id and adzuna_key:
+        fetch_tasks["adzuna"] = lambda: fetch_adzuna(skills, adzuna_id, adzuna_key, limit=50)
+    if rapidapi_key:
+        fetch_tasks["jsearch"] = lambda: fetch_jsearch(skills, rapidapi_key, limit=50)
+
+    source_results = {src: [] for src in fetch_tasks}
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        future_to_src = {executor.submit(fn): src for src, fn in fetch_tasks.items()}
+        for future in as_completed(future_to_src):
+            src = future_to_src[future]
+            try:
+                source_results[src] = future.result()
+            except Exception:
+                source_results[src] = []
+
+    # Deduplicate, score, sort
+    seen_urls = set()
+    seen_fps  = set()
+    all_jobs  = []
+    for src, jobs_list in source_results.items():
+        for job in jobs_list:
+            url = job.get("url", "")
+            if not url or url in seen_urls:
+                continue
+            if any(d in url for d in SIGNIN_WALL_DOMAINS):
+                continue
+            seen_urls.add(url)
+            t = re.sub(r'\s+', ' ', (job.get("title") or "").lower().strip())[:60]
+            c = re.sub(r'\s+', ' ', (job.get("company_name") or "").lower().strip())[:30]
+            if t and c:
+                fp = f"{t}|{c}"
+                if fp in seen_fps:
+                    continue
+                seen_fps.add(fp)
+            all_jobs.append(job)
+
+    # Score jobs by skill match
+    scored = []
+    for job in all_jobs:
+        text_blob = " ".join([
+            (job.get("title") or ""),
+            (job.get("description") or ""),
+            (job.get("company_name") or ""),
+        ]).lower()
+        hits  = sum(1 for s in skills if s.lower() in text_blob)
+        total = max(len(skills), 1)
+        pct   = min(100, round((hits / total) * 100))
+        job["match_pct"] = pct
+        scored.append(job)
+
+    scored.sort(key=lambda j: j["match_pct"], reverse=True)
+    top10 = scored[:10]
+
+    if not top10:
+        return jsonify({"sent": False, "reason": "No jobs found today"}), 200
+
+    # --- Build HTML email ---
+    today = datetime.utcnow().strftime("%B %d, %Y")
+    rows_html = ""
+    for i, job in enumerate(top10, 1):
+        title   = job.get("title", "No title")
+        company = job.get("company_name", "Unknown")
+        url     = job.get("url", "#")
+        pct     = job.get("match_pct", 0)
+        loc     = job.get("location") or "Remote"
+        bar_color = "#28a745" if pct >= 70 else ("#ffc107" if pct >= 40 else "#6c757d")
+        rows_html += f"""
+        <tr style="border-bottom:1px solid #e9ecef">
+          <td style="padding:14px 8px;font-weight:600;color:#555;width:24px">{i}</td>
+          <td style="padding:14px 8px">
+            <a href="{url}" style="color:#0d6efd;font-weight:700;font-size:15px;text-decoration:none">{title}</a><br>
+            <span style="color:#555;font-size:13px">{company}</span> &nbsp;·&nbsp;
+            <span style="color:#888;font-size:12px">{loc}</span>
+          </td>
+          <td style="padding:14px 8px;text-align:center;white-space:nowrap">
+            <span style="background:{bar_color};color:#fff;padding:3px 9px;border-radius:12px;font-size:13px;font-weight:700">{pct}%</span>
+          </td>
+        </tr>"""
+
+    html_body = f"""
+    <html><body style="font-family:Arial,sans-serif;max-width:680px;margin:auto;color:#333">
+      <div style="background:#0d6efd;padding:24px 32px;border-radius:8px 8px 0 0">
+        <h1 style="color:#fff;margin:0;font-size:22px">🔍 Your Daily Job Digest</h1>
+        <p style="color:#cce5ff;margin:6px 0 0">{today} — Top {len(top10)} remote jobs matched to your profile</p>
+      </div>
+      <div style="border:1px solid #dee2e6;border-top:none;border-radius:0 0 8px 8px;padding:0 16px 16px">
+        <table style="width:100%;border-collapse:collapse">
+          <thead>
+            <tr style="border-bottom:2px solid #dee2e6">
+              <th style="padding:10px 8px;text-align:left;color:#888;font-size:12px">#</th>
+              <th style="padding:10px 8px;text-align:left;color:#888;font-size:12px">JOB</th>
+              <th style="padding:10px 8px;text-align:center;color:#888;font-size:12px">MATCH</th>
+            </tr>
+          </thead>
+          <tbody>{rows_html}</tbody>
+        </table>
+      </div>
+      <p style="text-align:center;color:#aaa;font-size:12px;margin-top:20px">
+        Sent by <a href="https://job-search-app-9pnx.onrender.com" style="color:#0d6efd">Remote Job Search</a> · Click any job to apply directly on the employer site
+      </p>
+    </body></html>"""
+
+    # --- Send via Gmail SMTP ---
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = f"🔍 Daily Job Digest — {today} ({len(top10)} top matches)"
+    msg["From"]    = gmail_user
+    msg["To"]      = gmail_user  # send to yourself
+    msg.attach(MIMEText(html_body, "html"))
+
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(gmail_user, gmail_pass)
+            server.sendmail(gmail_user, gmail_user, msg.as_string())
+    except Exception as e:
+        return jsonify({"sent": False, "error": str(e)}), 500
+
+    return jsonify({"sent": True, "jobs_emailed": len(top10), "to": gmail_user})
+
+
 # ── Startup ───────────────────────────────────────────────────────────────────
 
 def _get_local_ip():

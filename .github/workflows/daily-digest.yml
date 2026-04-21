@@ -1,0 +1,17 @@
+name: Daily Job Digest
+
+on:
+  schedule:
+    # 9:00 AM Eastern = 14:00 UTC  (adjusts automatically for DST)
+    - cron: "0 14 * * *"
+  workflow_dispatch:   # allows manual trigger from GitHub Actions tab
+
+jobs:
+  send-digest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger digest endpoint on Render
+        run: |
+          curl -f -X POST \
+            -H "Content-Type: application/json" \
+            https://job-search-app-9pnx.onrender.com/api/digest
