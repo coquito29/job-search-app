@@ -329,35 +329,41 @@ SENIOR_TITLE_BLOCKLIST = (
 )
 
 
-def fetch_apify_jobs(skills, token, limit=300, time_range="7d"):
-    """Fetch remote jobs from Apify, tuned for entry-level IT matches.
+APIFY_TASK_ID = os.environ.get("APIFY_TASK_ID", "SaaKhEMNZxRC5uGk0")
 
-    Improvements vs. prior version:
-      - Uses TARGET_TITLES for titleSearch (actual roles we want) and
-        skills for descriptionSearch (keywords we match on).
-      - Adds experience-level filter (Entry/Associate/Internship).
-      - Opens employment types to full-time + contract + internship.
-      - Post-filters senior-level titles that sometimes slip through.
-      - Raises default limit so we have more raw data to filter.
+
+def fetch_apify_jobs(skills, token, limit=300, time_range="7d"):
+    """Fetch remote jobs from Apify via the saved Task "IT Career Search — George".
+
+    The task (id APIFY_TASK_ID) holds the curated config: entry-level filter,
+    TARGET_TITLES for titleSearch, senior-title exclusions, remote-only, etc.
+    We only override `limit` and `timeRange` per call so digest vs manual
+    searches can tune cost. Falls back to the actor endpoint if no task id.
     """
     if not token:
         return []
-    run_input = {
+    run_override = {
         "timeRange": time_range,
         "limit": int(max(10, min(limit, 5000))),
-        "includeAi": True,
-        "includeLinkedIn": True,
-        "aiWorkArrangementFilter": ["Remote OK", "Remote Solely"],
-        "remote only (legacy)": True,
-        "removeAgency": True,
-        "aiEmploymentTypeFilter": ["FULL_TIME", "CONTRACTOR", "INTERN"],
-        "aiExperienceLevelFilter": ["Entry Level", "Associate", "Internship"],
-        "titleSearch": TARGET_TITLES,                  # roles we want (specific)
-        "descriptionSearch": skills[:20],              # skills we have (broad)
     }
-    url = ("https://api.apify.com/v2/acts/fantastic-jobs~career-site-job-listing-api"
-           "/run-sync-get-dataset-items")
-    r = http_req.post(url, params={"token": token}, json=run_input, timeout=120)
+    if APIFY_TASK_ID:
+        url = (f"https://api.apify.com/v2/actor-tasks/{APIFY_TASK_ID}"
+               "/run-sync-get-dataset-items")
+    else:
+        url = ("https://api.apify.com/v2/acts/fantastic-jobs~career-site-job-listing-api"
+               "/run-sync-get-dataset-items")
+        run_override.update({
+            "includeAi": True,
+            "includeLinkedIn": True,
+            "aiWorkArrangementFilter": ["Remote OK", "Remote Solely"],
+            "remote only (legacy)": True,
+            "removeAgency": True,
+            "aiEmploymentTypeFilter": ["FULL_TIME", "CONTRACTOR", "INTERN"],
+            "aiExperienceLevelFilter": ["Entry Level", "Associate", "Internship"],
+            "titleSearch": TARGET_TITLES,
+            "descriptionSearch": skills[:20],
+        })
+    r = http_req.post(url, params={"token": token}, json=run_override, timeout=180)
     r.raise_for_status()
     items = r.json()
     if not isinstance(items, list):
