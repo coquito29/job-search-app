@@ -30,7 +30,7 @@ except ImportError:
 app = Flask(__name__)
 
 TOP_JOBS_LIMIT = 50
-FETCH_LIMIT = 150
+FETCH_LIMIT = 300
 DEFAULT_TIMERANGE = "7d"
 NO_GO_TERMS = ["cold calling", "commission only", "door to door"]
 
@@ -311,7 +311,35 @@ def fetch_jsearch(skills, rapidapi_key, limit=50):
     return results
 
 
-def fetch_apify_jobs(skills, token, limit=150, time_range="7d"):
+# Role titles George is actually targeting — used for Apify titleSearch
+# (kept separate from the broader skills list used for match scoring / descriptionSearch)
+TARGET_TITLES = [
+    "help desk", "helpdesk", "it support", "technical support",
+    "desktop support", "application support", "service desk",
+    "end user support", "junior developer", "jr developer",
+    "web developer", "software developer", "qa", "test engineer",
+    "soc analyst", "security analyst", "cybersecurity analyst",
+]
+
+# Post-filter: drop listings with any of these words in the title (too senior for entry IT)
+SENIOR_TITLE_BLOCKLIST = (
+    "senior", " sr.", " sr ", "lead ", "principal", "staff ",
+    "manager", "director", "architect", " vp ", " vp,", "head of",
+    "chief ", "ii ", "iii ", "iv ",
+)
+
+
+def fetch_apify_jobs(skills, token, limit=300, time_range="7d"):
+    """Fetch remote jobs from Apify, tuned for entry-level IT matches.
+
+    Improvements vs. prior version:
+      - Uses TARGET_TITLES for titleSearch (actual roles we want) and
+        skills for descriptionSearch (keywords we match on).
+      - Adds experience-level filter (Entry/Associate/Internship).
+      - Opens employment types to full-time + contract + internship.
+      - Post-filters senior-level titles that sometimes slip through.
+      - Raises default limit so we have more raw data to filter.
+    """
     if not token:
         return []
     run_input = {
@@ -322,9 +350,10 @@ def fetch_apify_jobs(skills, token, limit=150, time_range="7d"):
         "aiWorkArrangementFilter": ["Remote OK", "Remote Solely"],
         "remote only (legacy)": True,
         "removeAgency": True,
-        "aiEmploymentTypeFilter": ["FULL_TIME"],
-        "titleSearch": skills[:10],
-        "descriptionSearch": skills[:10],
+        "aiEmploymentTypeFilter": ["FULL_TIME", "CONTRACTOR", "INTERN"],
+        "aiExperienceLevelFilter": ["Entry Level", "Associate", "Internship"],
+        "titleSearch": TARGET_TITLES,                  # roles we want (specific)
+        "descriptionSearch": skills[:20],              # skills we have (broad)
     }
     url = ("https://api.apify.com/v2/acts/fantastic-jobs~career-site-job-listing-api"
            "/run-sync-get-dataset-items")
@@ -346,6 +375,10 @@ def fetch_apify_jobs(skills, token, limit=150, time_range="7d"):
     for item in items:
         if not isinstance(item, dict): continue
         title   = pick(item.get("title"), item.get("job_title"), item.get("position")) or ""
+        # Drop senior-level titles that slipped past the experience filter
+        title_lc = title.lower()
+        if any(bad in title_lc for bad in SENIOR_TITLE_BLOCKLIST):
+            continue
         company = pick(item.get("organization"), item.get("organization_name"),
                        item.get("company"), item.get("company_name")) or ""
         loc = pick(item.get("location"), item.get("ai_remote_location"),
@@ -1201,7 +1234,7 @@ def daily_digest():
         "weworkremotely":lambda: fetch_weworkremotely(skills, limit=50),
     }
     if apify_token:
-        fetch_tasks["apify"] = lambda: fetch_apify_jobs(skills, apify_token, limit=100, time_range="1d")
+        fetch_tasks["apify"] = lambda: fetch_apify_jobs(skills, apify_token, limit=200, time_range="1d")
     if adzuna_id and adzuna_key:
         fetch_tasks["adzuna"] = lambda: fetch_adzuna(skills, adzuna_id, adzuna_key, limit=50)
     if rapidapi_key:
