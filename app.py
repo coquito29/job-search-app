@@ -965,11 +965,8 @@ def search_jobs():
     adzuna_key   = (data.get("adzuna_key") or os.environ.get("ADZUNA_APP_KEY", "")).strip()
     skills       = data.get("skills") or []
     time_range   = data.get("time_range") or DEFAULT_TIMERANGE
-    # Default: free sources only (Apify is opt-in from the UI since it costs ~$1.20/search)
-    sources      = data.get("sources") or [
-        "remotive", "remoteok", "jobicy", "arbeitnow",
-        "himalayas", "themuse", "weworkremotely", "adzuna",
-    ]
+    # Default: paid/keyed APIs only (free sources return thin / stale results)
+    sources      = data.get("sources") or ["apify", "jsearch", "adzuna"]
 
     if not skills:
         return jsonify({"error": "At least one skill is required"}), 400

@@ -869,59 +869,59 @@
     <div class="sources-label open" id="sourcesLabel" onclick="toggleSources()">
       <i class="bi bi-database-fill-check" style="color:#0d6efd;"></i>
       Job Sources
-      <span class="badge bg-primary ms-1" id="sourcesCount">7</span>
+      <span class="badge bg-primary ms-1" id="sourcesCount">3</span>
       <i class="bi bi-chevron-down chevron ms-auto"></i>
     </div>
     <div id="sourcesPanel" class="source-toggles-grid mt-2">
-      <!-- Paid source — OFF by default (opt-in, costs ~$1.20/search) -->
-      <label class="source-toggle source-toggle-apify" id="lbl-apify">
-        <input type="checkbox" value="apify" onchange="onSourceToggle(this)" />
+      <!-- API-key sources — ON by default (high-quality results) -->
+      <label class="source-toggle source-toggle-apify checked" id="lbl-apify">
+        <input type="checkbox" value="apify" checked onchange="onSourceToggle(this)" />
         <i class="bi bi-check2" id="chk-icon-apify"></i>
-        Apify <span style="opacity:.7;font-weight:400;">(premium · ~$1.20/search)</span>
+        Apify <span style="opacity:.7;font-weight:400;">(your key · ~$1.20/search)</span>
       </label>
-      <label class="source-toggle source-toggle-jsearch" id="lbl-jsearch" style="display:none;">
-        <input type="checkbox" value="jsearch" onchange="onSourceToggle(this)" />
+      <label class="source-toggle source-toggle-jsearch checked" id="lbl-jsearch" style="display:none;">
+        <input type="checkbox" value="jsearch" checked onchange="onSourceToggle(this)" />
         <i class="bi bi-check2" id="chk-icon-jsearch"></i>
         JSearch <span style="opacity:.7;font-weight:400;">(your key)</span>
       </label>
       <label class="source-toggle source-toggle-adzuna checked" id="lbl-adzuna" style="display:none;">
         <input type="checkbox" value="adzuna" checked onchange="onSourceToggle(this)" />
         <i class="bi bi-check2" id="chk-icon-adzuna"></i>
-        Adzuna <span style="opacity:.7;font-weight:400;">(your key · free)</span>
+        Adzuna <span style="opacity:.7;font-weight:400;">(your key)</span>
       </label>
-      <!-- Free sources — ON by default -->
-      <label class="source-toggle source-toggle-remotive checked" id="lbl-remotive">
-        <input type="checkbox" value="remotive" checked onchange="onSourceToggle(this)" />
+      <!-- Free sources — OFF by default (low signal, available if wanted) -->
+      <label class="source-toggle source-toggle-remotive" id="lbl-remotive">
+        <input type="checkbox" value="remotive" onchange="onSourceToggle(this)" />
         <i class="bi bi-check2" id="chk-icon-remotive"></i>
         Remotive <span style="opacity:.7;font-weight:400;">(free)</span>
       </label>
-      <label class="source-toggle source-toggle-remoteok checked" id="lbl-remoteok">
-        <input type="checkbox" value="remoteok" checked onchange="onSourceToggle(this)" />
+      <label class="source-toggle source-toggle-remoteok" id="lbl-remoteok">
+        <input type="checkbox" value="remoteok" onchange="onSourceToggle(this)" />
         <i class="bi bi-check2" id="chk-icon-remoteok"></i>
         RemoteOK <span style="opacity:.7;font-weight:400;">(free)</span>
       </label>
-      <label class="source-toggle source-toggle-arbeitnow checked" id="lbl-arbeitnow">
-        <input type="checkbox" value="arbeitnow" checked onchange="onSourceToggle(this)" />
+      <label class="source-toggle source-toggle-arbeitnow" id="lbl-arbeitnow">
+        <input type="checkbox" value="arbeitnow" onchange="onSourceToggle(this)" />
         <i class="bi bi-check2" id="chk-icon-arbeitnow"></i>
         Arbeitnow <span style="opacity:.7;font-weight:400;">(free)</span>
       </label>
-      <label class="source-toggle source-toggle-himalayas checked" id="lbl-himalayas">
-        <input type="checkbox" value="himalayas" checked onchange="onSourceToggle(this)" />
+      <label class="source-toggle source-toggle-himalayas" id="lbl-himalayas">
+        <input type="checkbox" value="himalayas" onchange="onSourceToggle(this)" />
         <i class="bi bi-check2" id="chk-icon-himalayas"></i>
         Himalayas <span style="opacity:.7;font-weight:400;">(free)</span>
       </label>
-      <label class="source-toggle source-toggle-themuse checked" id="lbl-themuse">
-        <input type="checkbox" value="themuse" checked onchange="onSourceToggle(this)" />
+      <label class="source-toggle source-toggle-themuse" id="lbl-themuse">
+        <input type="checkbox" value="themuse" onchange="onSourceToggle(this)" />
         <i class="bi bi-check2" id="chk-icon-themuse"></i>
         TheMuse <span style="opacity:.7;font-weight:400;">(free)</span>
       </label>
-      <label class="source-toggle source-toggle-weworkremotely checked" id="lbl-weworkremotely">
-        <input type="checkbox" value="weworkremotely" checked onchange="onSourceToggle(this)" />
+      <label class="source-toggle source-toggle-weworkremotely" id="lbl-weworkremotely">
+        <input type="checkbox" value="weworkremotely" onchange="onSourceToggle(this)" />
         <i class="bi bi-check2" id="chk-icon-weworkremotely"></i>
         WeWorkRemotely <span style="opacity:.7;font-weight:400;">(free)</span>
       </label>
-      <label class="source-toggle source-toggle-jobicy checked" id="lbl-jobicy">
-        <input type="checkbox" value="jobicy" checked onchange="onSourceToggle(this)" />
+      <label class="source-toggle source-toggle-jobicy" id="lbl-jobicy">
+        <input type="checkbox" value="jobicy" onchange="onSourceToggle(this)" />
         <i class="bi bi-check2" id="chk-icon-jobicy"></i>
         Jobicy <span style="opacity:.7;font-weight:400;">(job board)</span>
       </label>
