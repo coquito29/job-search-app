@@ -30,7 +30,7 @@ except ImportError:
 app = Flask(__name__)
 
 TOP_JOBS_LIMIT = 50
-FETCH_LIMIT = 300
+FETCH_LIMIT = 100  # per Apify search — ~$1.20/search at $0.012/job (opt-in from UI)
 DEFAULT_TIMERANGE = "7d"
 NO_GO_TERMS = ["cold calling", "commission only", "door to door"]
 
@@ -965,7 +965,11 @@ def search_jobs():
     adzuna_key   = (data.get("adzuna_key") or os.environ.get("ADZUNA_APP_KEY", "")).strip()
     skills       = data.get("skills") or []
     time_range   = data.get("time_range") or DEFAULT_TIMERANGE
-    sources      = data.get("sources") or ["apify","jsearch","adzuna"]
+    # Default: free sources only (Apify is opt-in from the UI since it costs ~$1.20/search)
+    sources      = data.get("sources") or [
+        "remotive", "remoteok", "jobicy", "arbeitnow",
+        "himalayas", "themuse", "weworkremotely", "adzuna",
+    ]
 
     if not skills:
         return jsonify({"error": "At least one skill is required"}), 400
