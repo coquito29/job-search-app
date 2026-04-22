@@ -1234,7 +1234,8 @@ def daily_digest():
         "weworkremotely":lambda: fetch_weworkremotely(skills, limit=50),
     }
     if apify_token:
-        fetch_tasks["apify"] = lambda: fetch_apify_jobs(skills, apify_token, limit=200, time_range="1d")
+        # Cost-capped: $0.012/job * 50 = $0.60/day for the daily digest
+        fetch_tasks["apify"] = lambda: fetch_apify_jobs(skills, apify_token, limit=50, time_range="1d")
     if adzuna_id and adzuna_key:
         fetch_tasks["adzuna"] = lambda: fetch_adzuna(skills, adzuna_id, adzuna_key, limit=50)
     if rapidapi_key:
