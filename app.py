@@ -3,7 +3,7 @@ app.py  —  Remote Job Search Mobile PWA
 Sources: Remotive · RemoteOK · Jobicy · Arbeitnow · Himalayas · Apify · Adzuna · JSearch
 AI Cover Letters: Claude Haiku (set ANTHROPIC_API_KEY env var)
 """
-import io, json, os, re, socket, xml.etree.ElementTree as ET
+import io, json, os, re, socket, sqlite3, xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime
@@ -28,6 +28,40 @@ except ImportError:
     _anthropic = None
 
 app = Flask(__name__)
+
+# ── Applications tracker (SQLite) ─────────────────────────────────────────────
+# Path is overridable via env var so Render disks can mount elsewhere.
+# Note: on ephemeral filesystems (Render free tier) the DB resets on restart.
+APPLICATIONS_DB = os.environ.get("APPLICATIONS_DB", os.path.join(os.path.dirname(__file__), "applications.db"))
+
+APP_STATUSES = ["Applied", "Phone Screen", "Interview", "Offer", "Rejected", "Withdrawn", "No Response"]
+
+def _db_conn():
+    conn = sqlite3.connect(APPLICATIONS_DB)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def _init_applications_db():
+    with _db_conn() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS applications (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                company      TEXT NOT NULL,
+                title        TEXT NOT NULL,
+                url          TEXT,
+                ats          TEXT,
+                location     TEXT,
+                salary       TEXT,
+                source       TEXT,
+                status       TEXT NOT NULL DEFAULT 'Applied',
+                notes        TEXT,
+                applied_at   TEXT NOT NULL,
+                updated_at   TEXT NOT NULL
+            )
+        """)
+        conn.commit()
+
+_init_applications_db()
 
 TOP_JOBS_LIMIT = 50
 FETCH_LIMIT = 100  # per Apify search — ~$1.20/search at $0.012/job (opt-in from UI)
@@ -1363,6 +1397,339 @@ def daily_digest():
         return jsonify({"sent": False, "error": str(e)}), 500
 
     return jsonify({"sent": True, "jobs_emailed": len(top10), "to": digest_to})
+
+
+# ── Applications tracker routes ───────────────────────────────────────────────
+
+@app.route("/api/applications", methods=["GET"])
+def list_applications():
+    status_filter = request.args.get("status")
+    with _db_conn() as conn:
+        if status_filter:
+            rows = conn.execute(
+                "SELECT * FROM applications WHERE status = ? ORDER BY applied_at DESC",
+                (status_filter,)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM applications ORDER BY applied_at DESC"
+            ).fetchall()
+    return jsonify({"applications": [dict(r) for r in rows], "count": len(rows)})
+
+
+@app.route("/api/applications", methods=["POST"])
+def create_application():
+    data = request.get_json(force=True) or {}
+    company = (data.get("company") or "").strip()
+    title   = (data.get("title") or "").strip()
+    if not company or not title:
+        return jsonify({"error": "company and title are required"}), 400
+    status = (data.get("status") or "Applied").strip()
+    if status not in APP_STATUSES:
+        return jsonify({"error": f"status must be one of {APP_STATUSES}"}), 400
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    with _db_conn() as conn:
+        cur = conn.execute(
+            """INSERT INTO applications
+               (company, title, url, ats, location, salary, source, status, notes, applied_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                company, title,
+                (data.get("url") or "").strip() or None,
+                (data.get("ats") or "").strip() or None,
+                (data.get("location") or "").strip() or None,
+                (data.get("salary") or "").strip() or None,
+                (data.get("source") or "").strip() or None,
+                status,
+                (data.get("notes") or "").strip() or None,
+                now, now,
+            ),
+        )
+        conn.commit()
+        new_id = cur.lastrowid
+    return jsonify({"id": new_id, "ok": True})
+
+
+@app.route("/api/applications/<int:app_id>", methods=["PATCH"])
+def update_application(app_id):
+    data = request.get_json(force=True) or {}
+    fields = []
+    values = []
+    for f in ("company", "title", "url", "ats", "location", "salary", "source", "status", "notes"):
+        if f in data:
+            if f == "status" and data[f] not in APP_STATUSES:
+                return jsonify({"error": f"status must be one of {APP_STATUSES}"}), 400
+            fields.append(f"{f} = ?")
+            values.append((data[f] or "").strip() or None if f != "status" else data[f])
+    if not fields:
+        return jsonify({"error": "No fields to update"}), 400
+    fields.append("updated_at = ?")
+    values.append(datetime.utcnow().isoformat(timespec="seconds") + "Z")
+    values.append(app_id)
+    with _db_conn() as conn:
+        cur = conn.execute(
+            f"UPDATE applications SET {', '.join(fields)} WHERE id = ?",
+            values,
+        )
+        conn.commit()
+        if cur.rowcount == 0:
+            return jsonify({"error": "Not found"}), 404
+    return jsonify({"ok": True})
+
+
+@app.route("/api/applications/<int:app_id>", methods=["DELETE"])
+def delete_application(app_id):
+    with _db_conn() as conn:
+        cur = conn.execute("DELETE FROM applications WHERE id = ?", (app_id,))
+        conn.commit()
+        if cur.rowcount == 0:
+            return jsonify({"error": "Not found"}), 404
+    return jsonify({"ok": True})
+
+
+@app.route("/api/applications/stats", methods=["GET"])
+def application_stats():
+    with _db_conn() as conn:
+        rows = conn.execute(
+            "SELECT status, COUNT(*) AS n FROM applications GROUP BY status"
+        ).fetchall()
+        total = conn.execute("SELECT COUNT(*) AS n FROM applications").fetchone()["n"]
+    by_status = {s: 0 for s in APP_STATUSES}
+    for r in rows:
+        by_status[r["status"]] = r["n"]
+    return jsonify({"total": total, "by_status": by_status})
+
+
+@app.route("/applications")
+def applications_page():
+    """Self-contained applications tracker UI."""
+    statuses_json = json.dumps(APP_STATUSES)
+    return """<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Applications Tracker</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+<style>
+  body{background:#f0f4f8;padding-bottom:60px}
+  .app-header{background:linear-gradient(135deg,#0d6efd 0%,#0043a8 100%);color:white;padding:14px 16px;box-shadow:0 2px 8px rgba(0,0,0,.25)}
+  .app-header h1{font-size:1.2rem;margin:0;font-weight:700}
+  .app-header .subtitle{font-size:.75rem;opacity:.85;margin:0}
+  .stat-card{background:white;border-radius:12px;box-shadow:0 2px 6px rgba(0,0,0,.08);padding:10px;text-align:center}
+  .stat-card .n{font-size:1.4rem;font-weight:700;color:#0d6efd}
+  .stat-card .label{font-size:.7rem;color:#6c757d;text-transform:uppercase;letter-spacing:.5px}
+  .app-row{background:white;border-radius:12px;padding:12px 14px;margin-bottom:10px;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+  .app-row .company{font-weight:700;font-size:.95rem;color:#212529}
+  .app-row .title{font-size:.85rem;color:#495057}
+  .app-row .meta{font-size:.72rem;color:#6c757d;margin-top:4px}
+  .status-pill{font-size:.72rem;padding:3px 10px;border-radius:20px;font-weight:600}
+  .status-Applied{background:#e7f1ff;color:#0d6efd}
+  .status-Phone.Screen,.status-Phone-Screen{background:#fff3cd;color:#856404}
+  .status-Interview{background:#d1e7dd;color:#0f5132}
+  .status-Offer{background:#d4edda;color:#155724}
+  .status-Rejected{background:#f8d7da;color:#721c24}
+  .status-Withdrawn,.status-No.Response,.status-No-Response{background:#e2e3e5;color:#41464b}
+  .btn-fab{position:fixed;bottom:20px;right:20px;width:56px;height:56px;border-radius:50%;box-shadow:0 4px 12px rgba(13,110,253,.4);z-index:10}
+</style></head>
+<body>
+<div class="app-header">
+  <div class="d-flex justify-content-between align-items-center">
+    <div>
+      <h1>📋 Applications Tracker</h1>
+      <p class="subtitle">Track every job you apply to</p>
+    </div>
+    <a href="/" class="btn btn-sm btn-light">← App</a>
+  </div>
+</div>
+
+<div class="container py-3">
+  <div class="row g-2 mb-3" id="stats"></div>
+
+  <div class="d-flex gap-2 mb-3">
+    <select id="filter" class="form-select form-select-sm">
+      <option value="">All statuses</option>
+    </select>
+    <button class="btn btn-sm btn-outline-secondary" onclick="load()"><i class="bi bi-arrow-clockwise"></i></button>
+  </div>
+
+  <div id="list"></div>
+  <div id="empty" class="text-center text-muted py-5" style="display:none">
+    <i class="bi bi-inbox" style="font-size:3rem;opacity:.4"></i>
+    <p class="mt-2">No applications yet. Tap + to add one.</p>
+  </div>
+</div>
+
+<button class="btn btn-primary btn-fab" data-bs-toggle="modal" data-bs-target="#addModal">
+  <i class="bi bi-plus-lg fs-4"></i>
+</button>
+
+<!-- Add/Edit modal -->
+<div class="modal fade" id="addModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title" id="modalTitle">New Application</h5>
+        <button class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <input type="hidden" id="editId">
+        <div class="mb-2"><label class="form-label small">Company *</label>
+          <input type="text" class="form-control" id="f-company"></div>
+        <div class="mb-2"><label class="form-label small">Job Title *</label>
+          <input type="text" class="form-control" id="f-title"></div>
+        <div class="mb-2"><label class="form-label small">Application URL</label>
+          <input type="url" class="form-control" id="f-url"></div>
+        <div class="row g-2">
+          <div class="col-6 mb-2"><label class="form-label small">ATS</label>
+            <select class="form-select" id="f-ats">
+              <option value="">—</option><option>Greenhouse</option><option>Lever</option>
+              <option>Workable</option><option>Workday</option><option>iCIMS</option>
+              <option>ADP Workforce Now</option><option>Taleo</option><option>BambooHR</option>
+              <option>SmartRecruiters</option><option>Jobvite</option><option>Other</option>
+            </select></div>
+          <div class="col-6 mb-2"><label class="form-label small">Status</label>
+            <select class="form-select" id="f-status"></select></div>
+        </div>
+        <div class="row g-2">
+          <div class="col-6 mb-2"><label class="form-label small">Location</label>
+            <input type="text" class="form-control" id="f-location" placeholder="Remote / City, ST"></div>
+          <div class="col-6 mb-2"><label class="form-label small">Salary</label>
+            <input type="text" class="form-control" id="f-salary" placeholder="$45k"></div>
+        </div>
+        <div class="mb-2"><label class="form-label small">Source</label>
+          <input type="text" class="form-control" id="f-source" placeholder="Apify / LinkedIn / Referral"></div>
+        <div class="mb-2"><label class="form-label small">Notes</label>
+          <textarea class="form-control" id="f-notes" rows="2"></textarea></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline-danger me-auto" id="deleteBtn" style="display:none" onclick="del()">
+          <i class="bi bi-trash"></i> Delete</button>
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary" onclick="save()">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+const STATUSES = """ + statuses_json + """;
+
+(function(){
+  const sel = document.getElementById('f-status');
+  const fil = document.getElementById('filter');
+  STATUSES.forEach(s => {
+    sel.insertAdjacentHTML('beforeend', `<option>${s}</option>`);
+    fil.insertAdjacentHTML('beforeend', `<option>${s}</option>`);
+  });
+  document.getElementById('filter').addEventListener('change', load);
+  load();
+})();
+
+async function load(){
+  const status = document.getElementById('filter').value;
+  const qs = status ? `?status=${encodeURIComponent(status)}` : '';
+  const [list, stats] = await Promise.all([
+    fetch('/api/applications' + qs).then(r => r.json()),
+    fetch('/api/applications/stats').then(r => r.json())
+  ]);
+  renderStats(stats);
+  renderList(list.applications);
+}
+
+function renderStats(s){
+  const order = ['Applied','Phone Screen','Interview','Offer','Rejected'];
+  const html = [`<div class="col"><div class="stat-card"><div class="n">${s.total}</div><div class="label">Total</div></div></div>`]
+    .concat(order.map(st => `<div class="col"><div class="stat-card"><div class="n">${s.by_status[st]||0}</div><div class="label">${st}</div></div></div>`));
+  document.getElementById('stats').innerHTML = html.join('');
+}
+
+function renderList(apps){
+  const list = document.getElementById('list');
+  const empty = document.getElementById('empty');
+  if (!apps.length){ list.innerHTML=''; empty.style.display='block'; return; }
+  empty.style.display='none';
+  list.innerHTML = apps.map(a => {
+    const cls = 'status-' + a.status.replaceAll(' ', '-');
+    const dt = a.applied_at ? a.applied_at.slice(0,10) : '';
+    const meta = [a.location, a.salary, a.ats, a.source].filter(Boolean).join(' · ');
+    return `
+      <div class="app-row" onclick='edit(${JSON.stringify(a)})' style="cursor:pointer">
+        <div class="d-flex justify-content-between align-items-start">
+          <div class="flex-grow-1">
+            <div class="company">${escapeHtml(a.company)}</div>
+            <div class="title">${escapeHtml(a.title)}</div>
+            <div class="meta">${escapeHtml(meta)}${meta?' · ':''}${dt}</div>
+          </div>
+          <span class="status-pill ${cls}">${a.status}</span>
+        </div>
+        ${a.url ? `<div class="mt-2"><a href="${escapeHtml(a.url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" class="small"><i class="bi bi-box-arrow-up-right"></i> Posting</a></div>` : ''}
+      </div>`;
+  }).join('');
+}
+
+function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+function edit(a){
+  document.getElementById('editId').value = a.id;
+  document.getElementById('modalTitle').textContent = 'Edit Application';
+  document.getElementById('f-company').value = a.company || '';
+  document.getElementById('f-title').value = a.title || '';
+  document.getElementById('f-url').value = a.url || '';
+  document.getElementById('f-ats').value = a.ats || '';
+  document.getElementById('f-status').value = a.status || 'Applied';
+  document.getElementById('f-location').value = a.location || '';
+  document.getElementById('f-salary').value = a.salary || '';
+  document.getElementById('f-source').value = a.source || '';
+  document.getElementById('f-notes').value = a.notes || '';
+  document.getElementById('deleteBtn').style.display = 'inline-block';
+  new bootstrap.Modal(document.getElementById('addModal')).show();
+}
+
+document.getElementById('addModal').addEventListener('show.bs.modal', e => {
+  if (e.relatedTarget){ // opened from FAB, not from edit()
+    document.getElementById('editId').value = '';
+    document.getElementById('modalTitle').textContent = 'New Application';
+    document.getElementById('deleteBtn').style.display = 'none';
+    ['f-company','f-title','f-url','f-ats','f-location','f-salary','f-source','f-notes'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('f-status').value = 'Applied';
+  }
+});
+
+async function save(){
+  const id = document.getElementById('editId').value;
+  const body = {
+    company:  document.getElementById('f-company').value.trim(),
+    title:    document.getElementById('f-title').value.trim(),
+    url:      document.getElementById('f-url').value.trim(),
+    ats:      document.getElementById('f-ats').value,
+    status:   document.getElementById('f-status').value,
+    location: document.getElementById('f-location').value.trim(),
+    salary:   document.getElementById('f-salary').value.trim(),
+    source:   document.getElementById('f-source').value.trim(),
+    notes:    document.getElementById('f-notes').value.trim(),
+  };
+  if (!body.company || !body.title){ alert('Company and title are required.'); return; }
+  const res = await fetch('/api/applications' + (id ? '/' + id : ''), {
+    method: id ? 'PATCH' : 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body)
+  });
+  if (!res.ok){ alert('Save failed: ' + (await res.text())); return; }
+  bootstrap.Modal.getInstance(document.getElementById('addModal')).hide();
+  load();
+}
+
+async function del(){
+  const id = document.getElementById('editId').value;
+  if (!id) return;
+  if (!confirm('Delete this application?')) return;
+  const res = await fetch('/api/applications/' + id, { method: 'DELETE' });
+  if (!res.ok){ alert('Delete failed'); return; }
+  bootstrap.Modal.getInstance(document.getElementById('addModal')).hide();
+  load();
+}
+</script>
+</body></html>"""
 
 
 # ── Startup ───────────────────────────────────────────────────────────────────
