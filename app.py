@@ -1390,6 +1390,263 @@ def application_stats():
     return jsonify({"total": total, "by_status": by_status})
 
 
+@app.route("/api/gmail/scan", methods=["POST"])
+def gmail_scan():
+    """Scan Gmail for ATS status updates and forward-bump applications.
+
+    - Reads the last 30 days from INBOX via IMAP (stdlib imaplib).
+    - Classifies each email into: Rejected, Offer, Interview, Phone Screen,
+      Applied (receipt), or None.
+    - Matches to an application by company-name token overlap against the
+      sender domain + subject + body snippet.
+    - Applies forward-only progression: Applied → Phone Screen → Interview
+      → Offer. Rejection can override anything except Offer.
+    - Appends a note documenting each auto-change.
+
+    Requires GMAIL_USER + GMAIL_APP_PASSWORD env vars.
+    Optional JSON body: { "dry_run": true } previews without writing.
+    """
+    import imaplib
+    import email as _email
+    from email.header import decode_header
+    from datetime import timedelta
+
+    gmail_user = os.environ.get("GMAIL_USER", "")
+    gmail_pass = os.environ.get("GMAIL_APP_PASSWORD", "")
+    if not gmail_user or not gmail_pass:
+        return jsonify({"error": "GMAIL_USER / GMAIL_APP_PASSWORD not set on server"}), 500
+
+    body_json = request.get_json(silent=True) or {}
+    dry_run = bool(body_json.get("dry_run"))
+
+    # Load all applications (tracker is small)
+    with _db_conn() as conn:
+        rows = conn.execute("SELECT * FROM applications").fetchall()
+    apps = [dict(r) for r in rows]
+    if not apps:
+        return jsonify({"scanned": 0, "matched": 0, "updated": 0, "hits": [],
+                        "reason": "No applications to match against"})
+
+    # Extract distinguishing tokens from company names (drop filler words)
+    _STOP = {"inc", "llc", "corp", "corporation", "company", "co", "ltd",
+             "the", "and", "group", "services", "solutions", "technologies",
+             "technology", "systems", "global", "international", "holdings"}
+    def _tokens(name):
+        n = re.sub(r"[^a-z0-9 ]", " ", (name or "").lower())
+        return [t for t in n.split() if len(t) >= 3 and t not in _STOP]
+
+    app_tokens = [(a, _tokens(a.get("company", ""))) for a in apps]
+
+    STATUS_RANK = {"Applied": 1, "Phone Screen": 2, "Interview": 3, "Offer": 4}
+
+    def classify(text):
+        t = text.lower()
+        # Rejection wins if present (but Offer is terminal and trumps it)
+        rejection = any(p in t for p in [
+            "unfortunately", "not moving forward", "not be moving forward",
+            "other candidates", "decided to pursue", "decided to move forward with",
+            "not selected", "will not be proceeding", "regret to inform",
+            "unable to offer", "decided not to move", "moved forward with other",
+            "not be a fit", "not a match at this time", "not to advance",
+        ])
+        if any(p in t for p in [
+            "pleased to offer", "offer letter", "extend an offer",
+            "extend you an offer", "extending an offer", "formal offer",
+            "written offer", "compensation package",
+        ]):
+            return "Offer"
+        if rejection:
+            return "Rejected"
+        if any(p in t for p in [
+            "technical interview", "onsite interview", "on-site interview",
+            "panel interview", "final round", "final interview",
+            "hiring manager", "video interview", "second round",
+            "team interview", "loop interview",
+        ]):
+            return "Interview"
+        if any(p in t for p in [
+            "phone screen", "phone interview", "initial call",
+            "intro call", "introductory call", "quick chat",
+            "brief call", "brief chat", "schedule a call",
+            "schedule a chat", "initial conversation", "30-minute call",
+            "30 minute call", "15-minute call", "15 minute call",
+            "recruiter screen", "screening call",
+        ]):
+            return "Phone Screen"
+        if any(p in t for p in [
+            "thank you for applying", "application received",
+            "we have received your application", "we've received your application",
+            "received your application", "your application has been received",
+            "confirming your application",
+        ]):
+            return "Applied"
+        return None
+
+    def should_update(current, proposed):
+        if proposed == "Rejected":
+            return current not in ("Rejected", "Offer", "Withdrawn")
+        if current == "Rejected" or current == "Withdrawn":
+            return False
+        return STATUS_RANK.get(proposed, 0) > STATUS_RANK.get(current, 0)
+
+    def match_app(from_addr, subject, snippet):
+        blob = (from_addr + " " + subject + " " + snippet).lower()
+        best, best_score = None, 0
+        for app, tokens in app_tokens:
+            if not tokens:
+                continue
+            score = sum(1 for t in tokens if t in blob)
+            if score > best_score:
+                best, best_score = app, score
+        return best if best_score >= 1 else None
+
+    # Connect to Gmail IMAP
+    try:
+        mail = imaplib.IMAP4_SSL("imap.gmail.com", 993)
+        mail.login(gmail_user, gmail_pass)
+        mail.select("INBOX")
+    except Exception as e:
+        return jsonify({"error": f"IMAP connect/login failed: {e}"}), 500
+
+    try:
+        since = (datetime.utcnow() - timedelta(days=30)).strftime("%d-%b-%Y")
+        typ, data = mail.search(None, f'(SINCE {since})')
+        ids = (data[0].split() if data and data[0] else [])[-200:]  # cap at 200
+
+        # Collect best proposal per application (forward-only ranking)
+        proposals = {}  # app_id -> { status, subject, from, current, date }
+        scanned = 0
+        matched = 0
+
+        for i in ids:
+            try:
+                typ, md = mail.fetch(i, "(RFC822)")
+                if not md or not md[0]:
+                    continue
+                msg = _email.message_from_bytes(md[0][1])
+
+                # Decode subject
+                subject = ""
+                for chunk, enc in decode_header(msg.get("Subject", "") or ""):
+                    if isinstance(chunk, bytes):
+                        subject += chunk.decode(enc or "utf-8", errors="ignore")
+                    else:
+                        subject += chunk
+                from_addr = msg.get("From", "") or ""
+
+                # Extract plain text body (fall back to HTML stripped)
+                body = ""
+                if msg.is_multipart():
+                    for part in msg.walk():
+                        if part.get_content_type() == "text/plain" and not part.get_filename():
+                            try:
+                                body = part.get_payload(decode=True).decode(errors="ignore")
+                                break
+                            except Exception:
+                                pass
+                    if not body:
+                        for part in msg.walk():
+                            if part.get_content_type() == "text/html" and not part.get_filename():
+                                try:
+                                    html_body = part.get_payload(decode=True).decode(errors="ignore")
+                                    body = re.sub(r"<[^>]+>", " ", html_body)
+                                    break
+                                except Exception:
+                                    pass
+                else:
+                    try:
+                        body = msg.get_payload(decode=True).decode(errors="ignore") or ""
+                    except Exception:
+                        body = msg.get_payload() or ""
+
+                snippet = body[:2000]
+                scanned += 1
+
+                proposed = classify(subject + " " + snippet)
+                if not proposed:
+                    continue
+                app = match_app(from_addr, subject, snippet)
+                if not app:
+                    continue
+                matched += 1
+
+                # Keep the highest-ranked proposal per app
+                prev = proposals.get(app["id"])
+                prev_rank = (1000 if prev and prev["status"] == "Rejected"
+                             else STATUS_RANK.get(prev["status"], 0) if prev else -1)
+                new_rank = 1000 if proposed == "Rejected" else STATUS_RANK.get(proposed, 0)
+                if new_rank > prev_rank:
+                    proposals[app["id"]] = {
+                        "status": proposed,
+                        "subject": (subject or "(no subject)").strip()[:140],
+                        "from": from_addr.strip()[:100],
+                        "current": app["status"],
+                    }
+            except Exception:
+                continue
+
+        try: mail.close()
+        except Exception: pass
+        try: mail.logout()
+        except Exception: pass
+
+        # Apply updates (or just report if dry_run)
+        updated = 0
+        hits = []
+        now_iso = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        if dry_run:
+            for app_id, p in proposals.items():
+                if should_update(p["current"], p["status"]):
+                    hits.append({
+                        "app_id": app_id,
+                        "from": p["current"],
+                        "to": p["status"],
+                        "subject": p["subject"],
+                        "email_from": p["from"],
+                    })
+        else:
+            with _db_conn() as conn:
+                for app_id, p in proposals.items():
+                    row = conn.execute(
+                        "SELECT status, notes, company FROM applications WHERE id = ?",
+                        (app_id,)
+                    ).fetchone()
+                    if not row:
+                        continue
+                    current = row["status"]
+                    if not should_update(current, p["status"]):
+                        continue
+                    audit = (f"[Gmail scan {now_iso[:10]}] {current} → {p['status']} · "
+                             f"from {p['from']} · {p['subject']}")
+                    existing = (row["notes"] or "").strip()
+                    new_notes = (existing + "\n" + audit).strip() if existing else audit
+                    conn.execute(
+                        "UPDATE applications SET status = ?, notes = ?, updated_at = ? WHERE id = ?",
+                        (p["status"], new_notes, now_iso, app_id),
+                    )
+                    updated += 1
+                    hits.append({
+                        "app_id": app_id,
+                        "company": row["company"],
+                        "from": current,
+                        "to": p["status"],
+                        "subject": p["subject"],
+                        "email_from": p["from"],
+                    })
+
+        return jsonify({
+            "scanned": scanned,
+            "matched": matched,
+            "updated": updated,
+            "dry_run": dry_run,
+            "hits": hits,
+        })
+    except Exception as e:
+        try: mail.logout()
+        except Exception: pass
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/applications")
 def applications_page():
     """Self-contained applications tracker UI."""
@@ -1421,6 +1678,22 @@ def applications_page():
   .status-Rejected{background:#f8d7da;color:#721c24}
   .status-Withdrawn,.status-No.Response,.status-No-Response{background:#e2e3e5;color:#41464b}
   .btn-fab{position:fixed;bottom:20px;right:20px;width:56px;height:56px;border-radius:50%;box-shadow:0 4px 12px rgba(13,110,253,.4);z-index:10}
+  .days-badge{display:inline-block;padding:1px 7px;border-radius:10px;font-size:.65rem;font-weight:600;margin-left:4px;vertical-align:middle}
+  .days-fresh{background:#d1e7dd;color:#0f5132}
+  .days-warm{background:#fff3cd;color:#856404}
+  .days-stale{background:#ffe5d0;color:#b8541a}
+  .days-cold{background:#f8d7da;color:#721c24}
+  .stale-border{border-left:4px solid #fd7e14}
+  .quick-actions{display:flex;gap:4px;margin-top:8px;flex-wrap:wrap}
+  .quick-actions button{font-size:.7rem;padding:3px 9px;border-radius:12px;border:1px solid #dee2e6;background:white;color:#495057;cursor:pointer}
+  .quick-actions button:hover{background:#f0f4f8}
+  .quick-actions .qa-reject{border-color:#f8d7da;color:#721c24}
+  .quick-actions .qa-reject:hover{background:#f8d7da}
+  .quick-actions .qa-offer{border-color:#d4edda;color:#155724}
+  .quick-actions .qa-offer:hover{background:#d4edda}
+  .hit-row{padding:8px 10px;border-radius:8px;background:#f8f9fa;margin-bottom:6px;font-size:.82rem}
+  .hit-row .from-to{font-weight:600}
+  .hit-row .subj{color:#6c757d;font-size:.75rem;margin-top:2px}
 </style></head>
 <body>
 <div class="app-header">
@@ -1436,11 +1709,20 @@ def applications_page():
 <div class="container py-3">
   <div class="row g-2 mb-3" id="stats"></div>
 
-  <div class="d-flex gap-2 mb-3">
-    <select id="filter" class="form-select form-select-sm">
+  <div class="d-flex gap-2 mb-3 flex-wrap">
+    <select id="filter" class="form-select form-select-sm" style="max-width:160px">
       <option value="">All statuses</option>
     </select>
-    <button class="btn btn-sm btn-outline-secondary" onclick="load()"><i class="bi bi-arrow-clockwise"></i></button>
+    <select id="sort" class="form-select form-select-sm" style="max-width:170px">
+      <option value="newest">Newest first</option>
+      <option value="oldest">Oldest first</option>
+      <option value="stale">Stale first</option>
+      <option value="company">Company A–Z</option>
+    </select>
+    <button class="btn btn-sm btn-outline-secondary" onclick="load()" title="Reload"><i class="bi bi-arrow-clockwise"></i></button>
+    <button class="btn btn-sm btn-outline-primary ms-auto" onclick="scanGmail(false)" title="Scan Gmail for status updates">
+      <i class="bi bi-envelope-check"></i> Scan Gmail
+    </button>
   </div>
 
   <div id="list"></div>
@@ -1500,6 +1782,27 @@ def applications_page():
   </div>
 </div>
 
+<!-- Gmail scan result modal -->
+<div class="modal fade" id="scanModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-envelope-check"></i> Gmail Scan</h5>
+        <button class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="scanBody" class="text-center py-3">
+          <div class="spinner-border text-primary" role="status"></div>
+          <p class="mt-2 small text-muted" id="scanStatus">Connecting to Gmail…</p>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
 const STATUSES = """ + statuses_json + """;
@@ -1512,18 +1815,50 @@ const STATUSES = """ + statuses_json + """;
     fil.insertAdjacentHTML('beforeend', `<option>${s}</option>`);
   });
   document.getElementById('filter').addEventListener('change', load);
+  document.getElementById('sort').addEventListener('change', load);
   load();
 })();
 
+function daysSince(iso){
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (isNaN(d)) return null;
+  return Math.floor((Date.now() - d.getTime()) / (86400000));
+}
+function daysBadge(days){
+  if (days == null) return '';
+  const cls = days <= 7 ? 'days-fresh' : days <= 14 ? 'days-warm' : days <= 30 ? 'days-stale' : 'days-cold';
+  const label = days === 0 ? 'today' : days === 1 ? '1d' : `${days}d`;
+  return `<span class="days-badge ${cls}">${label}</span>`;
+}
+function sortApps(apps, mode){
+  const copy = apps.slice();
+  if (mode === 'oldest')       copy.sort((a,b) => (a.applied_at||'').localeCompare(b.applied_at||''));
+  else if (mode === 'company') copy.sort((a,b) => (a.company||'').localeCompare(b.company||''));
+  else if (mode === 'stale'){
+    // Stale first = oldest applied_at where status is still pending
+    const pending = s => s === 'Applied' || s === 'Phone Screen' || s === 'Interview';
+    copy.sort((a,b) => {
+      const pa = pending(a.status) ? 0 : 1;
+      const pb = pending(b.status) ? 0 : 1;
+      if (pa !== pb) return pa - pb;
+      return (a.applied_at||'').localeCompare(b.applied_at||'');
+    });
+  }
+  // default: newest first (already server-sorted DESC, so no-op)
+  return copy;
+}
+
 async function load(){
   const status = document.getElementById('filter').value;
+  const sort   = document.getElementById('sort').value;
   const qs = status ? `?status=${encodeURIComponent(status)}` : '';
   const [list, stats] = await Promise.all([
     fetch('/api/applications' + qs).then(r => r.json()),
     fetch('/api/applications/stats').then(r => r.json())
   ]);
   renderStats(stats);
-  renderList(list.applications);
+  renderList(sortApps(list.applications, sort));
 }
 
 function renderStats(s){
@@ -1533,6 +1868,17 @@ function renderStats(s){
   document.getElementById('stats').innerHTML = html.join('');
 }
 
+// Allowed forward transitions per current status — for quick-action buttons
+const NEXT_STATUSES = {
+  'Applied':      ['Phone Screen', 'Interview', 'Rejected', 'No Response'],
+  'Phone Screen': ['Interview', 'Rejected'],
+  'Interview':    ['Offer', 'Rejected'],
+  'Offer':        ['Rejected'],
+  'Rejected':     [],
+  'Withdrawn':    [],
+  'No Response':  ['Rejected'],
+};
+
 function renderList(apps){
   const list = document.getElementById('list');
   const empty = document.getElementById('empty');
@@ -1541,20 +1887,74 @@ function renderList(apps){
   list.innerHTML = apps.map(a => {
     const cls = 'status-' + a.status.replaceAll(' ', '-');
     const dt = a.applied_at ? a.applied_at.slice(0,10) : '';
+    const days = daysSince(a.applied_at);
+    const isPending = a.status === 'Applied' || a.status === 'Phone Screen' || a.status === 'Interview';
+    const staleCls = (isPending && days != null && days > 14) ? ' stale-border' : '';
     const meta = [a.location, a.salary, a.ats, a.source].filter(Boolean).join(' · ');
+    const nexts = (NEXT_STATUSES[a.status] || []).map(s => {
+      const qaCls = s === 'Rejected' ? 'qa-reject' : s === 'Offer' ? 'qa-offer' : '';
+      return `<button class="${qaCls}" onclick="event.stopPropagation();quickSet(${a.id}, '${s}')">→ ${s}</button>`;
+    }).join('');
     return `
-      <div class="app-row" onclick='edit(${JSON.stringify(a)})' style="cursor:pointer">
+      <div class="app-row${staleCls}" onclick='edit(${JSON.stringify(a)})' style="cursor:pointer">
         <div class="d-flex justify-content-between align-items-start">
           <div class="flex-grow-1">
             <div class="company">${escapeHtml(a.company)}</div>
             <div class="title">${escapeHtml(a.title)}</div>
-            <div class="meta">${escapeHtml(meta)}${meta?' · ':''}${dt}</div>
+            <div class="meta">${escapeHtml(meta)}${meta?' · ':''}${dt}${daysBadge(days)}</div>
           </div>
           <span class="status-pill ${cls}">${a.status}</span>
         </div>
         ${a.url ? `<div class="mt-2"><a href="${escapeHtml(a.url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" class="small"><i class="bi bi-box-arrow-up-right"></i> Posting</a></div>` : ''}
+        ${nexts ? `<div class="quick-actions">${nexts}</div>` : ''}
       </div>`;
   }).join('');
+}
+
+async function quickSet(id, status){
+  const res = await fetch('/api/applications/' + id, {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ status })
+  });
+  if (!res.ok){ alert('Update failed'); return; }
+  load();
+}
+
+async function scanGmail(dryRun){
+  const modal = new bootstrap.Modal(document.getElementById('scanModal'));
+  const body = document.getElementById('scanBody');
+  const statusEl = document.getElementById('scanStatus');
+  body.innerHTML = '<div class="spinner-border text-primary" role="status"></div><p class="mt-2 small text-muted" id="scanStatus">Connecting to Gmail + classifying recent emails…</p>';
+  modal.show();
+  try {
+    const res = await fetch('/api/gmail/scan', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ dry_run: !!dryRun })
+    });
+    const j = await res.json();
+    if (j.error){
+      body.innerHTML = `<div class="alert alert-danger mb-0"><b>Error:</b> ${escapeHtml(j.error)}</div>`;
+      return;
+    }
+    const hitsHtml = (j.hits || []).map(h =>
+      `<div class="hit-row">
+         <div class="from-to">${escapeHtml(h.company || '#' + h.app_id)} — ${escapeHtml(h.from)} → ${escapeHtml(h.to)}</div>
+         <div class="subj">${escapeHtml(h.subject || '')}</div>
+       </div>`
+    ).join('') || '<p class="text-muted small mb-0">No status changes detected.</p>';
+    body.innerHTML = `
+      <div class="row text-center mb-3">
+        <div class="col"><div class="fw-bold fs-5">${j.scanned}</div><div class="small text-muted">Scanned</div></div>
+        <div class="col"><div class="fw-bold fs-5">${j.matched}</div><div class="small text-muted">Matched</div></div>
+        <div class="col"><div class="fw-bold fs-5 text-success">${j.updated}</div><div class="small text-muted">Updated</div></div>
+      </div>
+      ${hitsHtml}`;
+    load(); // refresh tracker
+  } catch (e) {
+    body.innerHTML = `<div class="alert alert-danger mb-0">Scan failed: ${escapeHtml(String(e))}</div>`;
+  }
 }
 
 function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
