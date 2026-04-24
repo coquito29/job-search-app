@@ -27,25 +27,88 @@ try:
 except ImportError:
     _anthropic = None
 
+# psycopg2 is only imported when DATABASE_URL is set (Render Postgres);
+# local dev falls back to sqlite with no new dependency
+try:
+    import psycopg2 as _psycopg2
+    from psycopg2.extras import RealDictCursor as _RealDictCursor
+except ImportError:
+    _psycopg2 = None
+    _RealDictCursor = None
+
 app = Flask(__name__)
 
-# ── Applications tracker (SQLite) ─────────────────────────────────────────────
-# Path is overridable via env var so Render disks can mount elsewhere.
-# Note: on ephemeral filesystems (Render free tier) the DB resets on restart.
-APPLICATIONS_DB = os.environ.get("APPLICATIONS_DB", os.path.join(os.path.dirname(__file__), "applications.db"))
+# ── Applications tracker (Postgres on Render, SQLite locally) ────────────────
+# If DATABASE_URL is set (Render auto-injects this when you attach a Postgres
+# instance), use Postgres so the tracker survives redeploys/restarts.
+# Otherwise fall back to a local SQLite file for easy dev.
+DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
+USE_POSTGRES = bool(DATABASE_URL) and _psycopg2 is not None
+
+APPLICATIONS_DB = os.environ.get(
+    "APPLICATIONS_DB",
+    os.path.join(os.path.dirname(__file__), "applications.db"),
+)
 
 APP_STATUSES = ["Applied", "Phone Screen", "Interview", "Offer", "Rejected", "Withdrawn", "No Response"]
 
+
+class _UniformConn:
+    """Thin adapter so the rest of the code keeps using
+      conn.execute("... ? ...", (params,))
+    and gets dict-like rows back, regardless of sqlite/Postgres.
+    Postgres-specific translation happens here:
+      - ? placeholders → %s
+      - RealDictCursor returns dicts (sqlite.Row is already dict-like)
+    """
+    def __init__(self, raw, is_pg):
+        self._raw   = raw
+        self._is_pg = is_pg
+
+    def execute(self, sql, params=()):
+        if self._is_pg:
+            cur = self._raw.cursor()
+            cur.execute(sql.replace("?", "%s"), params)
+            return cur
+        return self._raw.execute(sql, params)
+
+    def commit(self):
+        self._raw.commit()
+
+    def rollback(self):
+        try: self._raw.rollback()
+        except Exception: pass
+
+    def close(self):
+        try: self._raw.close()
+        except Exception: pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        if exc_type is None: self.commit()
+        else:                self.rollback()
+        self.close()
+        return False
+
+
 def _db_conn():
-    conn = sqlite3.connect(APPLICATIONS_DB)
-    conn.row_factory = sqlite3.Row
-    return conn
+    if USE_POSTGRES:
+        raw = _psycopg2.connect(DATABASE_URL, cursor_factory=_RealDictCursor)
+        return _UniformConn(raw, is_pg=True)
+    raw = sqlite3.connect(APPLICATIONS_DB)
+    raw.row_factory = sqlite3.Row
+    return _UniformConn(raw, is_pg=False)
+
 
 def _init_applications_db():
+    # SERIAL for PG, AUTOINCREMENT for sqlite — rest of the schema is identical
+    id_col = "id SERIAL PRIMARY KEY" if USE_POSTGRES else "id INTEGER PRIMARY KEY AUTOINCREMENT"
     with _db_conn() as conn:
-        conn.execute("""
+        conn.execute(f"""
             CREATE TABLE IF NOT EXISTS applications (
-                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                {id_col},
                 company      TEXT NOT NULL,
                 title        TEXT NOT NULL,
                 url          TEXT,
@@ -59,9 +122,10 @@ def _init_applications_db():
                 updated_at   TEXT NOT NULL
             )
         """)
-        conn.commit()
+
 
 _init_applications_db()
+print(f"[db] Applications tracker backend: {'Postgres' if USE_POSTGRES else 'SQLite (' + APPLICATIONS_DB + ')'}")
 
 TOP_JOBS_LIMIT = 50
 FETCH_LIMIT = 100  # per Apify search — ~$1.20/search at $0.012/job (opt-in from UI)
@@ -1217,11 +1281,14 @@ def create_application():
     if status not in APP_STATUSES:
         return jsonify({"error": f"status must be one of {APP_STATUSES}"}), 400
     now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    # RETURNING id works on both sqlite (>=3.35) and Postgres — keeps the
+    # adapter backend-agnostic (lastrowid is sqlite-only)
     with _db_conn() as conn:
         cur = conn.execute(
             """INSERT INTO applications
                (company, title, url, ats, location, salary, source, status, notes, applied_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               RETURNING id""",
             (
                 company, title,
                 (data.get("url") or "").strip() or None,
@@ -1234,8 +1301,9 @@ def create_application():
                 now, now,
             ),
         )
-        conn.commit()
-        new_id = cur.lastrowid
+        row = cur.fetchone()
+        # sqlite3.Row supports row["id"], RealDictCursor returns {"id": ...}
+        new_id = row["id"] if row is not None else None
     return jsonify({"id": new_id, "ok": True})
 
 

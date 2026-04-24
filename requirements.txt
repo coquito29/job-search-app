@@ -4,3 +4,4 @@ pdfminer.six
 python-docx
 gunicorn
 anthropic
+psycopg2-binary
