@@ -1,9 +1,9 @@
 """
 app.py  —  Remote Job Search Mobile PWA
-Sources: Remotive · RemoteOK · Jobicy · Arbeitnow · Himalayas · Apify · Adzuna · JSearch
+Sources: Apify · Adzuna · JSearch  (paid/keyed APIs only — free sources removed for signal quality)
 AI Cover Letters: Claude Haiku (set ANTHROPIC_API_KEY env var)
 """
-import io, json, os, re, socket, sqlite3, xml.etree.ElementTree as ET
+import io, json, os, re, socket, sqlite3
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime
@@ -100,150 +100,9 @@ class UserProfile:
 
 
 # ── Fetch functions ───────────────────────────────────────────────────────────
-
-def fetch_remotive(skills, limit=100):
-    try:
-        # Remotive works best with a single short keyword — multi-word kills results
-        query = skills[0] if skills else "remote"
-        url = f"https://remotive.com/api/remote-jobs?search={http_req.utils.quote(query)}&limit={limit}"
-        r = http_req.get(url, timeout=20)
-        r.raise_for_status()
-        jobs_raw = r.json().get("jobs", [])
-        results = []
-        for j in jobs_raw:
-            sal = j.get("salary", "") or ""
-            results.append({
-                "url": j.get("url", ""),
-                "title": j.get("title", ""),
-                "company_name": j.get("company_name", ""),
-                "location": j.get("candidate_required_location") or "Remote",
-                "salary": sal,
-                "description": j.get("description", ""),
-                "posted": j.get("publication_date", ""),
-                "source": "Remotive",
-            })
-        return results
-    except Exception:
-        return []
-
-
-def fetch_remoteok(skills, limit=100):
-    try:
-        tag = skills[0].replace(" ", "-") if skills else "remote"
-        url = f"https://remoteok.com/api?tag={http_req.utils.quote(tag)}"
-        r = http_req.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=20)
-        r.raise_for_status()
-        data = r.json()
-        if not isinstance(data, list) or len(data) < 2:
-            return []
-        results = []
-        for j in data[1:]:
-            if not isinstance(j, dict):
-                continue
-            sal_min = j.get("salary_min")
-            sal_max = j.get("salary_max")
-            if sal_min and sal_max:
-                sal = f"${int(sal_min)//1000}k–${int(sal_max)//1000}k"
-            elif sal_min:
-                sal = f"${int(sal_min)//1000}k"
-            else:
-                sal = ""
-            results.append({
-                "url": j.get("url", ""),
-                "title": j.get("position", ""),
-                "company_name": j.get("company", ""),
-                "location": j.get("location", "Remote") or "Remote",
-                "salary": sal,
-                "description": j.get("description", ""),
-                "posted": j.get("date", ""),
-                "source": "RemoteOK",
-            })
-        return results
-    except Exception:
-        return []
-
-
-def fetch_jobicy(skills, limit=50):
-    try:
-        # Jobicy search param is unreliable — fetch all and let scoring rank them
-        url = f"https://jobicy.com/api/v2/remote-jobs?count={limit}"
-        r = http_req.get(url, timeout=20)
-        r.raise_for_status()
-        jobs_raw = r.json().get("jobs", [])
-        results = []
-        for j in jobs_raw:
-            sal_min = j.get("annualSalaryMin")
-            sal_max = j.get("annualSalaryMax")
-            if sal_min and sal_max:
-                sal = f"${int(sal_min)//1000}k–${int(sal_max)//1000}k"
-            elif sal_min:
-                sal = f"${int(sal_min)//1000}k"
-            else:
-                sal = ""
-            results.append({
-                "url": j.get("url", ""),
-                "title": j.get("jobTitle", ""),
-                "company_name": j.get("companyName", ""),
-                "location": j.get("jobGeo") or "Remote",
-                "salary": sal,
-                "description": j.get("jobDescription", ""),
-                "posted": j.get("pubDate", ""),
-                "source": "Jobicy",
-            })
-        return results
-    except Exception:
-        return []
-
-
-def fetch_arbeitnow(limit=50):
-    try:
-        url = "https://www.arbeitnow.com/api/job-board-api"
-        r = http_req.get(url, timeout=20)
-        r.raise_for_status()
-        data = r.json().get("data", [])
-        results = []
-        for j in data:
-            if not isinstance(j, dict):
-                continue
-            if not j.get("remote", False):
-                continue
-            results.append({
-                "url": j.get("url", ""),
-                "title": j.get("title", ""),
-                "company_name": j.get("company_name", ""),
-                "location": j.get("location", "Remote") or "Remote",
-                "salary": "",
-                "description": j.get("description", ""),
-                "posted": str(j.get("created_at", "")),
-                "source": "Arbeitnow",
-            })
-        return results
-    except Exception:
-        return []
-
-
-def fetch_himalayas(skills, limit=50):
-    try:
-        query = " ".join(skills[:3])
-        url = f"https://himalayas.app/jobs/api?q={http_req.utils.quote(query)}&limit={limit}"
-        r = http_req.get(url, timeout=20)
-        r.raise_for_status()
-        jobs_raw = r.json().get("jobs", [])
-        results = []
-        for j in jobs_raw:
-            results.append({
-                "url": j.get("applicationLink") or j.get("url", ""),
-                "title": j.get("title", ""),
-                "company_name": j.get("companyName", ""),
-                "location": "Remote",
-                "salary": j.get("salary", ""),
-                "description": j.get("description", ""),
-                "posted": j.get("createdAt", ""),
-                "source": "Himalayas",
-            })
-        return results
-    except Exception:
-        return []
+# Free sources (Remotive, RemoteOK, Jobicy, Arbeitnow, Himalayas, TheMuse,
+# WeWorkRemotely) were removed — they returned thin/stale results that diluted
+# rankings. Only paid/keyed APIs remain: Apify, Adzuna, JSearch.
 
 
 def fetch_adzuna(skills, app_id, app_key, limit=50):
@@ -453,89 +312,6 @@ def fetch_apify_jobs(skills, token, limit=300, time_range="7d"):
             "source": "Apify",
         })
     return results
-
-
-def fetch_themuse(skills, limit=50):
-    """Fetch from The Muse API (free, no auth required) — remote only."""
-    try:
-        r = http_req.get(
-            "https://www.themuse.com/api/public/jobs",
-            params={"page": 0, "level": "Entry Level", "location": "Flexible / Remote"},
-            timeout=20,
-        )
-        r.raise_for_status()
-        results = []
-        for j in r.json().get("results", [])[:limit]:
-            locs = j.get("locations", [])
-            loc  = locs[0].get("name", "Remote") if locs else "Remote"
-            # Double-check: skip if location has no "remote" or "flexible" hint
-            if locs and not any("remote" in l.get("name","").lower() or
-                                 "flexible" in l.get("name","").lower()
-                                 for l in locs):
-                continue
-            url  = (j.get("refs") or {}).get("landing_page", "")
-            if not url:
-                continue
-            results.append({
-                "url": url,
-                "title": j.get("name", ""),
-                "company_name": (j.get("company") or {}).get("name", ""),
-                "location": loc,
-                "salary": "",
-                "description": re.sub(r"<[^>]+>", " ", j.get("contents", "") or ""),
-                "posted": j.get("publication_date", ""),
-                "source": "TheMuse",
-            })
-        return results
-    except Exception:
-        return []
-
-
-def fetch_weworkremotely(skills, limit=50):
-    """Fetch from We Work Remotely RSS feed (free, no auth)."""
-    try:
-        r = http_req.get(
-            "https://weworkremotely.com/remote-jobs.rss",
-            headers={"User-Agent": "Mozilla/5.0"},
-            timeout=20,
-        )
-        r.raise_for_status()
-        root    = ET.fromstring(r.content)
-        channel = root.find("channel")
-        if channel is None:
-            return []
-        skill_lower = [s.lower() for s in skills]
-        results = []
-        for item in channel.findall("item"):
-            title   = (item.findtext("title") or "").strip()
-            link    = (item.findtext("link") or "").strip()
-            desc    = re.sub(r"<[^>]+>", " ", item.findtext("description") or "").strip()
-            pub     = (item.findtext("pubDate") or "").strip()
-            company = ""
-            if ": " in title:
-                parts   = title.split(": ", 1)
-                company = parts[0].strip()
-                title   = parts[1].strip()
-            if not link:
-                continue
-            combo = (title + " " + desc).lower()
-            if skill_lower and not any(s in combo for s in skill_lower):
-                continue
-            results.append({
-                "url": link,
-                "title": title,
-                "company_name": company,
-                "location": "Remote",
-                "salary": "",
-                "description": desc,
-                "posted": pub,
-                "source": "WeWorkRemotely",
-            })
-            if len(results) >= limit:
-                break
-        return results
-    except Exception:
-        return []
 
 
 # ── Helper functions ──────────────────────────────────────────────────────────
@@ -896,30 +672,11 @@ def config():
 def status():
     """Visual status page — open this in your browser to check all sources."""
     sources = {
-        "Remotive":  {"free": True,  "ok": None},
-        "RemoteOK":  {"free": True,  "ok": None},
-        "Jobicy":    {"free": True,  "ok": None},
-        "Arbeitnow": {"free": True,  "ok": None},
-        "Himalayas": {"free": True,  "ok": None},
         "Apify":     {"free": False, "ok": bool(os.environ.get("APIFY_TOKEN"))},
         "Adzuna":    {"free": False, "ok": bool(os.environ.get("ADZUNA_APP_ID") and os.environ.get("ADZUNA_APP_KEY"))},
         "JSearch":   {"free": False, "ok": bool(os.environ.get("RAPIDAPI_KEY"))},
         "Reed":      {"free": False, "ok": bool(os.environ.get("REED_API_KEY"))},
     }
-    # Quick ping test for the free sources
-    ping_urls = {
-        "Remotive":  "https://remotive.com/api/remote-jobs?limit=1",
-        "RemoteOK":  "https://remoteok.com/api?limit=1",
-        "Jobicy":    "https://jobicy.com/api/v2/remote-jobs?count=1",
-        "Arbeitnow": "https://www.arbeitnow.com/api/job-board-api",
-        "Himalayas": "https://himalayas.app/jobs/api?limit=1",
-    }
-    for name, url in ping_urls.items():
-        try:
-            r = http_req.get(url, timeout=8, headers={"User-Agent": "Mozilla/5.0"})
-            sources[name]["ok"] = r.status_code == 200
-        except Exception:
-            sources[name]["ok"] = False
 
     ai_ok = bool(os.environ.get("ANTHROPIC_API_KEY") and _anthropic)
 
@@ -1011,28 +768,14 @@ def search_jobs():
     if not skills:
         return jsonify({"error": "At least one skill is required"}), 400
 
-    # Build fetch tasks based on selected sources
+    # Build fetch tasks based on selected sources (paid/keyed APIs only)
     fetch_tasks = {}
-    if "remotive" in sources:
-        fetch_tasks["remotive"] = lambda: fetch_remotive(skills, limit=100)
-    if "remoteok" in sources:
-        fetch_tasks["remoteok"] = lambda: fetch_remoteok(skills, limit=100)
-    if "jobicy" in sources:
-        fetch_tasks["jobicy"] = lambda: fetch_jobicy(skills, limit=50)
-    if "arbeitnow" in sources:
-        fetch_tasks["arbeitnow"] = lambda: fetch_arbeitnow(limit=50)
-    if "himalayas" in sources:
-        fetch_tasks["himalayas"] = lambda: fetch_himalayas(skills, limit=50)
     if "apify" in sources and token:
         fetch_tasks["apify"] = lambda: fetch_apify_jobs(skills, token, limit=FETCH_LIMIT, time_range=time_range)
     if "adzuna" in sources and adzuna_id and adzuna_key:
         fetch_tasks["adzuna"] = lambda: fetch_adzuna(skills, adzuna_id, adzuna_key, limit=50)
     if "jsearch" in sources and rapidapi_key:
         fetch_tasks["jsearch"] = lambda: fetch_jsearch(skills, rapidapi_key, limit=50)
-    if "themuse" in sources:
-        fetch_tasks["themuse"] = lambda: fetch_themuse(skills, limit=50)
-    if "weworkremotely" in sources:
-        fetch_tasks["weworkremotely"] = lambda: fetch_weworkremotely(skills, limit=50)
 
     # Run all sources in parallel
     source_results = {src: [] for src in fetch_tasks}
@@ -1265,15 +1008,8 @@ def daily_digest():
     ]
 
     # --- Run all sources in parallel (same logic as /api/search) ---
-    fetch_tasks = {
-        "remotive":      lambda: fetch_remotive(skills, limit=100),
-        "remoteok":      lambda: fetch_remoteok(skills, limit=100),
-        "jobicy":        lambda: fetch_jobicy(skills, limit=50),
-        "arbeitnow":     lambda: fetch_arbeitnow(limit=50),
-        "himalayas":     lambda: fetch_himalayas(skills, limit=50),
-        "themuse":       lambda: fetch_themuse(skills, limit=50),
-        "weworkremotely":lambda: fetch_weworkremotely(skills, limit=50),
-    }
+    # Paid/keyed APIs only — free sources removed
+    fetch_tasks = {}
     if apify_token:
         # Cost-capped: $0.012/job * 50 = $0.60/day for the daily digest
         fetch_tasks["apify"] = lambda: fetch_apify_jobs(skills, apify_token, limit=50, time_range="1d")
@@ -1754,8 +1490,7 @@ if __name__ == "__main__":
     print("=" * 56)
     print(f"  Local:    http://localhost:{port}")
     print(f"  Network:  http://{local_ip}:{port}  << open on phone")
-    print("  Sources:  Remotive, RemoteOK, Jobicy, Arbeitnow")
-    print("            Himalayas, Apify, TheMuse, WeWorkRemotely")
+    print("  Sources:  Apify, Adzuna, JSearch  (paid/keyed APIs only)")
     print(f"  AI (Claude Sonnet): {'Enabled — cover letters, CV parsing, job scoring' if ai_enabled else 'Disabled (set ANTHROPIC_API_KEY)'}")
     print("=" * 56)
     app.run(host="0.0.0.0", port=port, debug=False)

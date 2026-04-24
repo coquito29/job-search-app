@@ -218,27 +218,13 @@
     .source-toggle input { display: none; }
     .source-toggle.checked { color: white !important; }
 
-    .source-toggle-remotive      { border-color: #7c3aed; color: #7c3aed; }
-    .source-toggle-remoteok      { border-color: #0d9488; color: #0d9488; }
-    .source-toggle-jobicy        { border-color: #ea580c; color: #ea580c; }
-    .source-toggle-arbeitnow     { border-color: #2563eb; color: #2563eb; }
-    .source-toggle-himalayas     { border-color: #4f46e5; color: #4f46e5; }
     .source-toggle-apify         { border-color: #dc2626; color: #dc2626; }
     .source-toggle-adzuna        { border-color: #059669; color: #059669; }
     .source-toggle-jsearch       { border-color: #b45309; color: #b45309; }
-    .source-toggle-themuse       { border-color: #db2777; color: #db2777; }
-    .source-toggle-weworkremotely{ border-color: #0891b2; color: #0891b2; }
 
-    .source-toggle-remotive.checked       { background: #7c3aed; }
-    .source-toggle-remoteok.checked       { background: #0d9488; }
-    .source-toggle-jobicy.checked         { background: #ea580c; }
-    .source-toggle-arbeitnow.checked      { background: #2563eb; }
-    .source-toggle-himalayas.checked      { background: #4f46e5; }
     .source-toggle-apify.checked          { background: #dc2626; }
     .source-toggle-adzuna.checked         { background: #059669; }
     .source-toggle-jsearch.checked        { background: #b45309; }
-    .source-toggle-themuse.checked        { background: #db2777; }
-    .source-toggle-weworkremotely.checked { background: #0891b2; }
 
     /* ── Source badges (results + cards) ─────────────────── */
     .source-badge {
@@ -248,16 +234,9 @@
       border-radius: 20px;
       white-space: nowrap;
     }
-    .source-remotive      { background: #ede9fe; color: #7c3aed; }
-    .source-remoteok      { background: #ccfbf1; color: #0d9488; }
-    .source-jobicy        { background: #ffedd5; color: #ea580c; }
-    .source-arbeitnow     { background: #dbeafe; color: #2563eb; }
-    .source-himalayas     { background: #e0e7ff; color: #4f46e5; }
     .source-apify         { background: #fee2e2; color: #dc2626; }
     .source-adzuna        { background: #d1fae5; color: #059669; }
     .source-jsearch       { background: #fef3c7; color: #b45309; }
-    .source-themuse       { background: #fce7f3; color: #db2777; }
-    .source-weworkremotely{ background: #cffafe; color: #0891b2; }
     .source-unknown       { background: #e9ecef; color: #6c757d; }
 
     /* ── Results summary bar ─────────────────────────────── */
@@ -889,42 +868,7 @@
         <i class="bi bi-check2" id="chk-icon-adzuna"></i>
         Adzuna <span style="opacity:.7;font-weight:400;">(your key)</span>
       </label>
-      <!-- Free sources — OFF by default (low signal, available if wanted) -->
-      <label class="source-toggle source-toggle-remotive" id="lbl-remotive">
-        <input type="checkbox" value="remotive" onchange="onSourceToggle(this)" />
-        <i class="bi bi-check2" id="chk-icon-remotive"></i>
-        Remotive <span style="opacity:.7;font-weight:400;">(free)</span>
-      </label>
-      <label class="source-toggle source-toggle-remoteok" id="lbl-remoteok">
-        <input type="checkbox" value="remoteok" onchange="onSourceToggle(this)" />
-        <i class="bi bi-check2" id="chk-icon-remoteok"></i>
-        RemoteOK <span style="opacity:.7;font-weight:400;">(free)</span>
-      </label>
-      <label class="source-toggle source-toggle-arbeitnow" id="lbl-arbeitnow">
-        <input type="checkbox" value="arbeitnow" onchange="onSourceToggle(this)" />
-        <i class="bi bi-check2" id="chk-icon-arbeitnow"></i>
-        Arbeitnow <span style="opacity:.7;font-weight:400;">(free)</span>
-      </label>
-      <label class="source-toggle source-toggle-himalayas" id="lbl-himalayas">
-        <input type="checkbox" value="himalayas" onchange="onSourceToggle(this)" />
-        <i class="bi bi-check2" id="chk-icon-himalayas"></i>
-        Himalayas <span style="opacity:.7;font-weight:400;">(free)</span>
-      </label>
-      <label class="source-toggle source-toggle-themuse" id="lbl-themuse">
-        <input type="checkbox" value="themuse" onchange="onSourceToggle(this)" />
-        <i class="bi bi-check2" id="chk-icon-themuse"></i>
-        TheMuse <span style="opacity:.7;font-weight:400;">(free)</span>
-      </label>
-      <label class="source-toggle source-toggle-weworkremotely" id="lbl-weworkremotely">
-        <input type="checkbox" value="weworkremotely" onchange="onSourceToggle(this)" />
-        <i class="bi bi-check2" id="chk-icon-weworkremotely"></i>
-        WeWorkRemotely <span style="opacity:.7;font-weight:400;">(free)</span>
-      </label>
-      <label class="source-toggle source-toggle-jobicy" id="lbl-jobicy">
-        <input type="checkbox" value="jobicy" onchange="onSourceToggle(this)" />
-        <i class="bi bi-check2" id="chk-icon-jobicy"></i>
-        Jobicy <span style="opacity:.7;font-weight:400;">(job board)</span>
-      </label>
+      <!-- Free sources removed — paid/keyed APIs only for higher-signal results -->
     </div>
   </div>
 
@@ -1134,16 +1078,9 @@ let loadingInterval= null;
 
 // Source key → CSS class slug mapping
 const SOURCE_CLASS = {
-  'Remotive':        'remotive',
-  'RemoteOK':        'remoteok',
-  'Jobicy':          'jobicy',
-  'Arbeitnow':       'arbeitnow',
-  'Himalayas':       'himalayas',
   'Apify':           'apify',
   'Adzuna':          'adzuna',
   'JSearch':         'jsearch',
-  'TheMuse':         'themuse',
-  'WeWorkRemotely':  'weworkremotely',
 };
 
 // ════════════════════════════════════════════════════════════════════════
