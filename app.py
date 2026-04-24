@@ -74,6 +74,47 @@ SIGNIN_WALL_DOMAINS = [
     "monster.com", "careerbuilder.com", "simplyhired.com", "jobicy.com",
 ]
 
+# Aggregators that Cloudflare-block or force signup — drop these entirely
+AGGREGATOR_DENYLIST = [
+    "jobleads.com", "lensa.com", "theelitejob.com", "talent.com",
+    "jobot.com", "neuvoo.com", "snagajob.com", "dice.com/jobs",
+    "adzuna.com/details", "resume-library.com", "clickajobs.com",
+    "jobs2careers.com", "jobgoal.com", "jobrapido.com", "joblum.com",
+    "trabajo.org", "learn4good.com", "jobsora.com",
+]
+
+# Direct ATS domains — boost these in ranking (fastest, most reliable apply flow)
+ATS_BOOST_DOMAINS = [
+    "oracle.com",          # Oracle HCM (taleo-successor)
+    "taleo.net",           # Taleo
+    "myworkdayjobs.com",   # Workday
+    "workday.com",         # Workday
+    "icims.com",           # iCIMS
+    "smartrecruiters.com", # SmartRecruiters
+    "greenhouse.io",       # Greenhouse
+    "lever.co",            # Lever
+    "ashbyhq.com",         # Ashby
+    "jobvite.com",         # Jobvite
+    "bamboohr.com",        # BambooHR
+    "brassring.com",       # BrassRing / Kenexa
+    "successfactors.com",  # SAP SuccessFactors
+    "adp.com",             # ADP (enterprise ATS)
+    "workable.com",        # Workable
+    "recruitee.com",       # Recruitee
+    "breezy.hr",           # Breezy HR
+    "paycom.com",          # Paycom
+    "paylocity.com",       # Paylocity
+    "ukg.com",             # UKG / Kronos
+]
+
+
+def _url_host_matches(url, domain_list):
+    """Case-insensitive 'is this URL from any of these domains?' check."""
+    if not url:
+        return False
+    u = url.lower()
+    return any(d in u for d in domain_list)
+
 KNOWN_SKILLS = [
     "html","css","javascript","python","sql","php","java","react","angular","node.js",
     "typescript","c++","c#","linux","windows","macos","networking","network",
@@ -419,7 +460,12 @@ def score_job(job, profile):
     for kw in profile.no_go_terms:
         if kw.lower() in combo:
             hire_bonus -= 30
-    total = skill_score + ratio_bonus + exp_bonus + fresh_bonus + hire_bonus
+    # Direct ATS apply flow is faster & more reliable — boost these URLs
+    ats_bonus = 0
+    is_ats = _url_host_matches(job.get("url", ""), ATS_BOOST_DOMAINS)
+    if is_ats:
+        ats_bonus = 12
+    total = skill_score + ratio_bonus + exp_bonus + fresh_bonus + hire_bonus + ats_bonus
     top   = len(profile.skills) * 3 + 80
     pct   = min(100, max(0, int((total / max(top, 1)) * 100)))
     reasons = []
@@ -435,6 +481,8 @@ def score_job(job, profile):
         reasons.append(f"Fresh ({days_old}d old)")
     if job.get("salary"):
         reasons.append("Salary listed")
+    if is_ats:
+        reasons.insert(0, "Direct ATS apply")
     if not reasons:
         reasons.append("Keyword match")
     return {
@@ -444,6 +492,7 @@ def score_job(job, profile):
         "hire_signals": hire_labels,
         "years_req": years_req,
         "days_old": days_old,
+        "is_ats": is_ats,
     }
 
 
@@ -806,8 +855,10 @@ def search_jobs():
             url = job.get("url", "")
             if not url or url in seen_urls:
                 continue
-            if any(d in url for d in SIGNIN_WALL_DOMAINS):
+            if _url_host_matches(url, SIGNIN_WALL_DOMAINS):
                 continue  # skip Indeed, LinkedIn, Glassdoor etc.
+            if _url_host_matches(url, AGGREGATOR_DENYLIST):
+                continue  # skip jobleads, lensa, etc. (Cloudflare-blocked)
             # Remote-only filter: skip jobs with clear in-person location signals
             loc_lower = (job.get("location") or "").lower().strip()
             title_lower = (job.get("title") or "").lower()
@@ -1037,7 +1088,9 @@ def daily_digest():
             url = job.get("url", "")
             if not url or url in seen_urls:
                 continue
-            if any(d in url for d in SIGNIN_WALL_DOMAINS):
+            if _url_host_matches(url, SIGNIN_WALL_DOMAINS):
+                continue
+            if _url_host_matches(url, AGGREGATOR_DENYLIST):
                 continue
             seen_urls.add(url)
             t = re.sub(r'\s+', ' ', (job.get("title") or "").lower().strip())[:60]

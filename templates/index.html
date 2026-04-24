@@ -882,6 +882,17 @@
 
 <!-- ══ Section 4: Results ════════════════════════════════════════════════════ -->
 <div id="resultsSection" style="display:none;">
+  <!-- Saved results banner — shown when restoring from localStorage -->
+  <div id="savedResultsBanner" style="display:none;
+       background:#fff8e1; border:1px solid #ffe082; border-radius:8px;
+       padding:8px 12px; margin:8px 12px; font-size:.8rem; color:#5d4037;
+       display:flex; align-items:center; gap:8px; justify-content:space-between;">
+    <span><i class="bi bi-clock-history me-1"></i><span id="savedResultsAge">Saved results</span></span>
+    <button class="btn btn-sm btn-outline-secondary" onclick="clearSavedResults()"
+            style="font-size:.72rem; padding:2px 8px;">
+      <i class="bi bi-x-circle me-1"></i>Clear
+    </button>
+  </div>
   <div class="results-summary">
     <div class="results-summary-top">
       <span id="resultsSummary">No results yet</span>
@@ -1083,6 +1094,82 @@ const SOURCE_CLASS = {
   'JSearch':         'jsearch',
 };
 
+// localStorage keys for persistent search results (TTL = 24h)
+const SAVED_RESULTS_KEY = 'last_search_results';
+const SAVED_RESULTS_TTL_MS = 24 * 60 * 60 * 1000;
+
+function saveResultsToStorage(data) {
+  try {
+    const payload = {
+      ts: Date.now(),
+      skills: skills.slice(),
+      time_range: document.querySelector('input[name="timeRange"]:checked')?.value || '7d',
+      data: data,
+    };
+    localStorage.setItem(SAVED_RESULTS_KEY, JSON.stringify(payload));
+  } catch(e) {
+    // Quota / serialization error — non-fatal
+    console.warn('Could not save results to localStorage:', e);
+  }
+}
+
+function loadResultsFromStorage() {
+  try {
+    const raw = localStorage.getItem(SAVED_RESULTS_KEY);
+    if (!raw) return null;
+    const payload = JSON.parse(raw);
+    if (!payload || !payload.ts || !payload.data) return null;
+    if (Date.now() - payload.ts > SAVED_RESULTS_TTL_MS) {
+      localStorage.removeItem(SAVED_RESULTS_KEY);
+      return null;
+    }
+    return payload;
+  } catch(e) {
+    return null;
+  }
+}
+
+function clearSavedResults() {
+  localStorage.removeItem(SAVED_RESULTS_KEY);
+  jobs = [];
+  document.getElementById('resultsSection').style.display = 'none';
+  document.getElementById('savedResultsBanner').style.display = 'none';
+  showToast('Cleared saved results', 'info');
+}
+
+function formatAge(ms) {
+  const m = Math.floor(ms / 60000);
+  if (m < 1)   return 'just now';
+  if (m < 60)  return m + 'm ago';
+  const h = Math.floor(m / 60);
+  if (h < 24)  return h + 'h ago';
+  const d = Math.floor(h / 24);
+  return d + 'd ago';
+}
+
+function restoreSavedResultsIfAny() {
+  const payload = loadResultsFromStorage();
+  if (!payload) return false;
+  // Restore skills chips so re-running the search is easy
+  if (Array.isArray(payload.skills) && payload.skills.length) {
+    skills = payload.skills.slice();
+    if (typeof renderSkills === 'function') renderSkills();
+  }
+  jobs = payload.data.jobs || [];
+  lastSourceData = payload.data.source_counts || {};
+  sortMode = 'match';
+  renderResults(payload.data);
+  // Show the "restored" banner with age + skill summary
+  const banner = document.getElementById('savedResultsBanner');
+  const ageEl = document.getElementById('savedResultsAge');
+  if (banner && ageEl) {
+    const age = formatAge(Date.now() - payload.ts);
+    ageEl.textContent = `Showing cached results from ${age} · ${jobs.length} jobs`;
+    banner.style.display = 'flex';
+  }
+  return true;
+}
+
 // ════════════════════════════════════════════════════════════════════════
 //  Init
 // ════════════════════════════════════════════════════════════════════════
@@ -1180,6 +1267,10 @@ document.addEventListener('DOMContentLoaded', () => {
   updateStepIndicators();
   updateSourcesCount();
   updateTrackerBadge();
+
+  // Restore the last search result set (if <24h old) so a refresh doesn't
+  // cost another Apify run (~$1.20)
+  restoreSavedResultsIfAny();
 });
 
 function showAiBadge() {
@@ -1453,6 +1544,79 @@ function quickBookmark(index, event) {
   renderJobCards();
 }
 
+// Guess which ATS a URL belongs to (used for the applications tracker "ats" field)
+function guessAts(url) {
+  if (!url) return '';
+  const u = url.toLowerCase();
+  if (u.includes('myworkdayjobs.com') || u.includes('workday.com')) return 'Workday';
+  if (u.includes('oracle.com')) return 'Oracle HCM';
+  if (u.includes('taleo.net')) return 'Taleo';
+  if (u.includes('icims.com')) return 'iCIMS';
+  if (u.includes('smartrecruiters.com')) return 'SmartRecruiters';
+  if (u.includes('greenhouse.io')) return 'Greenhouse';
+  if (u.includes('lever.co')) return 'Lever';
+  if (u.includes('ashbyhq.com')) return 'Ashby';
+  if (u.includes('jobvite.com')) return 'Jobvite';
+  if (u.includes('bamboohr.com')) return 'BambooHR';
+  if (u.includes('brassring.com')) return 'BrassRing';
+  if (u.includes('successfactors.com')) return 'SuccessFactors';
+  if (u.includes('adp.com')) return 'ADP';
+  if (u.includes('workable.com')) return 'Workable';
+  if (u.includes('recruitee.com')) return 'Recruitee';
+  if (u.includes('breezy.hr')) return 'Breezy';
+  if (u.includes('paycom.com')) return 'Paycom';
+  if (u.includes('paylocity.com')) return 'Paylocity';
+  if (u.includes('ukg.com')) return 'UKG';
+  return '';
+}
+
+// Apply & Log: POST to /api/applications, open the job in a new tab, mark Applied
+async function applyAndLog(index) {
+  const job = jobs[index];
+  if (!job) return;
+  const url = job.url;
+  if (!url) {
+    showToast('This job has no apply URL', 'warning');
+    return;
+  }
+  // Open the apply URL immediately (inside the user click — avoids popup blockers)
+  window.open(url, '_blank', 'noopener');
+
+  // Optimistic UI: mark applied locally first so the button flips right away
+  jobStatuses[url] = 'applied';
+  savedJobs[url]   = job;
+  localStorage.setItem('job_statuses', JSON.stringify(jobStatuses));
+  localStorage.setItem('saved_jobs',   JSON.stringify(savedJobs));
+  updateTrackerBadge();
+  renderJobCards();
+
+  // POST to the server-side tracker
+  try {
+    const resp = await fetch('/api/applications', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        company:  job.company_name || '',
+        title:    job.title         || '',
+        url:      url,
+        ats:      guessAts(url),
+        location: job.location      || '',
+        salary:   job.salary_clean || job.salary || '',
+        source:   job.source        || '',
+        status:   'Applied',
+      }),
+    });
+    if (resp.ok) {
+      showToast(`Logged: ${job.company_name || 'Job'} — ${job.title || ''}`, 'success');
+    } else {
+      const err = await resp.json().catch(() => ({}));
+      showToast('Logged locally, but server save failed: ' + (err.error || resp.status), 'warning');
+    }
+  } catch(e) {
+    showToast('Logged locally (server unreachable)', 'warning');
+  }
+}
+
 function toggleToken() {
   const inp  = document.getElementById('tokenInput');
   const icon = document.getElementById('tokenEyeIcon');
@@ -1680,6 +1844,11 @@ async function searchJobs() {
     sortMode = 'match';
     renderResults(data);
     updateStepIndicators();
+    // Persist results so a reload/navigation doesn't nuke the ~$1.20 Apify pull
+    saveResultsToStorage(data);
+    // Hide the "restored from cache" banner on a fresh search
+    const banner = document.getElementById('savedResultsBanner');
+    if (banner) banner.style.display = 'none';
 
     if (jobs.length === 0) {
       showToast('No remote jobs found. Try different skills or a wider time range.', 'info');
@@ -1792,10 +1961,13 @@ function renderJobCards() {
         <button class="btn btn-outline-success btn-sm" onclick="openCoverLetter(${i}); event.stopPropagation();">
           <i class="bi bi-file-earmark-text me-1"></i>Cover Letter
         </button>
-        <a class="btn btn-outline-dark btn-sm" href="${escHtml(job.url || '#')}" target="_blank" rel="noopener"
-           onclick="event.stopPropagation();">
-          <i class="bi bi-box-arrow-up-right me-1"></i>Apply
-        </a>
+        ${status === 'applied'
+          ? `<button class="btn btn-success btn-sm" disabled>
+               <i class="bi bi-check2-circle me-1"></i>Applied
+             </button>`
+          : `<button class="btn btn-dark btn-sm" onclick="applyAndLog(${i}); event.stopPropagation();">
+               <i class="bi bi-box-arrow-up-right me-1"></i>Apply & Log
+             </button>`}
       </div>`;
 
     card.addEventListener('click', () => showJobDetail(i));
