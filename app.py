@@ -1276,6 +1276,39 @@ def delete_application(app_id):
     return jsonify({"ok": True})
 
 
+@app.route("/api/applications/urls", methods=["GET"])
+def applied_urls():
+    """Lightweight index of already-applied jobs — used by the frontend
+    to dedupe jobs you've already submitted (by URL or company|title).
+    Returns:
+      { urls: { <url>: {applied_at, status, company, title} },
+        fingerprints: { "<co>|<title>": {applied_at, status} } }
+    """
+    with _db_conn() as conn:
+        rows = conn.execute(
+            "SELECT company, title, url, status, applied_at FROM applications"
+        ).fetchall()
+    urls = {}
+    fingerprints = {}
+    for r in rows:
+        meta = {
+            "applied_at": r["applied_at"],
+            "status":     r["status"],
+            "company":    r["company"],
+            "title":      r["title"],
+        }
+        if r["url"]:
+            urls[r["url"]] = meta
+        co = (r["company"] or "").lower().strip()
+        ti = (r["title"]   or "").lower().strip()
+        if co and ti:
+            fingerprints[f"{co}|{ti}"] = {
+                "applied_at": r["applied_at"],
+                "status":     r["status"],
+            }
+    return jsonify({"urls": urls, "fingerprints": fingerprints})
+
+
 @app.route("/api/applications/stats", methods=["GET"])
 def application_stats():
     with _db_conn() as conn:

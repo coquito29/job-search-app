@@ -699,6 +699,16 @@
       </button>
     </div>
   </div>
+  <!-- Monthly Apify cost pill — $1.20 per search, resets at month rollover -->
+  <div style="display:flex; justify-content:center; margin-top:6px;">
+    <span id="apifyCostPill"
+          style="display:none; background:#198754; color:white;
+                 font-size:.7rem; font-weight:600; padding:3px 10px;
+                 border-radius:999px;"
+          title="Click to reset this month's counter"
+          onclick="if(confirm('Reset this month\\'s Apify counter?')){localStorage.removeItem('apify_cost_month');renderApifyCostPill();}">
+    </span>
+  </div>
 </header>
 
 <!-- ══ Step bar ══════════════════════════════════════════════════════════════ -->
@@ -1094,6 +1104,101 @@ const SOURCE_CLASS = {
   'JSearch':         'jsearch',
 };
 
+// Already-applied index: { urls: {url: meta}, fingerprints: {"co|title": meta} }
+let appliedIndex = { urls: {}, fingerprints: {} };
+
+async function loadAppliedIndex() {
+  try {
+    const r = await fetch('/api/applications/urls');
+    if (!r.ok) return;
+    const data = await r.json();
+    appliedIndex = {
+      urls:         data.urls || {},
+      fingerprints: data.fingerprints || {},
+    };
+  } catch(e) { /* non-fatal */ }
+}
+
+function applicationFor(job) {
+  if (!job) return null;
+  if (job.url && appliedIndex.urls[job.url]) return appliedIndex.urls[job.url];
+  const co = (job.company_name || '').toLowerCase().trim();
+  const ti = (job.title        || '').toLowerCase().trim();
+  if (co && ti) {
+    const fp = `${co}|${ti}`;
+    if (appliedIndex.fingerprints[fp]) return appliedIndex.fingerprints[fp];
+  }
+  return null;
+}
+
+function formatAppliedDate(iso) {
+  if (!iso) return '';
+  try {
+    const d = new Date(iso);
+    // Show relative if recent, else MMM D
+    const days = Math.floor((Date.now() - d.getTime()) / (1000 * 60 * 60 * 24));
+    if (days === 0) return 'today';
+    if (days === 1) return 'yesterday';
+    if (days < 7)   return `${days}d ago`;
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  } catch(e) { return ''; }
+}
+
+// Given a job title, suggest which CV on disk to upload during apply
+function suggestResume(title) {
+  const t = (title || '').toLowerCase();
+  if (/bartender|mixolog|bar\b|casino.*dealer|beverage/.test(t))
+    return 'George Tupayachi CV Bartender Mixologist.docx';
+  if (/casino|gaming|dealer|pit boss|shift manager.*casino/.test(t))
+    return 'George Tupayachi CV Casino Dealer.docx';
+  if (/security|soc analyst|cyber|infosec|pentest|grc|vulnerability|siem|incident response/.test(t))
+    return 'George Tupayachi CV cybersecuirty .pdf';
+  if (/help\s*desk|it support|service desk|desktop support|technical support|tier [12]|it analyst|systems admin|network admin/.test(t))
+    return 'George Tupayachi CV technical support.pdf';
+  if (/\bit\b|information technology|sysadmin|devops|support engineer/.test(t))
+    return 'George_Tupayachi_IT_Professional_CV.docx';
+  return 'George_Tupayachi_CV.docx'; // safe general-purpose fallback
+}
+
+// Monthly Apify cost tracker — each /api/search that includes Apify is ~$1.20
+const APIFY_COST_KEY = 'apify_cost_month';
+const APIFY_COST_PER_SEARCH = 1.20;
+
+function getCostMonthKey() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function loadApifyCost() {
+  try {
+    const raw = localStorage.getItem(APIFY_COST_KEY);
+    if (!raw) return { month: getCostMonthKey(), count: 0 };
+    const p = JSON.parse(raw);
+    if (p.month !== getCostMonthKey()) return { month: getCostMonthKey(), count: 0 };
+    return p;
+  } catch(e) { return { month: getCostMonthKey(), count: 0 }; }
+}
+
+function bumpApifyCost() {
+  const p = loadApifyCost();
+  p.count += 1;
+  localStorage.setItem(APIFY_COST_KEY, JSON.stringify(p));
+  renderApifyCostPill();
+}
+
+function renderApifyCostPill() {
+  const pill = document.getElementById('apifyCostPill');
+  if (!pill) return;
+  const p = loadApifyCost();
+  if (p.count === 0) { pill.style.display = 'none'; return; }
+  const cost = (p.count * APIFY_COST_PER_SEARCH).toFixed(2);
+  pill.textContent = `🪙 $${cost} Apify this month (${p.count} search${p.count === 1 ? '' : 'es'})`;
+  pill.style.display = 'inline-block';
+  // Warn if usage is high
+  pill.style.background = p.count >= 10 ? '#dc3545'
+                         : p.count >= 5  ? '#fd7e14' : '#198754';
+}
+
 // localStorage keys for persistent search results (TTL = 24h)
 const SAVED_RESULTS_KEY = 'last_search_results';
 const SAVED_RESULTS_TTL_MS = 24 * 60 * 60 * 1000;
@@ -1267,10 +1372,15 @@ document.addEventListener('DOMContentLoaded', () => {
   updateStepIndicators();
   updateSourcesCount();
   updateTrackerBadge();
+  renderApifyCostPill();
 
-  // Restore the last search result set (if <24h old) so a refresh doesn't
-  // cost another Apify run (~$1.20)
-  restoreSavedResultsIfAny();
+  // Load the applied-index first, THEN restore saved results so
+  // duplicate-apply detection has its data ready during the render
+  loadAppliedIndex().finally(() => {
+    // Restore the last search result set (if <24h old) so a refresh doesn't
+    // cost another Apify run (~$1.20)
+    restoreSavedResultsIfAny();
+  });
 });
 
 function showAiBadge() {
@@ -1587,6 +1697,17 @@ async function applyAndLog(index) {
   savedJobs[url]   = job;
   localStorage.setItem('job_statuses', JSON.stringify(jobStatuses));
   localStorage.setItem('saved_jobs',   JSON.stringify(savedJobs));
+  // Also update the applied-index so dedup kicks in on re-render
+  const nowIso = new Date().toISOString();
+  appliedIndex.urls[url] = {
+    applied_at: nowIso, status: 'Applied',
+    company: job.company_name || '', title: job.title || '',
+  };
+  const co = (job.company_name || '').toLowerCase().trim();
+  const ti = (job.title        || '').toLowerCase().trim();
+  if (co && ti) {
+    appliedIndex.fingerprints[`${co}|${ti}`] = { applied_at: nowIso, status: 'Applied' };
+  }
   updateTrackerBadge();
   renderJobCards();
 
@@ -1842,6 +1963,10 @@ async function searchJobs() {
     jobs = data.jobs || [];
     lastSourceData = data.source_counts || {};
     sortMode = 'match';
+    // Count this as a paid Apify search if Apify was actually used & returned data
+    if (selectedSources.includes('apify') && token && (data.source_counts || {}).Apify !== undefined) {
+      bumpApifyCost();
+    }
     renderResults(data);
     updateStepIndicators();
     // Persist results so a reload/navigation doesn't nuke the ~$1.20 Apify pull
@@ -1924,6 +2049,11 @@ function renderJobCards() {
     const dotCls   = `status-dot status-${status}`;
     const srcName  = job.source || '';
     const srcCls   = SOURCE_CLASS[srcName] || 'unknown';
+    // Duplicate-apply check: was this job (by URL or company|title) already logged?
+    const prior    = applicationFor(job);
+    const priorTxt = prior ? formatAppliedDate(prior.applied_at) : '';
+    // Suggested CV for this job based on title keywords
+    const cvHint   = suggestResume(job.title);
 
     const card = document.createElement('div');
     card.className = `job-card ${matchCls}`;
@@ -1954,6 +2084,13 @@ function renderJobCards() {
         <div class="match-bar-fill ${matchCls}" style="width:${pct}%"></div>
       </div>
       ${job.match_why ? `<div class="job-why"><i class="bi bi-lightning-fill me-1"></i>${escHtml(job.match_why)}</div>` : ''}
+      ${prior
+        ? `<div class="job-why" style="background:#fef3c7; color:#92400e;">
+             <i class="bi bi-check2-circle me-1"></i>Already applied ${escHtml(priorTxt)}${prior.status && prior.status !== 'Applied' ? ` · ${escHtml(prior.status)}` : ''}
+           </div>`
+        : `<div class="job-why" style="background:#eef2ff; color:#3730a3;">
+             <i class="bi bi-file-earmark-person me-1"></i>Suggested CV: <strong>${escHtml(cvHint)}</strong>
+           </div>`}
       <div class="job-actions">
         <button class="btn btn-outline-primary btn-sm" onclick="showJobDetail(${i}); event.stopPropagation();">
           <i class="bi bi-info-circle me-1"></i>Details
@@ -1961,9 +2098,9 @@ function renderJobCards() {
         <button class="btn btn-outline-success btn-sm" onclick="openCoverLetter(${i}); event.stopPropagation();">
           <i class="bi bi-file-earmark-text me-1"></i>Cover Letter
         </button>
-        ${status === 'applied'
+        ${prior || status === 'applied'
           ? `<button class="btn btn-success btn-sm" disabled>
-               <i class="bi bi-check2-circle me-1"></i>Applied
+               <i class="bi bi-check2-circle me-1"></i>Applied${prior ? ' ' + escHtml(priorTxt) : ''}
              </button>`
           : `<button class="btn btn-dark btn-sm" onclick="applyAndLog(${i}); event.stopPropagation();">
                <i class="bi bi-box-arrow-up-right me-1"></i>Apply & Log
