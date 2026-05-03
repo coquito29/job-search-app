@@ -226,6 +226,25 @@
     .source-toggle-adzuna.checked         { background: #059669; }
     .source-toggle-jsearch.checked        { background: #b45309; }
 
+    /* ── External search buttons (LinkedIn/Indeed/etc.) ──────── */
+    .ext-btn {
+      font-size: .76rem;
+      font-weight: 600;
+      color: white !important;
+      border: none;
+      padding: 5px 11px;
+      border-radius: 18px;
+    }
+    .ext-btn:hover { opacity: .88; color: white !important; }
+    .ext-linkedin  { background: #0a66c2; }
+    .ext-indeed    { background: #003a9b; }
+    .ext-flexjobs  { background: #1a936f; }
+    .ext-wellfound { background: #ec4899; }
+    .ext-remoteok  { background: #111; }
+
+    /* ── Freshness filter chip active state ──────────────────── */
+    .freshness-btn.active { box-shadow: inset 0 0 0 2px currentColor; font-weight: 700; }
+
     /* ── Source badges (results + cards) ─────────────────── */
     .source-badge {
       font-size: .65rem;
@@ -729,6 +748,9 @@
     <i class="bi bi-bookmark-check"></i>Tracker
     <span class="badge bg-primary ms-1" id="trackerBadge" style="display:none;font-size:.6rem;padding:1px 5px;"></span>
   </div>
+  <div class="step-item" id="step6Indicator" onclick="window.location.href='/checklist'" title="Today's job-search routine">
+    <i class="bi bi-calendar-check"></i>Plan
+  </div>
 </div>
 
 <!-- ══ Section 1: Token ══════════════════════════════════════════════════════ -->
@@ -885,9 +907,34 @@
   <button class="btn btn-warning search-btn-main w-100" onclick="searchJobs()" id="searchBtn">
     <i class="bi bi-rocket-takeoff-fill me-2"></i>Find My Top Jobs
   </button>
-  <p class="text-muted mt-2 mb-0 text-center" style="font-size:.75rem;">
+  <p class="text-muted mt-2 mb-1 text-center" style="font-size:.75rem;">
     API sources only · Direct employer links · AI scores every result against your CV
   </p>
+
+  <!-- External board shortcuts — open searches with your skills pre-filled -->
+  <div class="external-search-bar" style="margin-top:14px; padding-top:12px; border-top:1px solid #e9ecef;">
+    <div style="font-size:.78rem; font-weight:600; color:#495057; margin-bottom:6px;">
+      <i class="bi bi-box-arrow-up-right me-1"></i>Also search externally
+      <span style="font-weight:400; color:#6c757d; font-size:.72rem;">(opens with your skills)</span>
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+      <button class="btn btn-sm ext-btn ext-linkedin" onclick="openExternalSearch('linkedin')">
+        <i class="bi bi-linkedin me-1"></i>LinkedIn (24h, Remote)
+      </button>
+      <button class="btn btn-sm ext-btn ext-indeed" onclick="openExternalSearch('indeed')">
+        <i class="bi bi-search me-1"></i>Indeed (24h)
+      </button>
+      <button class="btn btn-sm ext-btn ext-flexjobs" onclick="openExternalSearch('flexjobs')">
+        <i class="bi bi-briefcase me-1"></i>FlexJobs
+      </button>
+      <button class="btn btn-sm ext-btn ext-wellfound" onclick="openExternalSearch('wellfound')">
+        <i class="bi bi-rocket me-1"></i>Wellfound
+      </button>
+      <button class="btn btn-sm ext-btn ext-remoteok" onclick="openExternalSearch('remoteok')">
+        <i class="bi bi-globe me-1"></i>RemoteOK
+      </button>
+    </div>
+  </div>
 </div>
 
 <!-- ══ Section 4: Results ════════════════════════════════════════════════════ -->
@@ -919,6 +966,14 @@
       </div>
     </div>
     <div class="source-counts-bar" id="sourceCountsBar"></div>
+    <!-- Freshness filter chips — combat ghost jobs by limiting to recent posts -->
+    <div class="d-flex align-items-center gap-2 mt-2 flex-wrap" style="font-size:.78rem;">
+      <span style="color:#6c757d;font-weight:600;"><i class="bi bi-clock-history me-1"></i>Posted:</span>
+      <button class="btn btn-sm btn-outline-success freshness-btn" data-days="1"  onclick="setFreshnessFilter(1)">Last 24h</button>
+      <button class="btn btn-sm btn-outline-warning freshness-btn" data-days="3"  onclick="setFreshnessFilter(3)">Last 3 days</button>
+      <button class="btn btn-sm btn-outline-secondary freshness-btn active" data-days="0"  onclick="setFreshnessFilter(0)">All</button>
+      <span id="freshnessCount" style="color:#6c757d;margin-left:auto;"></span>
+    </div>
   </div>
   <!-- Salary filter bar -->
   <div class="salary-filter-bar" id="salaryFilterBar" style="display:none;">
@@ -1054,12 +1109,41 @@
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body p-3">
+        <!-- Source picker: AI from scratch vs reuse an existing letter -->
+        <div class="cl-source-picker mb-3" id="clSourcePicker">
+          <div class="d-flex gap-2">
+            <button class="btn btn-success btn-sm flex-fill" id="clBtnAi" onclick="loadCoverLetterAi()">
+              <i class="bi bi-stars me-1"></i>Generate from scratch (AI)
+            </button>
+            <button class="btn btn-outline-success btn-sm flex-fill" id="clBtnReuse" onclick="loadCoverLetterReuse()">
+              <i class="bi bi-folder-symlink me-1"></i>Reuse existing letter
+            </button>
+          </div>
+          <div class="text-muted mt-2" style="font-size:.72rem;">
+            Reuse picks the closest match from your <code>cover_letter_*.txt</code> files and gives you 2-3 customization tweaks for this specific posting.
+          </div>
+        </div>
+
         <div id="clLoadingSpinner" class="text-center py-4" style="display:none;">
           <div class="spinner-border text-success" role="status"></div>
-          <p class="mt-2 text-muted">Generating cover letter...</p>
+          <p class="mt-2 text-muted" id="clLoadingMsg">Generating cover letter...</p>
         </div>
+
+        <!-- Reuse-mode header: shows which file was picked + AI's reasoning + edits to make -->
+        <div id="clReuseHeader" style="display:none;" class="mb-3">
+          <div class="alert alert-info py-2 mb-2" style="font-size:.82rem;">
+            <div><strong><i class="bi bi-folder me-1"></i>Picked: </strong><span id="clPickedFile"></span></div>
+            <div class="mt-1" id="clPickedReason" style="font-size:.78rem;color:#374151;"></div>
+          </div>
+          <div id="clEditsBlock" style="background:#fff8e1;border:1px solid #ffe082;border-radius:8px;padding:10px 12px;font-size:.82rem;">
+            <div style="font-weight:700;color:#92400e;margin-bottom:4px;"><i class="bi bi-pencil-square me-1"></i>Customize before sending</div>
+            <ul id="clEditsList" style="margin:0;padding-left:18px;color:#5d4037;"></ul>
+          </div>
+        </div>
+
         <div id="clContent" style="display:none;">
-          <div class="cover-letter-box" id="coverLetterText"></div>
+          <div class="cover-letter-box" id="coverLetterText" contenteditable="true" style="white-space:pre-wrap;outline:none;border:1px solid #dee2e6;border-radius:8px;padding:12px;background:white;font-family:Georgia,serif;font-size:.92rem;line-height:1.5;min-height:300px;"></div>
+          <div class="text-muted mt-2" style="font-size:.72rem;"><i class="bi bi-info-circle me-1"></i>Editable — make your tweaks here, then copy or download.</div>
         </div>
       </div>
       <div class="modal-footer flex-column gap-2 p-3" id="clFooter" style="display:none!important;">
@@ -1082,7 +1166,9 @@
 //  State
 // ════════════════════════════════════════════════════════════════════════
 let skills         = [];
-let jobs           = [];
+let jobs           = [];           // currently rendered jobs (after freshness filter)
+let allJobs        = [];           // unfiltered server response — source of truth for re-filtering
+let freshnessDays  = 0;            // 0 = all, otherwise max days_old to show
 let currentJob     = null;
 let currentCLJob   = null;
 let jobStatuses    = {};
@@ -1260,7 +1346,8 @@ function restoreSavedResultsIfAny() {
     skills = payload.skills.slice();
     if (typeof renderSkills === 'function') renderSkills();
   }
-  jobs = payload.data.jobs || [];
+  allJobs = payload.data.jobs || [];
+  jobs = applyFreshnessFilter(allJobs);
   lastSourceData = payload.data.source_counts || {};
   sortMode = 'match';
   renderResults(payload.data);
@@ -1960,7 +2047,8 @@ async function searchJobs() {
       return;
     }
 
-    jobs = data.jobs || [];
+    allJobs = data.jobs || [];
+    jobs = applyFreshnessFilter(allJobs);
     lastSourceData = data.source_counts || {};
     sortMode = 'match';
     // Count this as a paid Apify search if Apify was actually used & returned data
@@ -2020,6 +2108,10 @@ function renderResults(data) {
   // Show salary filter bar if any jobs have salary data
   const hasSalary = (data.jobs || []).some(j => j.salary_clean);
   document.getElementById('salaryFilterBar').style.display = hasSalary ? 'flex' : 'none';
+
+  // Initialize the freshness count chip
+  const countEl = document.getElementById('freshnessCount');
+  if (countEl) countEl.textContent = `${allJobs.length} total`;
 
   updateSortButtons();
   renderJobCards();
@@ -2110,6 +2202,69 @@ function renderJobCards() {
     card.addEventListener('click', () => showJobDetail(i));
     list.appendChild(card);
   });
+}
+
+// ════════════════════════════════════════════════════════════════════════
+//  External job board shortcuts — open searches with current skills
+// ════════════════════════════════════════════════════════════════════════
+function buildExternalSearchUrl(board) {
+  // Pick the top 3 skills (likely the most signal — narrower searches outperform)
+  const top = (skills.slice(0, 3)).join(' ').trim() || 'remote';
+  const q   = encodeURIComponent(top);
+  switch (board) {
+    case 'linkedin':
+      // f_TPR=r86400 → posted in last 24h; f_WT=2 → Remote
+      return `https://www.linkedin.com/jobs/search/?keywords=${q}&f_TPR=r86400&f_WT=2`;
+    case 'indeed':
+      // fromage=1 → posted today; sc filter pins to remote
+      return `https://www.indeed.com/jobs?q=${q}+remote&fromage=1&sc=0kf%3Aattr%28DSQF7%29%3B`;
+    case 'flexjobs':
+      return `https://www.flexjobs.com/search?searchkeyword=${q}&jobtypes=Telecommuting`;
+    case 'wellfound':
+      return `https://wellfound.com/jobs?q=${q}&remote=true`;
+    case 'remoteok':
+      // RemoteOK uses tag-based URL paths
+      return `https://remoteok.com/remote-${encodeURIComponent((skills[0] || 'support').replace(/\s+/g, '-'))}-jobs`;
+    default:
+      return null;
+  }
+}
+
+function openExternalSearch(board) {
+  if (!skills.length) {
+    showToast('Add at least one skill first (or upload your CV).', 'warning');
+    return;
+  }
+  const url = buildExternalSearchUrl(board);
+  if (!url) return;
+  window.open(url, '_blank', 'noopener');
+  showToast(`Opened ${board.charAt(0).toUpperCase() + board.slice(1)} in a new tab`, 'info');
+}
+
+// ════════════════════════════════════════════════════════════════════════
+//  Freshness filter — drop ghost jobs / stale postings
+// ════════════════════════════════════════════════════════════════════════
+function applyFreshnessFilter(list) {
+  if (!freshnessDays || freshnessDays <= 0) return list.slice();
+  return list.filter(j => (j.days_old != null && j.days_old <= freshnessDays));
+}
+
+function setFreshnessFilter(days) {
+  freshnessDays = days;
+  // Re-derive visible jobs from the unfiltered set, keep current sort
+  jobs = applyFreshnessFilter(allJobs);
+  sortJobs(sortMode);
+  // Update active state on chips
+  document.querySelectorAll('.freshness-btn').forEach(b => {
+    b.classList.toggle('active', String(b.dataset.days) === String(days));
+  });
+  // Show count vs total
+  const countEl = document.getElementById('freshnessCount');
+  if (countEl) {
+    countEl.textContent = days
+      ? `${jobs.length} of ${allJobs.length} shown`
+      : `${allJobs.length} total`;
+  }
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -2296,54 +2451,101 @@ function statusText(s) {
 // ════════════════════════════════════════════════════════════════════════
 //  Cover letter
 // ════════════════════════════════════════════════════════════════════════
-async function openCoverLetter(index) {
+// Reset the modal to the source-picker state (AI vs Reuse).
+function resetCoverLetterModal() {
+  document.getElementById('clSourcePicker').style.display = 'block';
+  document.getElementById('clLoadingSpinner').style.display = 'none';
+  document.getElementById('clReuseHeader').style.display = 'none';
+  document.getElementById('clContent').style.display = 'none';
+  document.getElementById('clFooter').style.display = 'none';
+  document.getElementById('coverLetterText').textContent = '';
+}
+
+function openCoverLetter(index) {
   currentCLJob = jobs[index];
   document.getElementById('clModalTitle').textContent =
     `Cover Letter — ${currentCLJob.title || 'Job'}`;
-  document.getElementById('clLoadingSpinner').style.display = 'block';
-  document.getElementById('clContent').style.display = 'none';
-  document.getElementById('clFooter').style.removeProperty('display');
+  resetCoverLetterModal();
   coverLetterModal.show();
-  await _fetchCoverLetter(currentCLJob);
 }
 
-async function generateCoverLetter() {
+function generateCoverLetter() {
   if (!currentJob) return;
   currentCLJob = currentJob;
   jobDetailModal.hide();
   document.getElementById('clModalTitle').textContent =
     `Cover Letter — ${currentCLJob.title || 'Job'}`;
-  document.getElementById('clLoadingSpinner').style.display = 'block';
-  document.getElementById('clContent').style.display = 'none';
-  document.getElementById('clFooter').style.removeProperty('display');
+  resetCoverLetterModal();
   setTimeout(() => coverLetterModal.show(), 300);
-  await _fetchCoverLetter(currentCLJob);
 }
 
-async function _fetchCoverLetter(job) {
+// Mode 1: generate from scratch with AI (existing flow).
+async function loadCoverLetterAi() {
+  if (!currentCLJob) return;
+  document.getElementById('clSourcePicker').style.display = 'none';
+  document.getElementById('clReuseHeader').style.display = 'none';
+  document.getElementById('clLoadingSpinner').style.display = 'block';
+  document.getElementById('clLoadingMsg').textContent = 'Generating cover letter…';
+  document.getElementById('clContent').style.display = 'none';
   try {
     const resp = await fetch('/api/cover-letter', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ job, skills, resume_summary: cvSummary })
+      body: JSON.stringify({ job: currentCLJob, skills, resume_summary: cvSummary })
     });
-
     document.getElementById('clLoadingSpinner').style.display = 'none';
-
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}));
       showToast(err.error || 'Failed to generate cover letter', 'danger');
+      document.getElementById('clSourcePicker').style.display = 'block';
       return;
     }
-
     const text = await resp.text();
     document.getElementById('coverLetterText').textContent = text;
     document.getElementById('clContent').style.display = 'block';
     document.getElementById('clFooter').style.removeProperty('display');
-
   } catch(e) {
     document.getElementById('clLoadingSpinner').style.display = 'none';
+    document.getElementById('clSourcePicker').style.display = 'block';
     showToast('Network error generating cover letter', 'danger');
+  }
+}
+
+// Mode 2: pick the closest existing cover_letter_*.txt and show edits to make.
+async function loadCoverLetterReuse() {
+  if (!currentCLJob) return;
+  document.getElementById('clSourcePicker').style.display = 'none';
+  document.getElementById('clReuseHeader').style.display = 'none';
+  document.getElementById('clLoadingSpinner').style.display = 'block';
+  document.getElementById('clLoadingMsg').textContent = 'Picking the best existing letter…';
+  document.getElementById('clContent').style.display = 'none';
+  try {
+    const resp = await fetch('/api/cover-letters/suggest', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ job: currentCLJob })
+    });
+    const data = await resp.json();
+    document.getElementById('clLoadingSpinner').style.display = 'none';
+    if (!resp.ok || data.error) {
+      showToast(data.error || 'No existing letter found', 'danger');
+      document.getElementById('clSourcePicker').style.display = 'block';
+      return;
+    }
+    document.getElementById('clPickedFile').textContent = data.filename || '';
+    document.getElementById('clPickedReason').textContent =
+      (data.reason || '') + (data.ai ? '' : '  (heuristic match — no AI key set)');
+    const editsList = document.getElementById('clEditsList');
+    editsList.innerHTML = (data.edits || []).map(e => `<li>${escHtml(e)}</li>`).join('') ||
+                          '<li>No specific edits suggested. Personalize the opening line and proof-read.</li>';
+    document.getElementById('clReuseHeader').style.display = 'block';
+    document.getElementById('coverLetterText').textContent = data.body || '';
+    document.getElementById('clContent').style.display = 'block';
+    document.getElementById('clFooter').style.removeProperty('display');
+  } catch(e) {
+    document.getElementById('clLoadingSpinner').style.display = 'none';
+    document.getElementById('clSourcePicker').style.display = 'block';
+    showToast('Network error picking cover letter', 'danger');
   }
 }
 

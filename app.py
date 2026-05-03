@@ -2022,6 +2022,376 @@ async function del(){
 </body></html>"""
 
 
+# ── Cover-letter library ──────────────────────────────────────────────────────
+# Reuse the 14+ cover letters George has already written. Faster than starting
+# from scratch — pick the closest one, tweak the opener, ship it.
+
+COVER_LETTERS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _cover_letter_role_from_filename(fn):
+    """cover_letter_technical_support_engineer.txt → 'technical support engineer'"""
+    base = os.path.splitext(fn)[0]
+    if base.startswith("cover_letter_"):
+        base = base[len("cover_letter_"):]
+    return base.replace("_", " ").strip()
+
+
+def _list_cover_letters():
+    """Scan the project root for cover_letter_*.txt files. Prefer .txt over .docx
+    duplicates (same stem) so we always have plain text we can read & customize."""
+    if not os.path.isdir(COVER_LETTERS_DIR):
+        return []
+    seen = set()
+    out = []
+    for fn in sorted(os.listdir(COVER_LETTERS_DIR)):
+        low = fn.lower()
+        if not low.startswith("cover_letter_") or not low.endswith(".txt"):
+            continue
+        stem = os.path.splitext(fn)[0]
+        if stem in seen:
+            continue
+        seen.add(stem)
+        path = os.path.join(COVER_LETTERS_DIR, fn)
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
+                body = f.read()
+        except Exception:
+            continue
+        out.append({
+            "filename": fn,
+            "role":     _cover_letter_role_from_filename(fn),
+            "preview":  body.strip()[:240],
+            "length":   len(body),
+        })
+    return out
+
+
+def _suggest_cover_letter_keyword(job, letters):
+    """Fallback: pick the letter whose role tokens best overlap with the job title."""
+    title = (job.get("title") or "").lower()
+    desc  = (job.get("description") or "").lower()[:600]
+    blob  = title + " " + desc
+    best, best_score = None, 0
+    for L in letters:
+        tokens = [t for t in re.split(r"\W+", L["role"]) if len(t) >= 3]
+        score  = sum(2 if t in title else 1 if t in blob else 0 for t in tokens)
+        if score > best_score:
+            best, best_score = L, score
+    return best, best_score
+
+
+@app.route("/api/cover-letters", methods=["GET"])
+def cover_letters_list():
+    return jsonify({"letters": _list_cover_letters()})
+
+
+@app.route("/api/cover-letters/<path:filename>", methods=["GET"])
+def cover_letter_get(filename):
+    # Path-traversal guard: only allow filenames that look like our convention
+    if "/" in filename or "\\" in filename or ".." in filename:
+        return jsonify({"error": "Invalid filename"}), 400
+    if not filename.lower().startswith("cover_letter_") or not filename.lower().endswith(".txt"):
+        return jsonify({"error": "Not a cover letter"}), 400
+    path = os.path.join(COVER_LETTERS_DIR, filename)
+    if not os.path.isfile(path):
+        return jsonify({"error": "Not found"}), 404
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            return jsonify({"filename": filename, "body": f.read()})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/cover-letters/suggest", methods=["POST"])
+def cover_letter_suggest():
+    """Given a job, suggest which existing letter to reuse + 2-3 customization
+    lines tailored to this specific posting. Uses Claude when available, falls
+    back to keyword overlap so it works without an API key."""
+    data = request.get_json(force=True) or {}
+    job  = data.get("job") or {}
+    letters = _list_cover_letters()
+    if not letters:
+        return jsonify({"error": "No cover letters found in project root",
+                        "letters_dir": COVER_LETTERS_DIR}), 404
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if api_key and _anthropic:
+        try:
+            client = _anthropic.Anthropic(api_key=api_key)
+            roles  = [{"filename": L["filename"], "role": L["role"]} for L in letters]
+            desc_excerpt = re.sub(r"<[^>]+>", "", job.get("description", "") or "")[:1500]
+            prompt = f"""You are helping a job seeker reuse one of their existing cover letters.
+
+EXISTING COVER LETTERS (filename → role):
+{json.dumps(roles, indent=2)}
+
+JOB POSTING:
+Title: {job.get("title", "")}
+Company: {job.get("company_name", "")}
+Description excerpt:
+{desc_excerpt}
+
+Choose the SINGLE best-matching existing letter to reuse for this job, then
+suggest 2-3 short customization edits the candidate should make before sending.
+Each edit should be specific to THIS posting (mention the company name, a
+specific tool/responsibility from the job description, etc.) — not generic.
+
+Return ONLY valid JSON (no markdown fence, no extra text):
+{{
+  "filename": "<one of the filenames above>",
+  "reason": "<one sentence on why this letter is the best fit>",
+  "edits": [
+    "<specific edit 1 — what to change/add and why>",
+    "<specific edit 2>",
+    "<specific edit 3 (optional)>"
+  ]
+}}"""
+            msg = client.messages.create(
+                model="claude-sonnet-4-6",
+                max_tokens=600,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            raw = msg.content[0].text.strip()
+            m   = re.search(r"\{.*\}", raw, re.DOTALL)
+            result = json.loads(m.group() if m else raw)
+
+            # Validate filename is one we actually have
+            picked = next((L for L in letters if L["filename"] == result.get("filename")), None)
+            if picked is None:
+                # AI hallucinated a filename — fall through to keyword match
+                raise ValueError("AI returned unknown filename")
+
+            with open(os.path.join(COVER_LETTERS_DIR, picked["filename"]),
+                      "r", encoding="utf-8", errors="replace") as f:
+                body = f.read()
+
+            return jsonify({
+                "filename": picked["filename"],
+                "role":     picked["role"],
+                "reason":   result.get("reason", ""),
+                "edits":    result.get("edits", []),
+                "body":     body,
+                "ai":       True,
+            })
+        except Exception:
+            pass  # fall through to keyword match
+
+    # Keyword fallback
+    best, score = _suggest_cover_letter_keyword(job, letters)
+    if best is None:
+        return jsonify({"error": "Could not pick a letter"}), 404
+    with open(os.path.join(COVER_LETTERS_DIR, best["filename"]),
+              "r", encoding="utf-8", errors="replace") as f:
+        body = f.read()
+    return jsonify({
+        "filename": best["filename"],
+        "role":     best["role"],
+        "reason":   f"Best keyword overlap with job title (score {score}). Set ANTHROPIC_API_KEY for AI-powered suggestions.",
+        "edits": [
+            f"Replace the company name with “{job.get('company_name', '[Company]')}” throughout.",
+            f"Update the role title to “{job.get('title', '[Role]')}” in the opening line.",
+            "Add one sentence that references a specific tool or responsibility from the job description.",
+        ],
+        "body": body,
+        "ai":   False,
+    })
+
+
+# ── Daily checklist (job-search routine page) ─────────────────────────────────
+
+@app.route("/checklist")
+def checklist_page():
+    """Self-contained daily job-search routine. State is localStorage-only —
+    we don't need a DB for what's essentially a daily todo list. Resets at
+    local midnight (when the date changes)."""
+    return """<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Daily Job-Search Plan</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+<style>
+  body{background:#f0f4f8;padding-bottom:60px;font-size:.92rem}
+  .app-header{background:linear-gradient(135deg,#0d6efd 0%,#0043a8 100%);color:white;padding:14px 16px;box-shadow:0 2px 8px rgba(0,0,0,.25)}
+  .app-header h1{font-size:1.2rem;margin:0;font-weight:700}
+  .app-header .subtitle{font-size:.75rem;opacity:.85;margin:0}
+  .block{background:white;border-radius:14px;padding:14px 16px;margin:12px;box-shadow:0 2px 6px rgba(0,0,0,.08)}
+  .block.morning{border-left:5px solid #f59e0b}
+  .block.midday {border-left:5px solid #0d6efd}
+  .block.evening{border-left:5px solid #6f42c1}
+  .block.weekly {border-left:5px solid #198754}
+  .block-title{font-weight:700;font-size:.98rem;margin-bottom:4px;display:flex;align-items:center;gap:8px}
+  .block-time{font-size:.72rem;color:#6c757d;text-transform:uppercase;letter-spacing:.4px;margin-bottom:10px}
+  .check-item{display:flex;align-items:flex-start;gap:10px;padding:6px 0;cursor:pointer}
+  .check-item input{margin-top:3px;flex-shrink:0;width:18px;height:18px;cursor:pointer}
+  .check-item.done .label{color:#94a3b8;text-decoration:line-through}
+  .label{font-size:.88rem;line-height:1.45;color:#212529}
+  .label .hint{display:block;font-size:.75rem;color:#6c757d;margin-top:2px}
+  .progress-bar-wrap{height:8px;background:#e9ecef;border-radius:4px;overflow:hidden;margin-top:8px}
+  .progress-bar-fill{height:100%;background:linear-gradient(90deg,#0d6efd,#198754);transition:width .3s}
+  .stat-row{display:flex;justify-content:space-around;padding:14px;background:white;border-radius:14px;margin:12px;box-shadow:0 2px 6px rgba(0,0,0,.08);text-align:center}
+  .stat-row .v{font-size:1.4rem;font-weight:700;color:#0d6efd}
+  .stat-row .k{font-size:.7rem;color:#6c757d;text-transform:uppercase;letter-spacing:.5px}
+  .streak-flame{color:#fd7e14}
+  .reset-btn{font-size:.7rem;padding:2px 10px}
+  .quick-link{display:inline-flex;align-items:center;gap:5px;background:#0d6efd;color:white;border-radius:8px;padding:6px 12px;text-decoration:none;font-size:.78rem;font-weight:600;margin:3px 4px 3px 0}
+  .quick-link:hover{background:#0043a8;color:white}
+  .quick-link.linkedin{background:#0a66c2}
+  .quick-link.linkedin:hover{background:#08518f}
+  .quick-link.indeed{background:#003a9b}
+  .quick-link.flexjobs{background:#1a936f}
+  .quick-link.tracker{background:#6f42c1}
+</style></head>
+<body>
+<div class="app-header">
+  <div class="d-flex justify-content-between align-items-center">
+    <div>
+      <h1>📋 Today's Job-Search Plan</h1>
+      <p class="subtitle" id="todayLabel"></p>
+    </div>
+    <a href="/" class="btn btn-sm btn-light">← App</a>
+  </div>
+</div>
+
+<div class="stat-row">
+  <div><div class="v" id="statDone">0</div><div class="k">Done today</div></div>
+  <div><div class="v" id="statTotal">0</div><div class="k">Total tasks</div></div>
+  <div><div class="v" id="statStreak"><span class="streak-flame">🔥</span><span id="streakNum">0</span></div><div class="k">Day streak</div></div>
+  <div><button class="btn btn-outline-danger btn-sm reset-btn" onclick="resetToday()">Reset</button></div>
+</div>
+
+<div class="progress-bar-wrap" style="margin:0 12px"><div class="progress-bar-fill" id="overallBar" style="width:0%"></div></div>
+
+<!-- Quick links -->
+<div class="block">
+  <div class="block-title"><i class="bi bi-link-45deg"></i> Quick links</div>
+  <a class="quick-link" href="/" target="_blank"><i class="bi bi-search"></i> Job Search</a>
+  <a class="quick-link tracker" href="/applications" target="_blank"><i class="bi bi-bookmark-check"></i> Tracker</a>
+  <a class="quick-link linkedin" href="https://www.linkedin.com/jobs/search/?f_TPR=r86400&f_WT=2&keywords=technical%20support" target="_blank" rel="noopener"><i class="bi bi-linkedin"></i> LinkedIn (24h, Remote)</a>
+  <a class="quick-link indeed" href="https://www.indeed.com/jobs?q=technical+support+remote&fromage=1&sc=0kf%3Aattr%28DSQF7%29%3B" target="_blank" rel="noopener"><i class="bi bi-search"></i> Indeed (24h)</a>
+  <a class="quick-link flexjobs" href="https://www.flexjobs.com/search?searchkeyword=technical+support&jobtypes=Telecommuting" target="_blank" rel="noopener"><i class="bi bi-briefcase"></i> FlexJobs</a>
+</div>
+
+<div id="checklist"></div>
+
+<script>
+// ─────────────────────────────────────────────────────────────────
+// Daily routine — designed for ~2-3 hours of focused job-search/day.
+// Items with bonus=true count toward "daily target" but are nice-to-have.
+// ─────────────────────────────────────────────────────────────────
+const TASKS = [
+  { block: 'morning', time: '15 min', title: 'Morning sweep (8-9am)', items: [
+    { id: 'm1', label: 'Run job search app for fresh listings', hint: 'Visit / and click Find My Top Jobs' },
+    { id: 'm2', label: 'Open LinkedIn jobs (last 24h, Remote filter)', hint: 'Use the quick link above' },
+    { id: 'm3', label: 'Check FlexJobs ExpertApply queue', hint: 'Members.flexjobs.com → Saved searches' },
+    { id: 'm4', label: 'Star 8-10 promising postings', hint: 'Save to tracker as Applied=No yet' },
+  ]},
+  { block: 'midday', time: '60-90 min', title: 'Apply (10am-12pm)', items: [
+    { id: 'a1', label: 'Apply to 5-7 starred jobs',          hint: 'Direct via company site, not Easy Apply' },
+    { id: 'a2', label: 'For each: pick existing cover letter + customize 3 lines', hint: 'Use the picker in the job detail modal' },
+    { id: 'a3', label: 'Log every application in tracker',   hint: 'Use Apply & Log button — prevents duplicates' },
+    { id: 'a4', label: 'Tailor CV keywords to top 2 roles',  hint: 'Mirror exact phrases from the job description' },
+  ]},
+  { block: 'evening', time: '30-45 min', title: 'Network + follow-ups (2-3pm)', items: [
+    { id: 'n1', label: 'Send 3 LinkedIn connection requests to recruiters/hiring managers', hint: 'At companies you applied to today' },
+    { id: 'n2', label: 'Follow up on 1-2 applications past 7 days', hint: 'Tracker → Sort by stale first' },
+    { id: 'n3', label: 'Run Gmail scan to auto-update statuses', hint: 'Tracker → Scan Gmail button' },
+    { id: 'n4', label: 'Engage with 2-3 LinkedIn posts in your industry', hint: 'Bonus visibility to recruiter searches' },
+  ]},
+  { block: 'weekly', time: 'Once a week', title: 'Weekly habits', items: [
+    { id: 'w1', label: 'Update LinkedIn headline + Open to Work',     hint: 'Recruiters-only mode' },
+    { id: 'w2', label: 'Post or comment on LinkedIn once',             hint: 'Builds visibility for searches' },
+    { id: 'w3', label: 'Review tracker stats → drop sources that underperform', hint: 'Cut what isn\\'t working' },
+    { id: 'w4', label: 'Ask 1 connection for a referral or coffee chat', hint: 'Referrals → 4x interview rate' },
+  ]},
+];
+
+const ICONS = { morning: 'bi-sunrise',  midday: 'bi-clipboard-check', evening: 'bi-people', weekly: 'bi-calendar-week' };
+
+function todayKey()   { return 'checklist:' + (new Date()).toISOString().slice(0,10); }
+function streakKey()  { return 'checklist:streak'; }
+
+function load() {
+  try { return JSON.parse(localStorage.getItem(todayKey()) || '{}'); }
+  catch(e) { return {}; }
+}
+function save(state) { localStorage.setItem(todayKey(), JSON.stringify(state)); }
+
+function loadStreak() {
+  try { return JSON.parse(localStorage.getItem(streakKey()) || '{"count":0,"last":""}'); }
+  catch(e) { return {count:0, last:''}; }
+}
+function saveStreak(s) { localStorage.setItem(streakKey(), JSON.stringify(s)); }
+
+function isCompleteEnough(state) {
+  // "Complete" = at least all morning + midday core items checked
+  const required = ['m1','m2','m3','m4','a1','a2','a3'];
+  return required.every(k => state[k]);
+}
+
+function bumpStreakIfDone(state) {
+  const today = (new Date()).toISOString().slice(0,10);
+  const s = loadStreak();
+  if (!isCompleteEnough(state)) return;
+  if (s.last === today) return;            // already counted
+  // Check if the streak should continue (yesterday) or reset (gap)
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0,10);
+  if (s.last === yesterday) s.count += 1;
+  else                       s.count = 1;
+  s.last = today;
+  saveStreak(s);
+  document.getElementById('streakNum').textContent = s.count;
+}
+
+function render() {
+  const state = load();
+  const root = document.getElementById('checklist');
+  root.innerHTML = TASKS.map(blk => `
+    <div class="block ${blk.block}">
+      <div class="block-title"><i class="bi ${ICONS[blk.block]||'bi-check2-square'}"></i> ${blk.title}</div>
+      <div class="block-time">${blk.time}</div>
+      ${blk.items.map(it => `
+        <label class="check-item ${state[it.id] ? 'done' : ''}">
+          <input type="checkbox" ${state[it.id] ? 'checked' : ''} onchange="toggle('${it.id}', this.checked)">
+          <span class="label">${escapeHtml(it.label)}<span class="hint">${escapeHtml(it.hint || '')}</span></span>
+        </label>
+      `).join('')}
+    </div>
+  `).join('');
+
+  const all = TASKS.flatMap(b => b.items);
+  const done = all.filter(it => state[it.id]).length;
+  document.getElementById('statDone').textContent = done;
+  document.getElementById('statTotal').textContent = all.length;
+  document.getElementById('overallBar').style.width = `${Math.round((done / all.length) * 100)}%`;
+  document.getElementById('streakNum').textContent = loadStreak().count;
+  document.getElementById('todayLabel').textContent =
+    (new Date()).toLocaleDateString('en-US', { weekday:'long', month:'short', day:'numeric' });
+}
+
+function toggle(id, val) {
+  const state = load();
+  if (val) state[id] = true; else delete state[id];
+  save(state);
+  if (val) bumpStreakIfDone(state);
+  render();
+}
+
+function resetToday() {
+  if (!confirm('Reset today\\'s checklist?')) return;
+  localStorage.removeItem(todayKey());
+  render();
+}
+
+function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+render();
+</script>
+</body></html>"""
+
+
 # ── Startup ───────────────────────────────────────────────────────────────────
 
 def _get_local_ip():
