@@ -1,0 +1,10 @@
+Dear The Media Trust Hiring Team,
+
+I'm excited to apply for the Cybersecurity Analyst role on the Department of Digital Security and Operations team. The Media Trust's mission to make the web a safer space — protecting clients like NBC, Hearst, Marriott, and The Washington Post from malicious files and digital threats — maps directly onto where I'm investing my career. I'm pursuing a Masters in Cybersecurity at Franklin University while bringing 3+ years of hands-on technical experience from my work at Cholo Tech, where I helped develop and support an Android Cybersecurity Suite featuring VPN, virus cleaning, and performance optimization — exactly the mobile-specific malware territory listed in your preferred qualifications.
+
+The intersection of this role with my background is unusually direct: my Cholo Tech work has me reading and reasoning about JavaScript, system behavior on Android, and the kinds of obfuscation patterns malicious code uses, while my Franklin labs add a structured foundation in incident response, malware static/dynamic analysis groundwork, NIST and ISO27001 frameworks, and Windows/Linux administration. I've also operated across customer-facing environments at Ocean Casino Resort and Harrah's, building the calm communication and clear-writeup skills your role calls for when conveying highly technical findings to clients and management. I hold the Google Cybersecurity Professional Certificate and am bilingual in English and Spanish.
+
+I'd welcome the opportunity to grow at The Media Trust by analyzing malicious files, contributing to detection signatures and reports, and learning from analysts at the front lines of programmatic ad-serving threats. I'm available immediately and ready to clear the standard background check.
+
+Thank you for your consideration.
+George Tupayachi

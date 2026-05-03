@@ -2026,7 +2026,14 @@ async function del(){
 # Reuse the 14+ cover letters George has already written. Faster than starting
 # from scratch — pick the closest one, tweak the opener, ship it.
 
-COVER_LETTERS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Search both: the bundled cover_letters/ subfolder (production deploy) and the
+# repo's parent directory (local dev — George keeps drafts in the project root).
+# First-found wins per filename.
+_APP_DIR = os.path.dirname(os.path.abspath(__file__))
+COVER_LETTER_DIRS = [
+    os.path.join(_APP_DIR, "cover_letters"),
+    os.path.dirname(_APP_DIR),
+]
 
 
 def _cover_letter_role_from_filename(fn):
@@ -2037,33 +2044,43 @@ def _cover_letter_role_from_filename(fn):
     return base.replace("_", " ").strip()
 
 
+def _resolve_cover_letter_path(filename):
+    """Find a cover letter by filename across all search dirs. Returns the
+    first existing path or None."""
+    for d in COVER_LETTER_DIRS:
+        path = os.path.join(d, filename)
+        if os.path.isfile(path):
+            return path
+    return None
+
+
 def _list_cover_letters():
-    """Scan the project root for cover_letter_*.txt files. Prefer .txt over .docx
-    duplicates (same stem) so we always have plain text we can read & customize."""
-    if not os.path.isdir(COVER_LETTERS_DIR):
-        return []
+    """Scan all configured dirs for cover_letter_*.txt files, dedupe by stem
+    (so the bundled subfolder shadows the parent), and return metadata."""
     seen = set()
     out = []
-    for fn in sorted(os.listdir(COVER_LETTERS_DIR)):
-        low = fn.lower()
-        if not low.startswith("cover_letter_") or not low.endswith(".txt"):
+    for d in COVER_LETTER_DIRS:
+        if not os.path.isdir(d):
             continue
-        stem = os.path.splitext(fn)[0]
-        if stem in seen:
-            continue
-        seen.add(stem)
-        path = os.path.join(COVER_LETTERS_DIR, fn)
-        try:
-            with open(path, "r", encoding="utf-8", errors="replace") as f:
-                body = f.read()
-        except Exception:
-            continue
-        out.append({
-            "filename": fn,
-            "role":     _cover_letter_role_from_filename(fn),
-            "preview":  body.strip()[:240],
-            "length":   len(body),
-        })
+        for fn in sorted(os.listdir(d)):
+            low = fn.lower()
+            if not low.startswith("cover_letter_") or not low.endswith(".txt"):
+                continue
+            stem = os.path.splitext(fn)[0]
+            if stem in seen:
+                continue
+            seen.add(stem)
+            try:
+                with open(os.path.join(d, fn), "r", encoding="utf-8", errors="replace") as f:
+                    body = f.read()
+            except Exception:
+                continue
+            out.append({
+                "filename": fn,
+                "role":     _cover_letter_role_from_filename(fn),
+                "preview":  body.strip()[:240],
+                "length":   len(body),
+            })
     return out
 
 
@@ -2093,8 +2110,8 @@ def cover_letter_get(filename):
         return jsonify({"error": "Invalid filename"}), 400
     if not filename.lower().startswith("cover_letter_") or not filename.lower().endswith(".txt"):
         return jsonify({"error": "Not a cover letter"}), 400
-    path = os.path.join(COVER_LETTERS_DIR, filename)
-    if not os.path.isfile(path):
+    path = _resolve_cover_letter_path(filename)
+    if path is None:
         return jsonify({"error": "Not found"}), 404
     try:
         with open(path, "r", encoding="utf-8", errors="replace") as f:
@@ -2112,8 +2129,8 @@ def cover_letter_suggest():
     job  = data.get("job") or {}
     letters = _list_cover_letters()
     if not letters:
-        return jsonify({"error": "No cover letters found in project root",
-                        "letters_dir": COVER_LETTERS_DIR}), 404
+        return jsonify({"error": "No cover letters found",
+                        "search_dirs": COVER_LETTER_DIRS}), 404
 
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
     if api_key and _anthropic:
@@ -2162,8 +2179,10 @@ Return ONLY valid JSON (no markdown fence, no extra text):
                 # AI hallucinated a filename — fall through to keyword match
                 raise ValueError("AI returned unknown filename")
 
-            with open(os.path.join(COVER_LETTERS_DIR, picked["filename"]),
-                      "r", encoding="utf-8", errors="replace") as f:
+            picked_path = _resolve_cover_letter_path(picked["filename"])
+            if picked_path is None:
+                raise ValueError("Picked cover letter file disappeared")
+            with open(picked_path, "r", encoding="utf-8", errors="replace") as f:
                 body = f.read()
 
             return jsonify({
@@ -2181,8 +2200,10 @@ Return ONLY valid JSON (no markdown fence, no extra text):
     best, score = _suggest_cover_letter_keyword(job, letters)
     if best is None:
         return jsonify({"error": "Could not pick a letter"}), 404
-    with open(os.path.join(COVER_LETTERS_DIR, best["filename"]),
-              "r", encoding="utf-8", errors="replace") as f:
+    best_path = _resolve_cover_letter_path(best["filename"])
+    if best_path is None:
+        return jsonify({"error": "Cover letter file missing"}), 500
+    with open(best_path, "r", encoding="utf-8", errors="replace") as f:
         body = f.read()
     return jsonify({
         "filename": best["filename"],

@@ -1,0 +1,10 @@
+Dear TISTA Hiring Team,
+
+I'm excited to apply for the Information Security Analyst (Entry Level) role on the Corporate Security team. TISTA's combination of mission-driven federal work, modern cloud and AI-enabled environments, and early adoption of the ISO/IEC 42001 AIMS certification maps directly onto where I'm investing my career: I'm currently pursuing a Masters in Cybersecurity at Franklin University while bringing 3+ years of hands-on technical experience from my work at Cholo Tech (development, troubleshooting, hardware/software support) and 5+ years of fast-paced customer-facing operations at Ocean Casino Resort and Harrah's.
+
+My Franklin Cybersecurity labs cover the exact areas this role calls for — SIEM-based alert triage, incident response and documentation, security control validation, and risk assessment work grounded in the NIST Cybersecurity Framework, NIST 800-171, and ISO 27001. I have hands-on exposure to cloud platforms (Microsoft 365, AWS) and have built the investigative, detail-oriented mindset the team is looking for through both lab work and 3+ years of real-world troubleshooting at Cholo Tech. I also hold the Google Cybersecurity Professional Certificate and am bilingual in English and Spanish.
+
+I'd welcome the opportunity to grow with TISTA's security program — analyzing daily alerts, helping tune detection tooling to reduce false positives, contributing to security awareness training, and supporting governance/risk/compliance initiatives across an environment that includes emerging AI systems.
+
+Thank you for your consideration.
+George Tupayachi

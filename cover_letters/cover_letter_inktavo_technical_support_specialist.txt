@@ -1,0 +1,10 @@
+Dear Inktavo Hiring Team,
+
+I'm excited to apply for the Technical Support Specialist role. Inktavo's focus on supporting customers across web-based SaaS platforms is exactly the kind of fast, conversational, troubleshooting-heavy environment where I've built a strong track record: I bring 3+ years of hands-on technical experience at Cholo Tech (development, troubleshooting, hardware/software support) plus 5+ years of high-volume customer-facing operations at Ocean Casino Resort and Harrah's, and I'm currently pursuing a Masters in Cybersecurity at Franklin University.
+
+Day-to-day at Cholo Tech I work through exactly the kind of issues this role describes — diagnosing problems across web-based platforms, walking users through fixes in clear language, and following up to make sure the solution actually stuck. My Franklin labs add a deeper foundation in Windows administration, networking (TCP/IP, DNS, DHCP), and incident response that helps me move from "this is broken" to a confident root cause faster. I'm comfortable with ticketing tools and pick up new platforms (Zendesk, internal admin consoles) quickly. I also hold the Google Cybersecurity Professional Certificate and am bilingual in English and Spanish — a useful asset for a US-based SaaS support team.
+
+I'd welcome the opportunity to grow with Inktavo by handling tickets with patience and clarity, escalating thoughtfully when needed, and contributing back what I learn so the next person on the queue resolves the same issue faster.
+
+Thank you for your consideration.
+George Tupayachi
