@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Local test data — production uses Postgres via DATABASE_URL
+applications.db
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+
+# Local secrets / env files (never commit)
+.env
+*.env

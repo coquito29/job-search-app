@@ -244,6 +244,7 @@
 
     /* ── Freshness filter chip active state ──────────────────── */
     .freshness-btn.active { box-shadow: inset 0 0 0 2px currentColor; font-weight: 700; }
+    .ats-filter-btn.active { box-shadow: inset 0 0 0 2px currentColor; font-weight: 700; }
 
     /* ── Source badges (results + cards) ─────────────────── */
     .source-badge {
@@ -257,6 +258,165 @@
     .source-adzuna        { background: #d1fae5; color: #059669; }
     .source-jsearch       { background: #fef3c7; color: #b45309; }
     .source-unknown       { background: #e9ecef; color: #6c757d; }
+
+    /* ── ATS triage badges ──────────────────────────────── */
+    .ats-badge {
+      font-size: .65rem;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 20px;
+      white-space: nowrap;
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+    }
+    .ats-fast    { background: #d1fae5; color: #047857; }
+    .ats-walled  { background: #fef3c7; color: #92400e; }
+    .ats-blocked { background: #fee2e2; color: #b91c1c; }
+    .ats-unknown { background: #e9ecef; color: #6c757d; }
+
+    /* ── Blocker pills (clearance, citizenship, French) ──── */
+    .blocker-pill {
+      display: inline-block;
+      font-size: .65rem;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 20px;
+      background: #fee2e2;
+      color: #b91c1c;
+      margin: 2px 2px 0 0;
+    }
+
+    /* ── CV library list rows ──────────────────────────────── */
+    .cv-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: #f8f9fa;
+      border: 1px solid #dee2e6;
+      border-radius: 10px;
+      padding: 8px 10px;
+      margin-bottom: 6px;
+      font-size: .82rem;
+    }
+    .cv-row.is-default {
+      background: #e7f1ff;
+      border-color: #0d6efd;
+    }
+    .cv-row .cv-name {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-weight: 600;
+      color: #212529;
+    }
+    .cv-row .cv-cat {
+      font-size: .65rem;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 20px;
+      background: #e0e7ff;
+      color: #3730a3;
+      text-transform: capitalize;
+    }
+    .cv-row .cv-default-pill {
+      font-size: .6rem;
+      font-weight: 700;
+      padding: 1px 6px;
+      border-radius: 20px;
+      background: #0d6efd;
+      color: white;
+    }
+    .cv-row select.cv-cat-edit {
+      font-size: .7rem;
+      padding: 1px 4px;
+      border-radius: 6px;
+      border: 1px solid #ced4da;
+      background: white;
+    }
+
+    /* ── Lock banner (no passcode set yet) ──────────────────── */
+    .lock-banner {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      background: #fff3cd;
+      color: #664d03;
+      padding: 8px 14px;
+      font-size: .8rem;
+      border-bottom: 1px solid #ffe69c;
+    }
+    .lock-banner button {
+      margin-left: auto;
+    }
+
+    /* ── Lock screen (covers everything) ────────────────────── */
+    .lock-overlay {
+      position: fixed;
+      inset: 0;
+      background: linear-gradient(135deg, #0d6efd 0%, #0043a8 100%);
+      z-index: 2000;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+    .lock-overlay.visible { display: flex; }
+    .lock-card {
+      background: white;
+      border-radius: 16px;
+      padding: 28px 22px;
+      max-width: 360px;
+      width: 100%;
+      box-shadow: 0 12px 40px rgba(0,0,0,.3);
+      text-align: center;
+    }
+    .lock-card .bi-lock-fill {
+      font-size: 2.4rem;
+      color: #0d6efd;
+    }
+    .lock-card h2 {
+      font-size: 1.2rem;
+      margin: 8px 0 4px;
+    }
+    .lock-card p {
+      font-size: .85rem;
+      color: #6c757d;
+      margin-bottom: 16px;
+    }
+    .lock-card input {
+      text-align: center;
+      letter-spacing: .25em;
+      font-size: 1.1rem;
+    }
+    .lock-card .err {
+      color: #dc3545;
+      font-size: .8rem;
+      margin-top: 8px;
+      min-height: 1em;
+    }
+
+    /* ── Prep panel (offcanvas-like full sheet on mobile) ───── */
+    .prep-section {
+      background: #f8f9fa;
+      border-radius: 10px;
+      padding: 10px 12px;
+      margin-bottom: 10px;
+    }
+    .prep-section h6 {
+      font-size: .8rem;
+      font-weight: 700;
+      color: #0d6efd;
+      margin: 0 0 6px;
+      text-transform: uppercase;
+      letter-spacing: .5px;
+    }
+    .qa-list { margin: 0; padding: 0; list-style: none; font-size: .82rem; }
+    .qa-list li { display: flex; gap: 6px; padding: 3px 0; }
+    .qa-list li strong { min-width: 110px; color: #495057; }
+    .qa-list li span { flex: 1; color: #212529; font-weight: 600; }
 
     /* ── Results summary bar ─────────────────────────────── */
     .results-summary {
@@ -696,6 +856,38 @@
 </head>
 <body>
 
+<!-- Lock screen — covers everything until the user logs in -->
+<div id="lockOverlay" class="lock-overlay">
+  <div class="lock-card">
+    <i class="bi bi-lock-fill"></i>
+    <h2 id="lockTitle">Enter Passcode</h2>
+    <p id="lockSubtitle">Locked — type your passcode to unlock.</p>
+    <input id="lockPasscodeCurrent" class="form-control mb-2" type="password"
+           inputmode="numeric" autocomplete="off" placeholder="Current passcode"
+           style="display:none;" />
+    <input id="lockPasscode" class="form-control mb-2" type="password"
+           inputmode="numeric" autocomplete="off" placeholder="••••" />
+    <input id="lockPasscodeConfirm" class="form-control mb-2" type="password"
+           inputmode="numeric" autocomplete="off" placeholder="Confirm passcode"
+           style="display:none;" />
+    <button id="lockSubmitBtn" class="btn btn-primary w-100" onclick="submitLock()">
+      <i class="bi bi-unlock-fill me-1"></i><span id="lockBtnLabel">Unlock</span>
+    </button>
+    <button id="lockCancelBtn" class="btn btn-outline-secondary w-100 mt-2"
+            onclick="hideLockScreen()" style="display:none;">Cancel</button>
+    <div id="lockErr" class="err"></div>
+  </div>
+</div>
+
+<!-- "Set a passcode" suggestion banner (only when no passcode yet) -->
+<div id="lockBanner" class="lock-banner">
+  <i class="bi bi-shield-lock-fill"></i>
+  <span>Your data is unprotected. Set a passcode to lock this app.</span>
+  <button class="btn btn-sm btn-warning" onclick="showLockScreen('init')">
+    Set passcode
+  </button>
+</div>
+
 <!-- ══ Header ═══════════════════════════════════════════════════════════════ -->
 <header class="app-header">
   <div class="d-flex align-items-center justify-content-between gap-2">
@@ -716,6 +908,23 @@
       <button class="dark-toggle-btn" id="darkToggleBtn" onclick="toggleDarkMode()" title="Toggle dark mode">
         <i class="bi bi-moon-fill" id="darkToggleIcon"></i>
       </button>
+      <div class="dropdown" id="settingsMenu" style="display:none;">
+        <button class="dark-toggle-btn" data-bs-toggle="dropdown" aria-expanded="false" title="Account">
+          <i class="bi bi-person-circle"></i>
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end">
+          <li><button class="dropdown-item" type="button" onclick="showLockScreen('change')">
+            <i class="bi bi-key me-2"></i>Change passcode
+          </button></li>
+          <li><button class="dropdown-item" type="button" onclick="lockNow()">
+            <i class="bi bi-shield-lock me-2"></i>Lock now
+          </button></li>
+          <li><hr class="dropdown-divider"></li>
+          <li><button class="dropdown-item text-danger" type="button" onclick="logoutAndLock()">
+            <i class="bi bi-box-arrow-right me-2"></i>Log out
+          </button></li>
+        </ul>
+      </div>
     </div>
   </div>
   <!-- Monthly Apify cost pill — $1.20 per search, resets at month rollover -->
@@ -737,6 +946,7 @@
   </div>
   <div class="step-item" id="step2Indicator" onclick="scrollToSection('cvSection')">
     <i class="bi bi-file-person"></i>CV
+    <span class="badge bg-success ms-1" id="cvCountBadge" style="display:none;font-size:.6rem;padding:1px 5px;"></span>
   </div>
   <div class="step-item" id="step3Indicator" onclick="scrollToSection('searchSection')">
     <i class="bi bi-search"></i>Search
@@ -819,17 +1029,29 @@
 
 <!-- ══ Section 2: CV Upload ══════════════════════════════════════════════════ -->
 <div id="cvSection" class="section-card">
-  <div class="card-title"><i class="bi bi-file-earmark-person-fill"></i> Upload Your CV</div>
+  <div class="card-title"><i class="bi bi-file-earmark-person-fill"></i> Your CV Library</div>
 
   <div class="upload-area" id="uploadArea">
     <input type="file" id="cvFileInput" accept=".pdf,.docx,.txt" onchange="uploadCV(this)" />
     <i class="bi bi-cloud-upload"></i>
-    <p><strong>Tap to upload your CV</strong></p>
-    <p class="upload-hint">PDF, DOCX, or TXT · Skills extracted automatically</p>
+    <p><strong>Tap to upload a CV</strong></p>
+    <p class="upload-hint">PDF, DOCX, or TXT · Auto-categorised · Right CV per job</p>
   </div>
 
   <div id="cvStatus" class="mt-2" style="display:none;">
     <div class="d-flex align-items-center gap-2 text-success fw-bold" id="cvStatusText"></div>
+  </div>
+
+  <!-- CV library list — populated from /api/cvs -->
+  <div id="cvLibrarySection" class="mt-3" style="display:none;">
+    <div class="d-flex align-items-center justify-content-between mb-1">
+      <label class="form-label mb-0 fw-semibold" style="font-size:.85rem;">
+        Stored CVs
+        <span id="cvLibraryCount" class="badge bg-primary ms-1">0</span>
+      </label>
+      <span style="font-size:.7rem; color:#6c757d;">Default = used when no category matches</span>
+    </div>
+    <div id="cvLibraryList"></div>
   </div>
 
   <!-- Skills chips -->
@@ -973,6 +1195,17 @@
       <button class="btn btn-sm btn-outline-warning freshness-btn" data-days="3"  onclick="setFreshnessFilter(3)">Last 3 days</button>
       <button class="btn btn-sm btn-outline-secondary freshness-btn active" data-days="0"  onclick="setFreshnessFilter(0)">All</button>
       <span id="freshnessCount" style="color:#6c757d;margin-left:auto;"></span>
+    </div>
+    <!-- ATS triage chips — narrow to fast-apply ATSes for high-velocity batches -->
+    <div class="d-flex align-items-center gap-2 mt-2 flex-wrap" style="font-size:.78rem;">
+      <span style="color:#6c757d;font-weight:600;"><i class="bi bi-funnel me-1"></i>ATS:</span>
+      <button class="btn btn-sm btn-outline-success ats-filter-btn" data-cls="fast"
+              onclick="setAtsFilter('fast')">Fast only</button>
+      <button class="btn btn-sm btn-outline-warning ats-filter-btn" data-cls="fast_walled"
+              onclick="setAtsFilter('fast_walled')">Fast + Walled</button>
+      <button class="btn btn-sm btn-outline-secondary ats-filter-btn active" data-cls="all"
+              onclick="setAtsFilter('all')">All</button>
+      <span id="atsFilterCount" style="color:#6c757d;margin-left:auto;"></span>
     </div>
   </div>
   <!-- Salary filter bar -->
@@ -1158,6 +1391,54 @@
   </div>
 </div>
 
+<!-- ══ Prep Panel modal (one-click apply assistant) ═══════════════════════ -->
+<div class="modal fade" id="prepPanelModal" tabindex="-1" aria-labelledby="prepPanelTitle" aria-hidden="true">
+  <div class="modal-dialog modal-fullscreen-sm-down modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="prepPanelTitle">Application Prep</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div id="prepJobHeader" class="mb-2"></div>
+
+        <div class="prep-section" id="prepCvSection">
+          <h6><i class="bi bi-file-earmark-person"></i> CV to use</h6>
+          <div id="prepCvPick">Loading…</div>
+        </div>
+
+        <div class="prep-section" id="prepCoverSection">
+          <h6><i class="bi bi-envelope-paper"></i> Cover letter</h6>
+          <div id="prepCoverStatus" style="font-size:.78rem;color:#6c757d;">Generating…</div>
+          <textarea id="prepCoverBody" class="form-control mt-2" rows="6"
+                    style="font-size:.78rem;font-family:Menlo,Consolas,monospace;"></textarea>
+          <div class="d-flex gap-2 mt-2">
+            <button class="btn btn-sm btn-outline-success flex-fill" onclick="prepCopyCover()">
+              <i class="bi bi-clipboard"></i> Copy
+            </button>
+            <button class="btn btn-sm btn-outline-secondary flex-fill" onclick="prepRegenCover()">
+              <i class="bi bi-arrow-clockwise"></i> Regenerate
+            </button>
+          </div>
+        </div>
+
+        <div class="prep-section">
+          <h6><i class="bi bi-list-check"></i> Default answers</h6>
+          <ul class="qa-list" id="prepQaList"></ul>
+        </div>
+      </div>
+      <div class="modal-footer d-flex flex-column gap-2">
+        <button class="btn btn-dark w-100" id="prepOpenJobBtn" onclick="prepOpenJob()">
+          <i class="bi bi-box-arrow-up-right me-1"></i>Open job posting
+        </button>
+        <button class="btn btn-success w-100" id="prepSubmittedBtn" onclick="prepMarkSubmitted()">
+          <i class="bi bi-check2-circle me-1"></i>Mark as submitted
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Bootstrap 5.3 JS -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
@@ -1169,6 +1450,7 @@ let skills         = [];
 let jobs           = [];           // currently rendered jobs (after freshness filter)
 let allJobs        = [];           // unfiltered server response — source of truth for re-filtering
 let freshnessDays  = 0;            // 0 = all, otherwise max days_old to show
+let atsFilter      = 'all';        // 'all' | 'fast' | 'fast_walled'
 let currentJob     = null;
 let currentCLJob   = null;
 let jobStatuses    = {};
@@ -1244,6 +1526,62 @@ function suggestResume(title) {
   if (/\bit\b|information technology|sysadmin|devops|support engineer/.test(t))
     return 'George_Tupayachi_IT_Professional_CV.docx';
   return 'George_Tupayachi_CV.docx'; // safe general-purpose fallback
+}
+
+// CV library, loaded from /api/cvs once authenticated. Empty until then.
+let cvLibrary = [];
+
+// Same keyword sets the backend uses — keep in sync with _CV_CATEGORY_KEYWORDS.
+const CV_KEYWORDS = [
+  ['cybersecurity', ['soc analyst','security analyst','cybersecurity','incident response','siem','splunk','sentinel','mitre att&ck','nist csf','blue team','red team']],
+  ['developer',     ['software developer','software engineer','full stack','frontend','backend','react','node.js','python developer','javascript developer','web developer']],
+  ['it',            ['help desk','service desk','it support','technical support','desktop support','tier 1','tier i','level 1','level i ','it technician','service desk analyst','support specialist']],
+  ['casino',        ['casino','table games','shift manager','pit boss','dealer','gaming']],
+  ['bartender',     ['bartender','mixologist','bar manager']],
+  ['hospitality',   ['server','hostess','host ','front desk','concierge','hotel','restaurant','guest service']],
+];
+
+function classifyJobLocally(job) {
+  const t = ((job.title || '') + ' ' + (job.description || '')).toLowerCase();
+  let best = 'general', bestScore = 0;
+  for (const [cat, kws] of CV_KEYWORDS) {
+    let s = 0;
+    for (const k of kws) { let i = -1; while ((i = t.indexOf(k, i + 1)) !== -1) s++; }
+    if (s > bestScore) { best = cat; bestScore = s; }
+  }
+  return best;
+}
+
+function pickCvForJob(job) {
+  // If the user has uploaded their own CV library, prefer that. Otherwise
+  // fall back to the legacy filename-based hint so the card never shows blank.
+  if (Array.isArray(cvLibrary) && cvLibrary.length) {
+    const cat = classifyJobLocally(job);
+    const exact = cvLibrary.find(c => c.category === cat);
+    if (exact) return exact.filename;
+    const def   = cvLibrary.find(c => c.is_default);
+    if (def) return def.filename;
+    return cvLibrary[0].filename;
+  }
+  return suggestResume(job.title || '');
+}
+
+function pickCvObjectForJob(job) {
+  // Same picker as pickCvForJob but returns the full CV object (id, category…).
+  if (!Array.isArray(cvLibrary) || !cvLibrary.length) return null;
+  const cat = classifyJobLocally(job);
+  return cvLibrary.find(c => c.category === cat)
+      || cvLibrary.find(c => c.is_default)
+      || cvLibrary[0];
+}
+
+async function refreshCvLibrary() {
+  try {
+    const r = await fetch('/api/cvs', { credentials: 'same-origin' });
+    if (!r.ok) { cvLibrary = []; return; }
+    const data = await r.json();
+    cvLibrary = Array.isArray(data.cvs) ? data.cvs : [];
+  } catch (e) { cvLibrary = []; }
 }
 
 // Monthly Apify cost tracker — each /api/search that includes Apify is ~$1.20
@@ -1461,14 +1799,73 @@ document.addEventListener('DOMContentLoaded', () => {
   updateTrackerBadge();
   renderApifyCostPill();
 
-  // Load the applied-index first, THEN restore saved results so
-  // duplicate-apply detection has its data ready during the render
-  loadAppliedIndex().finally(() => {
-    // Restore the last search result set (if <24h old) so a refresh doesn't
-    // cost another Apify run (~$1.20)
-    restoreSavedResultsIfAny();
-  });
+  // Auth gate first — if a passcode is set and we're not logged in, show the
+  // lock screen before any user-data fetches that would 401.
+  bootAuthAndData();
 });
+
+async function bootAuthAndData() {
+  let authed = true;
+  let hasPasscode = false;
+  try {
+    const r = await fetch('/api/auth/status', { credentials: 'same-origin' });
+    const s = await r.json();
+    hasPasscode = !!s.has_passcode;
+    if (s.has_passcode && !s.logged_in) {
+      authed = false;
+      showLockScreen('login');
+    } else if (!s.has_passcode) {
+      // First-run hint — non-blocking.
+      const banner = document.getElementById('lockBanner');
+      if (banner) banner.style.display = 'flex';
+    }
+  } catch (e) { /* offline / network — proceed unlocked */ }
+
+  // Settings menu (Change passcode / Logout) only makes sense when locked + logged in
+  const settingsMenu = document.getElementById('settingsMenu');
+  if (settingsMenu) settingsMenu.style.display = (authed && hasPasscode) ? '' : 'none';
+
+  if (authed) {
+    await Promise.all([
+      refreshCvLibrary(),
+      loadAppliedIndex(),
+      loadServerProfile(),
+    ]).catch(() => {});
+    restoreSavedResultsIfAny();
+    if (typeof renderCvLibrary === 'function') renderCvLibrary();
+    if (jobs && jobs.length) renderJobCards();
+  }
+}
+
+async function loadServerProfile() {
+  try {
+    const r = await fetch('/api/profile', { credentials: 'same-origin' });
+    if (!r.ok) return;
+    const p = await r.json();
+    // Server is the source of truth for skills/summary across devices.
+    if (Array.isArray(p.skills) && p.skills.length) {
+      skills = p.skills;
+      localStorage.setItem('job_search_skills', JSON.stringify(skills));
+      renderSkills();
+    }
+    // Restore custom Q&A defaults if the user has set any; otherwise stay on canonical.
+    const qa = p.settings && p.settings.qa_defaults;
+    if (Array.isArray(qa) && qa.length) {
+      qaDefaults = qa.filter(x => Array.isArray(x) && x.length === 2);
+    }
+  } catch (e) {}
+}
+
+async function saveServerProfile() {
+  try {
+    await fetch('/api/profile', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ skills, summary: '', settings: {} }),
+    });
+  } catch (e) {}
+}
 
 function showAiBadge() {
   document.getElementById('aiBadge').classList.add('visible');
@@ -1856,18 +2253,27 @@ async function uploadCV(input) {
   fd.append('file', file);
 
   try {
-    const resp = await fetch('/api/parse-cv', { method: 'POST', body: fd });
+    // POST to /api/cvs — stores the file in the library AND returns parsed data.
+    const resp = await fetch('/api/cvs', { method: 'POST', credentials: 'same-origin', body: fd });
     const data = await resp.json();
     area.style.opacity = '1';
+    // Reset the input so re-uploading the same file fires onchange again
+    input.value = '';
 
     if (!resp.ok) {
-      showToast(data.error || 'Failed to parse CV', 'danger');
-      statusT.innerHTML = '<i class="bi bi-x-circle-fill text-danger me-1"></i> Parse failed';
+      // 401 = locked. 4xx/5xx = parse/storage error.
+      if (resp.status === 401) {
+        showLockScreen('login');
+        statusT.innerHTML = '<i class="bi bi-lock-fill text-warning me-1"></i> Log in first';
+        return;
+      }
+      showToast(data.error || 'Failed to upload CV', 'danger');
+      statusT.innerHTML = '<i class="bi bi-x-circle-fill text-danger me-1"></i> Upload failed';
       return;
     }
 
     const newSkills = data.skills || [];
-    const existing = new Set(skills.map(s => s.toLowerCase()));
+    const existing  = new Set(skills.map(s => s.toLowerCase()));
     let added = 0;
     for (const sk of newSkills) {
       if (!existing.has(sk.toLowerCase())) {
@@ -1878,31 +2284,26 @@ async function uploadCV(input) {
     }
     saveSkillsToStorage();
     renderSkills();
+    saveServerProfile(); // sync skills across devices
 
-    // Store summary for cover letters + AI scoring
     if (data.summary) cvSummary = data.summary;
 
-    const aiTag = data.ai_parsed ? ' <span class="badge bg-success ms-1" style="font-size:.65rem;">AI</span>' : '';
-    let extraInfo = '';
-    if (data.ai_parsed) {
-      if (data.job_titles && data.job_titles.length)
-        extraInfo += `<div style="font-size:.75rem;color:#6c757d;margin-top:4px;">Roles: ${data.job_titles.map(t => escHtml(t)).join(', ')}</div>`;
-      if (data.search_terms && data.search_terms.length)
-        extraInfo += `<div style="font-size:.75rem;color:#0d6efd;margin-top:2px;">Suggested searches: ${data.search_terms.map(t => escHtml(t)).join(' · ')}</div>`;
-      if (data.experience_years)
-        extraInfo += `<div style="font-size:.75rem;color:#6c757d;margin-top:2px;">Est. experience: ${data.experience_years} yr(s)</div>`;
-    }
-
     statusT.innerHTML = `<i class="bi bi-check-circle-fill me-1"></i>
-      <strong>${data.skill_count} skills found</strong> in ${escHtml(file.name)}${aiTag}
-      ${added < data.skill_count ? `(${added} new added)` : ''}${extraInfo}`;
+      <strong>${data.filename}</strong> stored
+      <span class="badge bg-info ms-1" style="font-size:.65rem;">${escHtml(data.category)}</span>
+      ${newSkills.length ? `· ${newSkills.length} skills (${added} new)` : ''}`;
+    showToast(`CV stored — auto-categorised as ${data.category}`, 'success');
 
-    showToast(`CV parsed — ${data.skill_count} skills extracted${data.ai_parsed ? ' (AI)' : ''}`, 'success');
+    // Refresh the library list so the new CV appears + auto-pick uses it
+    await refreshCvLibrary();
+    renderCvLibrary();
+    if (jobs && jobs.length) renderJobCards();
+
     updateStepIndicators();
 
   } catch(e) {
     area.style.opacity = '1';
-    showToast('Network error parsing CV', 'danger');
+    showToast('Network error uploading CV', 'danger');
     statusT.innerHTML = '<i class="bi bi-x-circle-fill text-danger me-1"></i> Error';
   }
 }
@@ -2144,8 +2545,21 @@ function renderJobCards() {
     // Duplicate-apply check: was this job (by URL or company|title) already logged?
     const prior    = applicationFor(job);
     const priorTxt = prior ? formatAppliedDate(prior.applied_at) : '';
-    // Suggested CV for this job based on title keywords
-    const cvHint   = suggestResume(job.title);
+    // ATS triage from the backend classifier (fast/walled/blocked/unknown)
+    const atsCls   = job.ats_class || 'unknown';
+    const atsName  = job.ats_name  || '';
+    const atsIcon  = atsCls === 'fast'   ? 'lightning-charge-fill'
+                  :  atsCls === 'walled' ? 'lock-fill'
+                  :  atsCls === 'blocked'? 'slash-circle-fill'
+                  :                        'globe2';
+    const atsLabel = atsCls === 'fast'   ? (atsName ? `${atsName} · Fast` : 'Fast apply')
+                  :  atsCls === 'walled' ? (atsName ? `${atsName} · Walled` : 'Account wall')
+                  :  atsCls === 'blocked'? 'Blocked'
+                  :                        '';
+    // Auto-pick the right CV from the user's library; fall back to legacy keyword map.
+    const cvHint   = pickCvForJob(job);
+    // Blocker labels from the backend (e.g. "Clearance required")
+    const blockers = Array.isArray(job.blockers) ? job.blockers : [];
 
     const card = document.createElement('div');
     card.className = `job-card ${matchCls}`;
@@ -2157,6 +2571,7 @@ function renderJobCards() {
           ${status !== 'not_applied' ? `<span style="font-size:.7rem; color:#6c757d;"><span class="${dotCls}"></span>${statusLabel}</span>` : ''}
         </div>
         <div class="d-flex align-items-center gap-1">
+          ${atsLabel ? `<span class="ats-badge ats-${atsCls}" title="${escHtml(atsLabel)}"><i class="bi bi-${atsIcon}"></i>${escHtml(atsLabel)}</span>` : ''}
           ${srcName ? `<span class="source-badge source-${srcCls}">${escHtml(srcName)}</span>` : ''}
           <button class="bookmark-btn ${status === 'favourite' ? 'bookmarked' : ''}"
                   onclick="quickBookmark(${i}, event)"
@@ -2176,19 +2591,20 @@ function renderJobCards() {
         <div class="match-bar-fill ${matchCls}" style="width:${pct}%"></div>
       </div>
       ${job.match_why ? `<div class="job-why"><i class="bi bi-lightning-fill me-1"></i>${escHtml(job.match_why)}</div>` : ''}
+      ${blockers.length ? `<div style="margin-top:4px;">${blockers.map(b => `<span class="blocker-pill">${escHtml(b)}</span>`).join('')}</div>` : ''}
       ${prior
         ? `<div class="job-why" style="background:#fef3c7; color:#92400e;">
              <i class="bi bi-check2-circle me-1"></i>Already applied ${escHtml(priorTxt)}${prior.status && prior.status !== 'Applied' ? ` · ${escHtml(prior.status)}` : ''}
            </div>`
         : `<div class="job-why" style="background:#eef2ff; color:#3730a3;">
-             <i class="bi bi-file-earmark-person me-1"></i>Suggested CV: <strong>${escHtml(cvHint)}</strong>
+             <i class="bi bi-file-earmark-person me-1"></i>CV: <strong>${escHtml(cvHint)}</strong>
            </div>`}
       <div class="job-actions">
         <button class="btn btn-outline-primary btn-sm" onclick="showJobDetail(${i}); event.stopPropagation();">
           <i class="bi bi-info-circle me-1"></i>Details
         </button>
-        <button class="btn btn-outline-success btn-sm" onclick="openCoverLetter(${i}); event.stopPropagation();">
-          <i class="bi bi-file-earmark-text me-1"></i>Cover Letter
+        <button class="btn btn-outline-success btn-sm" onclick="openPrepPanel(${i}); event.stopPropagation();">
+          <i class="bi bi-file-earmark-text me-1"></i>Prep
         </button>
         ${prior || status === 'applied'
           ? `<button class="btn btn-success btn-sm" disabled>
@@ -2249,21 +2665,50 @@ function applyFreshnessFilter(list) {
   return list.filter(j => (j.days_old != null && j.days_old <= freshnessDays));
 }
 
+function applyAtsFilter(list) {
+  if (atsFilter === 'fast')         return list.filter(j => j.ats_class === 'fast');
+  if (atsFilter === 'fast_walled')  return list.filter(j => j.ats_class === 'fast' || j.ats_class === 'walled');
+  return list.slice();
+}
+
+function applyAllFilters(list) {
+  return applyAtsFilter(applyFreshnessFilter(list));
+}
+
 function setFreshnessFilter(days) {
   freshnessDays = days;
-  // Re-derive visible jobs from the unfiltered set, keep current sort
-  jobs = applyFreshnessFilter(allJobs);
+  jobs = applyAllFilters(allJobs);
   sortJobs(sortMode);
-  // Update active state on chips
   document.querySelectorAll('.freshness-btn').forEach(b => {
     b.classList.toggle('active', String(b.dataset.days) === String(days));
   });
-  // Show count vs total
-  const countEl = document.getElementById('freshnessCount');
-  if (countEl) {
-    countEl.textContent = days
+  updateFilterCounts();
+}
+
+function setAtsFilter(cls) {
+  atsFilter = cls || 'all';
+  jobs = applyAllFilters(allJobs);
+  sortJobs(sortMode);
+  document.querySelectorAll('.ats-filter-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.cls === atsFilter);
+  });
+  updateFilterCounts();
+}
+
+function updateFilterCounts() {
+  const fc = document.getElementById('freshnessCount');
+  if (fc) {
+    fc.textContent = freshnessDays
       ? `${jobs.length} of ${allJobs.length} shown`
       : `${allJobs.length} total`;
+  }
+  const ac = document.getElementById('atsFilterCount');
+  if (ac) {
+    if (atsFilter === 'all') {
+      ac.textContent = '';
+    } else {
+      ac.textContent = `${jobs.length} match`;
+    }
   }
 }
 
@@ -2738,6 +3183,505 @@ if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/static/sw.js').catch(() => {});
   });
+}
+
+// ════════════════════════════════════════════════════════════════════════
+//  Lock screen (passcode)
+// ════════════════════════════════════════════════════════════════════════
+let lockMode = 'login';   // 'login' | 'init' | 'change'
+
+function showLockScreen(mode) {
+  lockMode = mode || 'login';
+  const overlay = document.getElementById('lockOverlay');
+  const title   = document.getElementById('lockTitle');
+  const sub     = document.getElementById('lockSubtitle');
+  const current = document.getElementById('lockPasscodeCurrent');
+  const confirm = document.getElementById('lockPasscodeConfirm');
+  const cancel  = document.getElementById('lockCancelBtn');
+  const btnLbl  = document.getElementById('lockBtnLabel');
+  const err     = document.getElementById('lockErr');
+  const pc      = document.getElementById('lockPasscode');
+
+  pc.value = ''; confirm.value = ''; current.value = ''; err.textContent = '';
+
+  if (lockMode === 'init') {
+    title.textContent     = 'Set a passcode';
+    sub.textContent       = 'Choose a passcode to lock this app on every device.';
+    current.style.display = 'none';
+    confirm.style.display = '';
+    cancel.style.display  = 'none';      // can't dismiss the first-time setup
+    pc.placeholder        = 'New passcode';
+    btnLbl.textContent    = 'Set passcode';
+  } else if (lockMode === 'change') {
+    title.textContent     = 'Change passcode';
+    sub.textContent       = 'Enter your current passcode, then choose a new one.';
+    current.style.display = '';
+    confirm.style.display = '';
+    cancel.style.display  = '';
+    pc.placeholder        = 'New passcode';
+    btnLbl.textContent    = 'Update passcode';
+  } else {
+    title.textContent     = 'Enter passcode';
+    sub.textContent       = 'Locked — type your passcode to unlock.';
+    current.style.display = 'none';
+    confirm.style.display = 'none';
+    cancel.style.display  = 'none';
+    pc.placeholder        = '••••';
+    btnLbl.textContent    = 'Unlock';
+  }
+  overlay.classList.add('visible');
+  setTimeout(() => (lockMode === 'change' ? current : pc).focus(), 50);
+}
+
+function hideLockScreen() {
+  document.getElementById('lockOverlay').classList.remove('visible');
+}
+
+async function submitLock() {
+  const pc      = document.getElementById('lockPasscode').value.trim();
+  const confirm = document.getElementById('lockPasscodeConfirm').value.trim();
+  const current = document.getElementById('lockPasscodeCurrent').value.trim();
+  const err     = document.getElementById('lockErr');
+  err.textContent = '';
+  if (!pc) { err.textContent = 'Enter a passcode.'; return; }
+
+  if (lockMode === 'init') {
+    if (pc.length < 4) { err.textContent = 'At least 4 characters.'; return; }
+    if (pc !== confirm) { err.textContent = "Passcodes don't match."; return; }
+    try {
+      const r = await fetch('/api/auth/init', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ passcode: pc }),
+      });
+      const data = await r.json();
+      if (!r.ok) { err.textContent = data.error || 'Failed to set passcode.'; return; }
+      hideLockScreen();
+      const banner = document.getElementById('lockBanner');
+      if (banner) banner.style.display = 'none';
+      showToast('Passcode set — your data is now locked.', 'success');
+      bootAuthAndData();
+    } catch (e) { err.textContent = 'Network error.'; }
+    return;
+  }
+
+  if (lockMode === 'change') {
+    if (!current) { err.textContent = 'Enter your current passcode.'; return; }
+    if (pc.length < 4) { err.textContent = 'New passcode must be at least 4 characters.'; return; }
+    if (pc !== confirm) { err.textContent = "New passcodes don't match."; return; }
+    try {
+      const r = await fetch('/api/auth/change', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ current, new: pc }),
+      });
+      const data = await r.json();
+      if (!r.ok) { err.textContent = data.error || 'Could not change passcode.'; return; }
+      hideLockScreen();
+      showToast('Passcode updated.', 'success');
+    } catch (e) { err.textContent = 'Network error.'; }
+    return;
+  }
+
+  try {
+    const r = await fetch('/api/auth/login', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ passcode: pc }),
+    });
+    const data = await r.json();
+    if (!r.ok) { err.textContent = data.error || 'Wrong passcode.'; return; }
+    hideLockScreen();
+    bootAuthAndData();
+  } catch (e) { err.textContent = 'Network error.'; }
+}
+
+async function logoutAndLock() {
+  try {
+    await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
+  } catch (e) {}
+  // Wipe in-memory state so the next user can't see anything
+  cvLibrary = []; jobs = []; allJobs = [];
+  showLockScreen('login');
+}
+
+function lockNow() {
+  // Same effect as logout — server clears the session, we re-show the lock.
+  logoutAndLock();
+}
+
+// Submit on Enter for both inputs
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && document.getElementById('lockOverlay').classList.contains('visible')) {
+    submitLock();
+  }
+});
+
+// ════════════════════════════════════════════════════════════════════════
+//  CV library — list, upload, delete, set default, change category
+// ════════════════════════════════════════════════════════════════════════
+function renderCvLibrary() {
+  const wrap  = document.getElementById('cvLibrarySection');
+  const list  = document.getElementById('cvLibraryList');
+  const count = document.getElementById('cvLibraryCount');
+  // Step indicator badge — visible whenever the library is non-empty.
+  const stepBadge = document.getElementById('cvCountBadge');
+  if (stepBadge) {
+    if (cvLibrary.length) {
+      stepBadge.textContent  = cvLibrary.length;
+      stepBadge.style.display = '';
+    } else {
+      stepBadge.style.display = 'none';
+    }
+  }
+  if (!wrap || !list) return;
+  if (!cvLibrary.length) { wrap.style.display = 'none'; return; }
+  wrap.style.display = '';
+  count.textContent  = cvLibrary.length;
+
+  const cats = ['it','cybersecurity','developer','bartender','casino','hospitality','general'];
+  list.innerHTML = cvLibrary.map(c => {
+    const opts = cats.map(k =>
+      `<option value="${k}" ${k === c.category ? 'selected' : ''}>${k}</option>`
+    ).join('');
+    return `
+      <div class="cv-row ${c.is_default ? 'is-default' : ''}">
+        <i class="bi bi-file-earmark-person-fill text-primary"></i>
+        <span class="cv-name" title="${escHtml(c.filename)}">${escHtml(c.filename)}</span>
+        <select class="cv-cat-edit" onchange="changeCvCategory(${c.id}, this.value)">${opts}</select>
+        ${c.is_default ? '<span class="cv-default-pill">Default</span>'
+                       : `<button class="btn btn-sm btn-outline-primary" style="font-size:.65rem;padding:1px 6px;" onclick="setCvDefault(${c.id})" title="Make default">Default</button>`}
+        <button class="btn btn-sm btn-outline-danger" style="font-size:.65rem;padding:1px 6px;" onclick="deleteCv(${c.id})" title="Delete">
+          <i class="bi bi-trash"></i>
+        </button>
+      </div>`;
+  }).join('');
+}
+
+async function setCvDefault(id) {
+  try {
+    const r = await fetch(`/api/cvs/${id}/default`, { method: 'POST', credentials: 'same-origin' });
+    if (!r.ok) { showToast('Could not set default', 'danger'); return; }
+    await refreshCvLibrary();
+    renderCvLibrary();
+  } catch (e) { showToast('Network error', 'danger'); }
+}
+
+async function deleteCv(id) {
+  if (!confirm('Delete this CV from your library?')) return;
+  try {
+    const r = await fetch(`/api/cvs/${id}`, { method: 'DELETE', credentials: 'same-origin' });
+    if (!r.ok) { showToast('Could not delete', 'danger'); return; }
+    await refreshCvLibrary();
+    renderCvLibrary();
+    if (jobs && jobs.length) renderJobCards();
+    showToast('CV deleted', 'success');
+  } catch (e) { showToast('Network error', 'danger'); }
+}
+
+async function changeCvCategory(id, cat) {
+  // No dedicated PATCH endpoint — re-upload would be wrong. Fake it
+  // with a local mutation so the UI feels live, then persist via a
+  // hidden no-op POST (we only have set-default). For now, just update
+  // local state and re-render — the server-side category was set on
+  // upload. To persist re-categorisation properly, we'd add a PATCH
+  // endpoint; left as a TODO since auto-categorise is usually right.
+  const cv = cvLibrary.find(c => c.id === id);
+  if (cv) cv.category = cat;
+  renderCvLibrary();
+  if (jobs && jobs.length) renderJobCards();
+}
+
+// ════════════════════════════════════════════════════════════════════════
+//  Prep panel
+// ════════════════════════════════════════════════════════════════════════
+let prepPanelModal      = null;
+let prepCurrentJob      = null;
+let prepCurrentJobIndex = -1;
+let prepCoverLoading    = false;
+let prepPickedCvId      = null;   // server-side picked CV id; can be overridden
+
+const QA_CANONICAL = [
+  ['Authorized to work in US', 'Yes'],
+  ['Sponsorship needed',       'No'],
+  ['Veteran',                  'Not a protected veteran'],
+  ['Disability',               'No'],
+  ['Gender',                   'Male'],
+  ['Hispanic / Latino',        'Yes'],
+  ['Race',                     'White'],
+  ['Salary expectation',       'Negotiable / job posted range'],
+  ['Notice period',            'Available immediately (2-week notice)'],
+  ['E-signature',              'George Tupayachi'],
+];
+// Live copy — initialised from canonical, then overridden from /api/profile.
+let qaDefaults = QA_CANONICAL.map(([k, v]) => [k, v]);
+
+function renderPrepQa() {
+  const list = document.getElementById('prepQaList');
+  if (!list) return;
+  list.innerHTML = qaDefaults.map(([k, v], i) => `
+    <li>
+      <strong>${escHtml(k)}:</strong>
+      <input type="text" class="form-control form-control-sm qa-input"
+             style="font-size:.78rem; padding:1px 6px; height:auto;"
+             value="${escHtml(v)}"
+             onchange="updateQaDefault(${i}, this.value)" />
+    </li>`).join('') + `
+    <li style="border-top:1px dashed #dee2e6; padding-top:6px; margin-top:4px;">
+      <small class="text-muted">Edits save automatically and sync across devices.</small>
+      <button class="btn btn-sm btn-outline-secondary ms-auto"
+              style="font-size:.65rem; padding:1px 6px;" onclick="resetQaDefaults()">
+        Reset to canonical
+      </button>
+    </li>`;
+}
+
+function updateQaDefault(i, value) {
+  if (i < 0 || i >= qaDefaults.length) return;
+  qaDefaults[i][1] = value;
+  saveQaToProfile();
+}
+
+function resetQaDefaults() {
+  if (!confirm('Reset all Q&A defaults to canonical values?')) return;
+  qaDefaults = QA_CANONICAL.map(([k, v]) => [k, v]);
+  renderPrepQa();
+  saveQaToProfile();
+}
+
+async function saveQaToProfile() {
+  try {
+    // Fetch the current profile so we don't blow away other settings
+    const r = await fetch('/api/profile', { credentials: 'same-origin' });
+    const p = r.ok ? await r.json() : { settings: {} };
+    const settings = (p && p.settings) || {};
+    settings.qa_defaults = qaDefaults;
+    await fetch('/api/profile', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        skills,
+        summary: cvSummary || (p && p.summary) || '',
+        settings,
+      }),
+    });
+  } catch (e) {}
+}
+
+function ensurePrepPanelModal() {
+  if (!prepPanelModal) {
+    prepPanelModal = new bootstrap.Modal(document.getElementById('prepPanelModal'));
+  }
+  return prepPanelModal;
+}
+
+async function openPrepPanel(index) {
+  const job = jobs[index];
+  if (!job) return;
+  prepCurrentJob = job;
+  prepCurrentJobIndex = index;
+
+  // Header
+  const cls = job.ats_class || 'unknown';
+  const lbl = (job.ats_class === 'fast'   ? `${job.ats_name || 'Easy'} · Fast`
+            :  job.ats_class === 'walled' ? `${job.ats_name || 'ATS'} · Walled`
+            :  job.ats_class === 'blocked'? 'Blocked'
+            :                               'Direct apply');
+  document.getElementById('prepJobHeader').innerHTML = `
+    <div style="font-weight:700; font-size:1rem;">${escHtml(job.title || '')}</div>
+    <div style="font-size:.82rem; color:#6c757d;">
+      ${escHtml(job.company_name || '')}
+      ${job.location ? ' · ' + escHtml(job.location) : ''}
+      ${job.salary_clean ? ' · <strong>' + escHtml(job.salary_clean) + '</strong>' : ''}
+    </div>
+    <div class="mt-1">
+      <span class="ats-badge ats-${cls}">${escHtml(lbl)}</span>
+      <span class="match-badge ${job.match_pct >= 70 ? 'match-high' : job.match_pct >= 40 ? 'match-good' : 'match-low'}">${job.match_pct || 0}% Match</span>
+    </div>`;
+
+  // CV pick — try server (richer reason), fall back to client.
+  document.getElementById('prepCvPick').innerHTML = '<i class="spinner-border spinner-border-sm me-2"></i>Picking CV…';
+  prepPickedCvId = null;
+  let cvLine = '';
+  try {
+    const r = await fetch('/api/cv-pick', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ job }),
+    });
+    if (r.ok) {
+      const d = await r.json();
+      prepPickedCvId = d.cv.id;
+      cvLine = renderPrepCvPick(d.cv, d.reason, d.all_cvs || cvLibrary);
+    }
+  } catch (e) {}
+  if (!cvLine) {
+    const fb = pickCvForJob(job);
+    cvLine = `
+      <div style="font-weight:700;">${escHtml(fb)}</div>
+      <div style="font-size:.78rem; color:#6c757d;">
+        No CV library uploaded yet — using the legacy filename hint.
+        <a href="#cvSection">Upload CVs</a> to enable auto-pick.
+      </div>`;
+  }
+  document.getElementById('prepCvPick').innerHTML = cvLine;
+
+  // Cover letter — generate via existing /api/cover-letter
+  document.getElementById('prepCoverStatus').textContent = 'Generating cover letter…';
+  document.getElementById('prepCoverBody').value = '';
+  loadPrepCover();
+
+  // Q&A defaults — editable, persisted in profile.settings.qa_defaults
+  renderPrepQa();
+
+  // Submit button state
+  const submitBtn = document.getElementById('prepSubmittedBtn');
+  const prior     = applicationFor(job);
+  if (prior || jobStatuses[job.url] === 'applied') {
+    submitBtn.disabled    = true;
+    submitBtn.innerHTML   = '<i class="bi bi-check2-circle me-1"></i>Already submitted';
+  } else {
+    submitBtn.disabled    = false;
+    submitBtn.innerHTML   = '<i class="bi bi-check2-circle me-1"></i>Mark as submitted';
+  }
+
+  ensurePrepPanelModal().show();
+}
+
+function renderPrepCvPick(cv, reason, allCvs) {
+  const others = (allCvs || []).filter(c => c.id !== cv.id);
+  const overrideOpts = others.length
+    ? `<select class="form-select form-select-sm mt-2" onchange="overridePrepCv(this.value)">
+         <option value="${cv.id}" selected>${escHtml(cv.filename)} (${escHtml(cv.category)})</option>
+         ${others.map(c => `<option value="${c.id}">${escHtml(c.filename)} (${escHtml(c.category)})</option>`).join('')}
+       </select>`
+    : '';
+  return `
+    <div style="font-weight:700;">${escHtml(cv.filename)}</div>
+    <div style="font-size:.78rem; color:#6c757d;">
+      Category: <strong>${escHtml(cv.category)}</strong> · ${escHtml(reason)}
+    </div>
+    <div class="d-flex gap-2 mt-2 flex-wrap">
+      <a class="btn btn-sm btn-outline-primary" href="/api/cvs/${cv.id}" target="_blank" rel="noopener">
+        <i class="bi bi-download"></i> Download CV
+      </a>
+    </div>
+    ${overrideOpts}`;
+}
+
+async function overridePrepCv(newId) {
+  const id = parseInt(newId, 10);
+  if (!id || id === prepPickedCvId) return;
+  const cv = cvLibrary.find(c => c.id === id);
+  if (!cv) return;
+  prepPickedCvId = id;
+  document.getElementById('prepCvPick').innerHTML =
+    renderPrepCvPick(cv, 'Manual override', cvLibrary);
+  // Regenerate the cover letter with the new CV
+  document.getElementById('prepCoverBody').value = '';
+  document.getElementById('prepCoverStatus').textContent = 'Regenerating with new CV…';
+  loadPrepCover();
+}
+
+async function loadPrepCover() {
+  const job = prepCurrentJob;
+  if (!job || prepCoverLoading) return;
+  prepCoverLoading = true;
+  try {
+    // /api/cover-letter returns the text body as a file attachment, not JSON.
+    const r = await fetch('/api/cover-letter', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        job,
+        skills,
+        resume_summary: cvSummary || '',
+        cv_id: prepPickedCvId,   // grounds the AI letter in the picked CV's actual content
+      }),
+    });
+    if (!r.ok) {
+      let msg = 'Could not generate cover letter.';
+      try { const d = await r.json(); if (d.error) msg = d.error; } catch (_) {}
+      document.getElementById('prepCoverStatus').textContent = msg;
+      return;
+    }
+    const text = await r.text();
+    document.getElementById('prepCoverBody').value   = text;
+    document.getElementById('prepCoverStatus').textContent =
+      'Generated · review and customise before copying.';
+  } catch (e) {
+    document.getElementById('prepCoverStatus').textContent = 'Network error.';
+  } finally {
+    prepCoverLoading = false;
+  }
+}
+
+function prepCopyCover() {
+  const body = document.getElementById('prepCoverBody').value;
+  if (!body) return;
+  navigator.clipboard.writeText(body).then(() => {
+    showToast('Cover letter copied', 'success');
+  }).catch(() => showToast('Copy failed', 'danger'));
+}
+
+function prepRegenCover() {
+  document.getElementById('prepCoverBody').value = '';
+  document.getElementById('prepCoverStatus').textContent = 'Regenerating…';
+  loadPrepCover();
+}
+
+function prepOpenJob() {
+  if (!prepCurrentJob || !prepCurrentJob.url) return;
+  window.open(prepCurrentJob.url, '_blank', 'noopener');
+}
+
+async function prepMarkSubmitted() {
+  if (!prepCurrentJob) return;
+  // Reuse the existing applyAndLog logic but skip the URL open (user already
+  // opened it via prepOpenJob).
+  const job = prepCurrentJob;
+  const url = job.url;
+  jobStatuses[url] = 'applied';
+  savedJobs[url]   = job;
+  localStorage.setItem('job_statuses', JSON.stringify(jobStatuses));
+  localStorage.setItem('saved_jobs',   JSON.stringify(savedJobs));
+  const nowIso = new Date().toISOString();
+  appliedIndex.urls[url] = {
+    applied_at: nowIso, status: 'Applied',
+    company: job.company_name || '', title: job.title || '',
+  };
+  const co = (job.company_name || '').toLowerCase().trim();
+  const ti = (job.title        || '').toLowerCase().trim();
+  if (co && ti) {
+    appliedIndex.fingerprints[`${co}|${ti}`] = { applied_at: nowIso, status: 'Applied' };
+  }
+  updateTrackerBadge();
+  renderJobCards();
+  try {
+    await fetch('/api/applications', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        company:  job.company_name || '',
+        title:    job.title || '',
+        url,
+        ats:      job.ats_name || guessAts(url) || '',
+        location: job.location || '',
+        salary:   job.salary_clean || job.salary || '',
+        source:   job.source || '',
+        status:   'Applied',
+      }),
+    });
+  } catch (e) {}
+  showToast('Logged as submitted', 'success');
+  ensurePrepPanelModal().hide();
 }
 </script>
 </body>

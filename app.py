@@ -3,14 +3,15 @@ app.py  —  Remote Job Search Mobile PWA
 Sources: Apify · Adzuna · JSearch  (paid/keyed APIs only — free sources removed for signal quality)
 AI Cover Letters: Claude Haiku (set ANTHROPIC_API_KEY env var)
 """
-import io, json, os, re, socket, sqlite3
+import io, json, os, re, secrets, socket, sqlite3
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Dict, Any
 
 import requests as http_req
-from flask import Flask, request, jsonify, render_template, send_file
+from flask import Flask, request, jsonify, render_template, send_file, session
+from werkzeug.security import generate_password_hash, check_password_hash
 
 try:
     from pdfminer.high_level import extract_text as pdf_extract_text
@@ -37,6 +38,13 @@ except ImportError:
     _RealDictCursor = None
 
 app = Flask(__name__)
+# Signed session cookie. Set FLASK_SECRET_KEY in Render env vars so sessions
+# survive deploys; otherwise we burn a random key per process (dev only).
+app.secret_key = os.environ.get("FLASK_SECRET_KEY") or secrets.token_hex(32)
+app.permanent_session_lifetime = timedelta(days=30)
+# Auto-reload templates so editing index.html doesn't require a server restart.
+# Cheap (mtime check) and harmless in production.
+app.config["TEMPLATES_AUTO_RELOAD"] = True
 
 # ── Applications tracker (Postgres on Render, SQLite locally) ────────────────
 # If DATABASE_URL is set (Render auto-injects this when you attach a Postgres
@@ -104,7 +112,8 @@ def _db_conn():
 
 def _init_applications_db():
     # SERIAL for PG, AUTOINCREMENT for sqlite — rest of the schema is identical
-    id_col = "id SERIAL PRIMARY KEY" if USE_POSTGRES else "id INTEGER PRIMARY KEY AUTOINCREMENT"
+    id_col   = "id SERIAL PRIMARY KEY" if USE_POSTGRES else "id INTEGER PRIMARY KEY AUTOINCREMENT"
+    blob_col = "BYTEA" if USE_POSTGRES else "BLOB"
     with _db_conn() as conn:
         conn.execute(f"""
             CREATE TABLE IF NOT EXISTS applications (
@@ -122,10 +131,117 @@ def _init_applications_db():
                 updated_at   TEXT NOT NULL
             )
         """)
+        # Single-user now, multi-user later. user_key="default" for the only seat;
+        # passcode_hash is nullable until the user sets one.
+        conn.execute(f"""
+            CREATE TABLE IF NOT EXISTS users (
+                {id_col},
+                user_key      TEXT UNIQUE NOT NULL,
+                passcode_hash TEXT,
+                created_at    TEXT NOT NULL
+            )
+        """)
+        # CV library: stores the file blob so it survives Render redeploys.
+        # category drives auto-pick: 'it', 'cybersecurity', 'bartender',
+        # 'casino', 'hospitality', 'general'. is_default = the fallback CV.
+        conn.execute(f"""
+            CREATE TABLE IF NOT EXISTS cvs (
+                {id_col},
+                user_id      INTEGER NOT NULL,
+                filename     TEXT NOT NULL,
+                category     TEXT NOT NULL DEFAULT 'general',
+                mime_type    TEXT NOT NULL,
+                file_blob    {blob_col} NOT NULL,
+                parsed_text  TEXT,
+                ai_summary   TEXT,
+                ai_skills    TEXT,
+                is_default   INTEGER NOT NULL DEFAULT 0,
+                created_at   TEXT NOT NULL
+            )
+        """)
+        # Per-user profile: replaces browser-localStorage so profile follows
+        # the passcode across devices. settings is a free-form JSON blob.
+        conn.execute(f"""
+            CREATE TABLE IF NOT EXISTS profiles (
+                {id_col},
+                user_id     INTEGER UNIQUE NOT NULL,
+                summary     TEXT,
+                skills      TEXT,
+                settings    TEXT,
+                updated_at  TEXT NOT NULL
+            )
+        """)
+
+    # Idempotent migration: add user_id to existing applications rows.
+    # Run in its own connection so a "column exists" error doesn't poison
+    # the broader CREATE TABLE transaction on Postgres.
+    try:
+        with _db_conn() as conn:
+            conn.execute("ALTER TABLE applications ADD COLUMN user_id INTEGER NOT NULL DEFAULT 1")
+    except Exception:
+        pass
+
+    # Seed the default user if missing
+    with _db_conn() as conn:
+        cur = conn.execute("SELECT id FROM users WHERE user_key = ?", ("default",))
+        if not cur.fetchone():
+            conn.execute(
+                "INSERT INTO users (user_key, passcode_hash, created_at) VALUES (?, ?, ?)",
+                ("default", None, datetime.utcnow().isoformat()),
+            )
 
 
 _init_applications_db()
 print(f"[db] Applications tracker backend: {'Postgres' if USE_POSTGRES else 'SQLite (' + APPLICATIONS_DB + ')'}")
+
+
+def _row_get(row, key, default=None):
+    """sqlite3.Row supports row[key] but not row.get(); RealDictCursor returns
+    real dicts. Normalise both to a single .get-style accessor."""
+    if row is None:
+        return default
+    try:
+        v = row[key]
+        return default if v is None else v
+    except (KeyError, IndexError):
+        return default
+
+
+def _default_user():
+    """Return (id, passcode_hash) for the seeded default user, or (None, None)."""
+    with _db_conn() as conn:
+        cur = conn.execute(
+            "SELECT id, passcode_hash FROM users WHERE user_key = ?", ("default",)
+        )
+        row = cur.fetchone()
+    if not row:
+        return (None, None)
+    return (_row_get(row, "id"), _row_get(row, "passcode_hash"))
+
+
+def _current_user_id():
+    """Active user id, or None if the app is locked and not logged in.
+    Auth model:
+      - If a session uid is set, that wins (logged in).
+      - Else if no passcode is set on the default user, return the default
+        id (legacy unlocked mode — keeps existing deployments working).
+      - Else None (forces /api/auth/login).
+    Multi-user (path b) replaces this logic but the call sites stay identical."""
+    uid = session.get("uid")
+    if uid:
+        return int(uid)
+    default_id, passcode_hash = _default_user()
+    if not passcode_hash:
+        return default_id
+    return None
+
+
+def _auth_required():
+    """For endpoints that should 401 instead of silently using the default."""
+    uid = _current_user_id()
+    if uid is None:
+        return None, (jsonify({"error": "Locked. Log in with your passcode."}), 401)
+    return uid, None
 
 TOP_JOBS_LIMIT = 50
 FETCH_LIMIT = 100  # per Apify search — ~$1.20/search at $0.012/job (opt-in from UI)
@@ -138,38 +254,93 @@ SIGNIN_WALL_DOMAINS = [
     "monster.com", "careerbuilder.com", "simplyhired.com", "jobicy.com",
 ]
 
-# Aggregators that Cloudflare-block or force signup — drop these entirely
-AGGREGATOR_DENYLIST = [
-    "jobleads.com", "lensa.com", "theelitejob.com", "talent.com",
-    "jobot.com", "neuvoo.com", "snagajob.com", "dice.com/jobs",
-    "adzuna.com/details", "resume-library.com", "clickajobs.com",
-    "jobs2careers.com", "jobgoal.com", "jobrapido.com", "joblum.com",
-    "trabajo.org", "learn4good.com", "jobsora.com",
-]
+# Back-compat shim: the search endpoint reads AGGREGATOR_DENYLIST when filtering.
+# The authoritative list now lives in ATS_BLOCKED below; this just wraps the keys.
+def _aggregator_denylist():
+    return list(ATS_BLOCKED.keys())
 
-# Direct ATS domains — boost these in ranking (fastest, most reliable apply flow)
-ATS_BOOST_DOMAINS = [
-    "oracle.com",          # Oracle HCM (taleo-successor)
-    "taleo.net",           # Taleo
-    "myworkdayjobs.com",   # Workday
-    "workday.com",         # Workday
-    "icims.com",           # iCIMS
-    "smartrecruiters.com", # SmartRecruiters
-    "greenhouse.io",       # Greenhouse
-    "lever.co",            # Lever
-    "ashbyhq.com",         # Ashby
-    "jobvite.com",         # Jobvite
-    "bamboohr.com",        # BambooHR
-    "brassring.com",       # BrassRing / Kenexa
-    "successfactors.com",  # SAP SuccessFactors
-    "adp.com",             # ADP (enterprise ATS)
-    "workable.com",        # Workable
-    "recruitee.com",       # Recruitee
-    "breezy.hr",           # Breezy HR
-    "paycom.com",          # Paycom
-    "paylocity.com",       # Paylocity
-    "ukg.com",             # UKG / Kronos
-]
+# ── ATS triage ───────────────────────────────────────────────────────────────
+# Three classes, derived from George's actual application logs:
+#   "fast"   = clean Easy-Apply, no account wall, no OTP loop. Submit in <5 min.
+#   "walled" = usable but slow — account creation, OTP, multi-step flows,
+#              short session timeouts. Worth it for high-match jobs only.
+#   "blocked"= aggregators that Cloudflare-block, force signup, or hide the
+#              real employer. Skip entirely.
+# Anything else stays "unknown" and renders neutral.
+ATS_FAST = {
+    "greenhouse.io":       "Greenhouse",
+    "boards.greenhouse.io":"Greenhouse",
+    "smartrecruiters.com": "SmartRecruiters",
+    "jobs.smartrecruiters.com":"SmartRecruiters",
+    "workable.com":        "Workable",
+    "jobs.workable.com":   "Workable",
+    "lever.co":            "Lever",
+    "jobs.lever.co":       "Lever",
+    "ashbyhq.com":         "Ashby",
+    "jobs.ashbyhq.com":    "Ashby",
+    "rippling.com":        "Rippling",
+    "ats.rippling.com":    "Rippling",
+    "polymer.co":          "Polymer",
+    "applytojob.com":      "JazzHR",
+    "breezy.hr":           "Breezy HR",
+    "recruitee.com":       "Recruitee",
+    "bamboohr.com":        "BambooHR",
+    "jobvite.com":         "Jobvite",
+}
+ATS_WALLED = {
+    "myworkdayjobs.com":   "Workday",
+    "workday.com":         "Workday",
+    "myworkdaysite.com":   "Workday",
+    "oracle.com":          "Oracle HCM",
+    "oraclecloud.com":     "Oracle HCM",
+    "taleo.net":           "Taleo",
+    "icims.com":           "iCIMS",
+    "successfactors.com":  "SuccessFactors",
+    "sapsf.com":           "SuccessFactors",
+    "ukg.com":             "UKG",
+    "ultipro.com":         "UKG/UltiPro",
+    "ukgpro.com":          "UKG",
+    "dayforce.com":        "Dayforce",
+    "dayforcehcm.com":     "Dayforce",
+    "adp.com":             "ADP",
+    "myjobs.adp.com":      "ADP",
+    "paycom.com":          "Paycom",
+    "paylocity.com":       "Paylocity",
+    "brassring.com":       "BrassRing",
+    "kenexa.com":          "BrassRing",
+    "applicantstack.com":  "ApplicantStack",
+}
+ATS_BLOCKED = {
+    "jobleads.com": "Aggregator", "lensa.com": "Aggregator",
+    "theelitejob.com": "Aggregator", "talent.com": "Aggregator",
+    "jobot.com": "Aggregator", "neuvoo.com": "Aggregator",
+    "snagajob.com": "Aggregator", "dice.com/jobs": "Aggregator",
+    "adzuna.com/details": "Aggregator", "resume-library.com": "Aggregator",
+    "clickajobs.com": "Aggregator", "jobs2careers.com": "Aggregator",
+    "jobgoal.com": "Aggregator", "jobrapido.com": "Aggregator",
+    "joblum.com": "Aggregator", "trabajo.org": "Aggregator",
+    "learn4good.com": "Aggregator", "jobsora.com": "Aggregator",
+    "bebee.com": "Aggregator",
+}
+
+
+def _classify_ats(url):
+    """Return ('fast'|'walled'|'blocked'|'unknown', ats_name).
+    Longest-match wins so 'jobs.greenhouse.io' beats a generic 'greenhouse.io'.
+    ats_name is a human label for the badge ('' if unknown)."""
+    if not url:
+        return ("unknown", "")
+    u = url.lower()
+    best = ("unknown", "", 0)
+    for cls, table in (("fast", ATS_FAST), ("walled", ATS_WALLED), ("blocked", ATS_BLOCKED)):
+        for domain, label in table.items():
+            if domain in u and len(domain) > best[2]:
+                best = (cls, label, len(domain))
+    return (best[0], best[1])
+
+
+# Back-compat: a few callers still want a quick "is this any direct ATS?" check
+ATS_BOOST_DOMAINS = list(ATS_FAST.keys()) + list(ATS_WALLED.keys())
 
 
 def _url_host_matches(url, domain_list):
@@ -524,14 +695,64 @@ def score_job(job, profile):
     for kw in profile.no_go_terms:
         if kw.lower() in combo:
             hire_bonus -= 30
-    # Direct ATS apply flow is faster & more reliable — boost these URLs
-    ats_bonus = 0
-    is_ats = _url_host_matches(job.get("url", ""), ATS_BOOST_DOMAINS)
-    if is_ats:
-        ats_bonus = 12
-    total = skill_score + ratio_bonus + exp_bonus + fresh_bonus + hire_bonus + ats_bonus
+    # ATS triage: fast = +18, walled = +4 (still doable), unknown = 0,
+    # blocked = -50 (effectively buries the result; search-stage filter
+    # should already drop these but we keep the score honest)
+    ats_class, ats_name = _classify_ats(job.get("url", ""))
+    ats_bonus = {"fast": 18, "walled": 4, "unknown": 0, "blocked": -50}[ats_class]
+
+    # Penalties for things George structurally cannot take
+    block_bonus = 0
+    block_labels = []
+    BLOCKERS = [
+        ("active security clearance", -40, "Clearance required"),
+        ("security clearance",        -35, "Clearance required"),
+        ("public trust",              -30, "Public Trust required"),
+        ("top secret",                -45, "TS clearance required"),
+        ("ts/sci",                    -45, "TS/SCI required"),
+        ("us citizen",                -25, "US-citizen-only"),
+        ("u.s. citizen",              -25, "US-citizen-only"),
+        ("citizenship required",      -30, "Citizenship required"),
+        ("must be a us citizen",      -30, "US-citizen-only"),
+        ("(french/english)",          -35, "French/English bilingual"),
+        ("french and english",        -25, "French/English bilingual"),
+        ("french/english bilingual",  -35, "French/English bilingual"),
+        ("must be located in",        -10, "State-restricted"),
+        ("residents of",              -8,  "State-restricted"),
+    ]
+    for kw, pts, lbl in BLOCKERS:
+        if kw in combo:
+            block_bonus += pts
+            block_labels.append(lbl)
+
+    # Boosts for things directly in George's profile
+    fit_bonus = 0
+    fit_labels = []
+    FITS = [
+        ("bilingual spanish", 10, "Spanish bilingual"),
+        ("english/spanish",   10, "EN/ES bilingual"),
+        ("english and spanish", 10, "EN/ES bilingual"),
+        ("spanish speaking",  8,  "Spanish bilingual"),
+        ("tier 1",            8,  "Tier 1"),
+        ("tier i",            8,  "Tier 1"),
+        ("level 1",           6,  "Level 1"),
+        ("level i ",          6,  "Level 1"),
+        ("help desk",         5,  None),
+        ("service desk",      5,  None),
+        ("soc analyst",       6,  None),
+        ("healthcare it",     4,  None),
+        ("clinical support",  4,  None),
+    ]
+    for kw, pts, lbl in FITS:
+        if kw in combo:
+            fit_bonus += pts
+            if lbl: fit_labels.append(lbl)
+
+    total = (skill_score + ratio_bonus + exp_bonus + fresh_bonus
+             + hire_bonus + ats_bonus + block_bonus + fit_bonus)
     top   = len(profile.skills) * 3 + 80
     pct   = min(100, max(0, int((total / max(top, 1)) * 100)))
+
     reasons = []
     if unique:
         reasons.append(f"Skills: {', '.join(unique[:5])}")
@@ -541,22 +762,33 @@ def score_job(job, profile):
         reasons.append(f"Only {years_req}yr exp needed")
     if hire_labels:
         reasons.append(" + ".join(list(dict.fromkeys(hire_labels))[:2]))
+    if fit_labels:
+        reasons.append(" + ".join(list(dict.fromkeys(fit_labels))[:2]))
     if days_old <= 7 and days_old < 999:
         reasons.append(f"Fresh ({days_old}d old)")
     if job.get("salary"):
         reasons.append("Salary listed")
-    if is_ats:
-        reasons.insert(0, "Direct ATS apply")
+    if ats_class == "fast":
+        reasons.insert(0, f"{ats_name or 'Easy'} fast apply")
+    elif ats_class == "walled":
+        reasons.insert(0, f"{ats_name or 'ATS'} (account wall)")
+    if block_labels:
+        reasons.append("⚠ " + " + ".join(list(dict.fromkeys(block_labels))[:2]))
     if not reasons:
         reasons.append("Keyword match")
+
     return {
-        "match_pct": pct,
-        "match_why": " · ".join(reasons),
+        "match_pct":      pct,
+        "match_why":      " · ".join(reasons),
         "matched_skills": unique,
-        "hire_signals": hire_labels,
-        "years_req": years_req,
-        "days_old": days_old,
-        "is_ats": is_ats,
+        "hire_signals":   hire_labels,
+        "years_req":      years_req,
+        "days_old":       days_old,
+        "is_ats":         ats_class in ("fast", "walled"),  # back-compat
+        "ats_class":      ats_class,
+        "ats_name":       ats_name,
+        "blockers":       block_labels,
+        "fits":           fit_labels,
     }
 
 
@@ -696,26 +928,32 @@ search_terms: 3-5 specific job titles this person should search for based on the
 
 # ── Cover letter generation ───────────────────────────────────────────────────
 
-def generate_cover_letter(job, skills, resume_summary=""):
+def generate_cover_letter(job, skills, resume_summary="", cv_text=""):
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
     if api_key and _anthropic:
         try:
-            return _generate_cover_letter_ai(job, skills, api_key, resume_summary)
+            return _generate_cover_letter_ai(job, skills, api_key, resume_summary, cv_text)
         except Exception:
             pass
     return _generate_cover_letter_template(job, skills)
 
 
-def _generate_cover_letter_ai(job, skills, api_key, resume_summary=""):
+def _generate_cover_letter_ai(job, skills, api_key, resume_summary="", cv_text=""):
     client = _anthropic.Anthropic(api_key=api_key)
     desc_excerpt = re.sub(r"<[^>]+>", "", job.get("description", "") or "")[:2000]
     matched = job.get("matched_skills", skills[:10])
     skills_str = ", ".join(matched[:10]) if matched else ", ".join(skills[:10])
     summary_line = f"\nMy Background: {resume_summary}" if resume_summary else ""
+    # When we have the actual CV, give the model real bullet points to draw
+    # from instead of letting it invent details from skill keywords alone.
+    cv_block = ""
+    if cv_text:
+        cv_excerpt = re.sub(r"\s+", " ", cv_text[:3000]).strip()
+        cv_block = f"\n\nMY RESUME (excerpt — quote real experience, do NOT invent):\n{cv_excerpt}"
     prompt = f"""You are an expert career coach writing a highly personalized, compelling cover letter.
 
 CANDIDATE PROFILE:
-Skills: {skills_str}{summary_line}
+Skills: {skills_str}{summary_line}{cv_block}
 
 JOB POSTING:
 Title: {job.get('title', 'the position')}
@@ -725,11 +963,11 @@ Description:
 
 Write a 3-paragraph cover letter that:
 1. Opening: Shows genuine enthusiasm for THIS specific role. Reference something concrete from the job description (a tool, responsibility, or company mission).
-2. Middle: Connects 2-3 of my exact skills to specific requirements in the job description. Use brief, concrete examples that demonstrate real value. Be specific, not generic.
+2. Middle: Connects 2-3 of my actual experiences (from MY RESUME above) to specific requirements in the job description. Use brief, concrete examples that demonstrate real value. Quote real employers/tools from the resume — never invent.
 3. Closing: Confident call to action. Express readiness to contribute immediately.
 
 Start with "Dear Hiring Team," and end with "Sincerely,\\n[Your Name]\\n[Your Email]\\n[Your Phone]"
-Rules: No generic filler phrases ("I am excited to apply", "I believe I am a great fit"). Be direct, specific, and professional. Reference actual job requirements by name."""
+Rules: No generic filler phrases ("I am excited to apply", "I believe I am a great fit"). Be direct, specific, and professional. Reference actual job requirements by name. Only mention facts that appear in MY RESUME — if uncertain, omit rather than fabricate."""
     message = client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=1200,
@@ -831,6 +1069,129 @@ def status():
     return html
 
 
+# ── Auth (single-user passcode) ──────────────────────────────────────────────
+# Designed so swapping in real multi-user auth later just replaces these four
+# routes. Every other endpoint already calls _auth_required() / _current_user_id().
+
+@app.route("/api/auth/status", methods=["GET"])
+def auth_status():
+    _, passcode_hash = _default_user()
+    return jsonify({
+        "has_passcode": bool(passcode_hash),
+        "logged_in":    bool(session.get("uid")),
+    })
+
+
+@app.route("/api/auth/init", methods=["POST"])
+def auth_init():
+    """Set the very first passcode. Refuses if one is already set
+    (use /api/auth/change for that)."""
+    data = request.get_json(force=True) or {}
+    passcode = (data.get("passcode") or "").strip()
+    if len(passcode) < 4:
+        return jsonify({"error": "Passcode must be at least 4 characters"}), 400
+    uid, existing = _default_user()
+    if existing:
+        return jsonify({"error": "Passcode already set. Use change instead."}), 409
+    pw_hash = generate_password_hash(passcode)
+    with _db_conn() as conn:
+        conn.execute("UPDATE users SET passcode_hash = ? WHERE id = ?", (pw_hash, uid))
+    session.permanent = True
+    session["uid"] = uid
+    return jsonify({"ok": True, "uid": uid})
+
+
+@app.route("/api/auth/login", methods=["POST"])
+def auth_login():
+    data = request.get_json(force=True) or {}
+    passcode = (data.get("passcode") or "").strip()
+    uid, pw_hash = _default_user()
+    if not pw_hash:
+        return jsonify({"error": "No passcode set yet"}), 400
+    if not passcode or not check_password_hash(pw_hash, passcode):
+        return jsonify({"error": "Wrong passcode"}), 401
+    session.permanent = True
+    session["uid"] = uid
+    return jsonify({"ok": True, "uid": uid})
+
+
+@app.route("/api/auth/logout", methods=["POST"])
+def auth_logout():
+    session.pop("uid", None)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/auth/change", methods=["POST"])
+def auth_change():
+    data = request.get_json(force=True) or {}
+    current = (data.get("current") or "").strip()
+    new_pc  = (data.get("new") or "").strip()
+    if len(new_pc) < 4:
+        return jsonify({"error": "New passcode must be at least 4 characters"}), 400
+    uid, pw_hash = _default_user()
+    if pw_hash and not check_password_hash(pw_hash, current):
+        return jsonify({"error": "Current passcode is wrong"}), 401
+    with _db_conn() as conn:
+        conn.execute("UPDATE users SET passcode_hash = ? WHERE id = ?",
+                     (generate_password_hash(new_pc), uid))
+    session.permanent = True
+    session["uid"] = uid
+    return jsonify({"ok": True})
+
+
+# ── Profile (cross-device sync of skills / summary / settings) ───────────────
+
+@app.route("/api/profile", methods=["GET"])
+def profile_get():
+    uid, err = _auth_required()
+    if err: return err
+    with _db_conn() as conn:
+        cur = conn.execute(
+            "SELECT summary, skills, settings, updated_at FROM profiles WHERE user_id = ?",
+            (uid,),
+        )
+        row = cur.fetchone()
+    if not row:
+        return jsonify({"summary": "", "skills": [], "settings": {},
+                        "updated_at": None})
+    skills_raw   = _row_get(row, "skills")
+    settings_raw = _row_get(row, "settings")
+    return jsonify({
+        "summary":    _row_get(row, "summary", "") or "",
+        "skills":     json.loads(skills_raw)   if skills_raw   else [],
+        "settings":   json.loads(settings_raw) if settings_raw else {},
+        "updated_at": _row_get(row, "updated_at"),
+    })
+
+
+@app.route("/api/profile", methods=["POST"])
+def profile_save():
+    uid, err = _auth_required()
+    if err: return err
+    data = request.get_json(force=True) or {}
+    summary  = (data.get("summary") or "").strip()
+    skills   = data.get("skills") or []
+    settings = data.get("settings") or {}
+    if not isinstance(skills, list):   skills = []
+    if not isinstance(settings, dict): settings = {}
+    now = datetime.utcnow().isoformat()
+    with _db_conn() as conn:
+        cur = conn.execute("SELECT id FROM profiles WHERE user_id = ?", (uid,))
+        if cur.fetchone():
+            conn.execute(
+                "UPDATE profiles SET summary = ?, skills = ?, settings = ?, "
+                "updated_at = ? WHERE user_id = ?",
+                (summary, json.dumps(skills), json.dumps(settings), now, uid),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO profiles (user_id, summary, skills, settings, updated_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (uid, summary, json.dumps(skills), json.dumps(settings), now),
+            )
+    return jsonify({"ok": True, "updated_at": now})
+
+
 @app.route("/api/parse-cv", methods=["POST"])
 def parse_cv():
     if "file" not in request.files:
@@ -921,8 +1282,8 @@ def search_jobs():
                 continue
             if _url_host_matches(url, SIGNIN_WALL_DOMAINS):
                 continue  # skip Indeed, LinkedIn, Glassdoor etc.
-            if _url_host_matches(url, AGGREGATOR_DENYLIST):
-                continue  # skip jobleads, lensa, etc. (Cloudflare-blocked)
+            if _url_host_matches(url, _aggregator_denylist()):
+                continue  # skip jobleads, lensa, bebee etc. (Cloudflare-blocked)
             # Remote-only filter: skip jobs with clear in-person location signals
             loc_lower = (job.get("location") or "").lower().strip()
             title_lower = (job.get("title") or "").lower()
@@ -1008,8 +1369,34 @@ def cover_letter():
     job            = data.get("job") or {}
     skills         = data.get("skills") or []
     resume_summary = data.get("resume_summary", "")
+    cv_id          = data.get("cv_id")
 
-    text = generate_cover_letter(job, skills, resume_summary)
+    # If the caller passes a cv_id, pull the picked CV's parsed text/summary
+    # so the AI letter is grounded in the actual CV (not just keyword skills).
+    cv_text = ""
+    if cv_id:
+        try:
+            uid = _current_user_id()
+            if uid is not None:
+                with _db_conn() as conn:
+                    cur = conn.execute(
+                        "SELECT parsed_text, ai_summary, ai_skills FROM cvs "
+                        "WHERE id = ? AND user_id = ?", (int(cv_id), uid),
+                    )
+                    row = cur.fetchone()
+                if row:
+                    if not resume_summary:
+                        resume_summary = _row_get(row, "ai_summary", "") or ""
+                    cv_text = _row_get(row, "parsed_text", "") or ""
+                    if not skills:
+                        sk_raw = _row_get(row, "ai_skills")
+                        if sk_raw:
+                            try: skills = json.loads(sk_raw)
+                            except Exception: pass
+        except Exception:
+            pass  # fall through to the original (skills-only) path
+
+    text = generate_cover_letter(job, skills, resume_summary, cv_text=cv_text)
 
     buf = io.BytesIO(text.encode("utf-8"))
     buf.seek(0)
@@ -1154,7 +1541,7 @@ def daily_digest():
                 continue
             if _url_host_matches(url, SIGNIN_WALL_DOMAINS):
                 continue
-            if _url_host_matches(url, AGGREGATOR_DENYLIST):
+            if _url_host_matches(url, _aggregator_denylist()):
                 continue
             seen_urls.add(url)
             t = re.sub(r'\s+', ' ', (job.get("title") or "").lower().strip())[:60]
@@ -1256,22 +1643,27 @@ def daily_digest():
 
 @app.route("/api/applications", methods=["GET"])
 def list_applications():
+    uid, err = _auth_required()
+    if err: return err
     status_filter = request.args.get("status")
     with _db_conn() as conn:
         if status_filter:
             rows = conn.execute(
-                "SELECT * FROM applications WHERE status = ? ORDER BY applied_at DESC",
-                (status_filter,)
+                "SELECT * FROM applications WHERE user_id = ? AND status = ? ORDER BY applied_at DESC",
+                (uid, status_filter),
             ).fetchall()
         else:
             rows = conn.execute(
-                "SELECT * FROM applications ORDER BY applied_at DESC"
+                "SELECT * FROM applications WHERE user_id = ? ORDER BY applied_at DESC",
+                (uid,),
             ).fetchall()
     return jsonify({"applications": [dict(r) for r in rows], "count": len(rows)})
 
 
 @app.route("/api/applications", methods=["POST"])
 def create_application():
+    uid, err = _auth_required()
+    if err: return err
     data = request.get_json(force=True) or {}
     company = (data.get("company") or "").strip()
     title   = (data.get("title") or "").strip()
@@ -1286,11 +1678,11 @@ def create_application():
     with _db_conn() as conn:
         cur = conn.execute(
             """INSERT INTO applications
-               (company, title, url, ats, location, salary, source, status, notes, applied_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               (user_id, company, title, url, ats, location, salary, source, status, notes, applied_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                RETURNING id""",
             (
-                company, title,
+                uid, company, title,
                 (data.get("url") or "").strip() or None,
                 (data.get("ats") or "").strip() or None,
                 (data.get("location") or "").strip() or None,
@@ -1309,6 +1701,8 @@ def create_application():
 
 @app.route("/api/applications/<int:app_id>", methods=["PATCH"])
 def update_application(app_id):
+    uid, err = _auth_required()
+    if err: return err
     data = request.get_json(force=True) or {}
     fields = []
     values = []
@@ -1323,9 +1717,10 @@ def update_application(app_id):
     fields.append("updated_at = ?")
     values.append(datetime.utcnow().isoformat(timespec="seconds") + "Z")
     values.append(app_id)
+    values.append(uid)
     with _db_conn() as conn:
         cur = conn.execute(
-            f"UPDATE applications SET {', '.join(fields)} WHERE id = ?",
+            f"UPDATE applications SET {', '.join(fields)} WHERE id = ? AND user_id = ?",
             values,
         )
         conn.commit()
@@ -1336,8 +1731,12 @@ def update_application(app_id):
 
 @app.route("/api/applications/<int:app_id>", methods=["DELETE"])
 def delete_application(app_id):
+    uid, err = _auth_required()
+    if err: return err
     with _db_conn() as conn:
-        cur = conn.execute("DELETE FROM applications WHERE id = ?", (app_id,))
+        cur = conn.execute(
+            "DELETE FROM applications WHERE id = ? AND user_id = ?", (app_id, uid)
+        )
         conn.commit()
         if cur.rowcount == 0:
             return jsonify({"error": "Not found"}), 404
@@ -1352,9 +1751,12 @@ def applied_urls():
       { urls: { <url>: {applied_at, status, company, title} },
         fingerprints: { "<co>|<title>": {applied_at, status} } }
     """
+    uid, err = _auth_required()
+    if err: return err
     with _db_conn() as conn:
         rows = conn.execute(
-            "SELECT company, title, url, status, applied_at FROM applications"
+            "SELECT company, title, url, status, applied_at FROM applications WHERE user_id = ?",
+            (uid,),
         ).fetchall()
     urls = {}
     fingerprints = {}
@@ -1379,11 +1781,19 @@ def applied_urls():
 
 @app.route("/api/applications/stats", methods=["GET"])
 def application_stats():
+    uid, err = _auth_required()
+    if err: return err
     with _db_conn() as conn:
         rows = conn.execute(
-            "SELECT status, COUNT(*) AS n FROM applications GROUP BY status"
+            "SELECT status, COUNT(*) AS n FROM applications WHERE user_id = ? GROUP BY status",
+            (uid,),
         ).fetchall()
-        total = conn.execute("SELECT COUNT(*) AS n FROM applications").fetchone()["n"]
+        total = _row_get(
+            conn.execute(
+                "SELECT COUNT(*) AS n FROM applications WHERE user_id = ?", (uid,)
+            ).fetchone(),
+            "n", 0,
+        )
     by_status = {s: 0 for s in APP_STATUSES}
     for r in rows:
         by_status[r["status"]] = r["n"]
@@ -2096,6 +2506,306 @@ def _suggest_cover_letter_keyword(job, letters):
         if score > best_score:
             best, best_score = L, score
     return best, best_score
+
+
+# ── CV Library ───────────────────────────────────────────────────────────────
+# Auto-routes the right CV per job: IT job → IT CV, casino job → bartender CV.
+# Files are stored as BLOBs in DB so they survive Render redeploys (no
+# persistent FS on the free tier).
+
+CV_CATEGORIES = ["it", "cybersecurity", "developer", "bartender",
+                 "casino", "hospitality", "general"]
+
+# Keyword sets for categorisation — used both to tag a CV on upload and to
+# tag a job at auto-pick time. Order matters: more specific first.
+_CV_CATEGORY_KEYWORDS = [
+    ("cybersecurity", ["soc analyst", "security analyst", "cybersecurity",
+                       "incident response", "siem", "splunk", "sentinel",
+                       "mitre att&ck", "nist csf", "blue team", "red team"]),
+    ("developer",     ["software developer", "software engineer", "full stack",
+                       "frontend", "backend", "react", "node.js", "python developer",
+                       "javascript developer", "web developer"]),
+    ("it",            ["help desk", "service desk", "it support",
+                       "technical support", "desktop support", "tier 1",
+                       "tier i", "level 1", "level i ", "it technician",
+                       "service desk analyst", "support specialist"]),
+    ("casino",        ["casino", "table games", "shift manager", "pit boss",
+                       "dealer", "gaming"]),
+    ("bartender",     ["bartender", "mixologist", "bar manager"]),
+    ("hospitality",   ["server", "hostess", "host ", "front desk",
+                       "concierge", "hotel", "restaurant", "guest service"]),
+]
+
+
+def _categorize_text(text):
+    """Pure-keyword categoriser. Returns (category, confidence_score).
+    Used both for CVs (entire CV text) and jobs (title + description)."""
+    if not text:
+        return ("general", 0)
+    t = text.lower()
+    best, best_score = "general", 0
+    for cat, keywords in _CV_CATEGORY_KEYWORDS:
+        score = sum(t.count(k) for k in keywords)
+        if score > best_score:
+            best, best_score = cat, score
+    return (best, best_score)
+
+
+def _categorize_cv_ai(text, api_key):
+    """AI categorisation — returns category string from CV_CATEGORIES."""
+    client = _anthropic.Anthropic(api_key=api_key)
+    excerpt = text[:3500]
+    prompt = f"""Classify this resume into ONE of these categories based on the candidate's primary skill set:
+- it          (Help Desk, Service Desk, IT Support, Technical Support, Desktop Support)
+- cybersecurity (SOC Analyst, Security Analyst, Incident Response, Blue/Red Team)
+- developer   (Software Developer, Web Developer, Backend/Frontend Engineer)
+- bartender   (Bartender, Mixologist, Bar Manager)
+- casino      (Casino Dealer, Casino Shift Manager, Pit Boss, Gaming)
+- hospitality (Server, Host, Front Desk, Hotel, Restaurant)
+- general     (mixed / unclear / fallback)
+
+RESUME:
+{excerpt}
+
+Return ONLY one of the category strings above, lowercase, nothing else."""
+    msg = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=20,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    out = msg.content[0].text.strip().lower().split()[0] if msg.content else "general"
+    return out if out in CV_CATEGORIES else "general"
+
+
+def _detect_cv_category(text):
+    """Try AI, fall back to keywords."""
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if api_key and _anthropic:
+        try:
+            return _categorize_cv_ai(text, api_key)
+        except Exception:
+            pass
+    return _categorize_text(text)[0]
+
+
+def _cv_to_dict(row, include_blob=False):
+    """Normalise a cvs row into the JSON shape the frontend consumes."""
+    out = {
+        "id":         _row_get(row, "id"),
+        "filename":   _row_get(row, "filename"),
+        "category":   _row_get(row, "category", "general"),
+        "mime_type":  _row_get(row, "mime_type", ""),
+        "ai_summary": _row_get(row, "ai_summary", "") or "",
+        "is_default": bool(_row_get(row, "is_default", 0)),
+        "created_at": _row_get(row, "created_at", ""),
+    }
+    skills_raw = _row_get(row, "ai_skills")
+    if skills_raw:
+        try:    out["skills"] = json.loads(skills_raw)
+        except Exception: out["skills"] = []
+    else:
+        out["skills"] = []
+    if include_blob:
+        out["file_blob"] = _row_get(row, "file_blob")
+    return out
+
+
+@app.route("/api/cvs", methods=["GET"])
+def cvs_list():
+    uid, err = _auth_required()
+    if err: return err
+    with _db_conn() as conn:
+        cur = conn.execute(
+            "SELECT id, filename, category, mime_type, ai_summary, ai_skills, "
+            "is_default, created_at FROM cvs WHERE user_id = ? ORDER BY is_default DESC, id DESC",
+            (uid,),
+        )
+        rows = cur.fetchall() or []
+    return jsonify({"cvs": [_cv_to_dict(r) for r in rows]})
+
+
+@app.route("/api/cvs", methods=["POST"])
+def cvs_upload():
+    uid, err = _auth_required()
+    if err: return err
+    if "file" not in request.files:
+        return jsonify({"error": "No file uploaded"}), 400
+    f = request.files["file"]
+    filename = (f.filename or "").strip()
+    if not filename:
+        return jsonify({"error": "Empty filename"}), 400
+    file_bytes = f.read()
+    if not file_bytes:
+        return jsonify({"error": "Empty file"}), 400
+    if len(file_bytes) > 10 * 1024 * 1024:
+        return jsonify({"error": "File too large (>10MB)"}), 400
+
+    low = filename.lower()
+    if   low.endswith(".pdf"):  mime, parser = "application/pdf", _parse_pdf
+    elif low.endswith(".docx"): mime, parser = "application/vnd.openxmlformats-officedocument.wordprocessingml.document", _parse_docx
+    elif low.endswith(".txt"):  mime, parser = "text/plain", _parse_txt
+    else:
+        return jsonify({"error": "Unsupported file type. Use PDF, DOCX, or TXT."}), 400
+
+    try:
+        parsed_text = parser(file_bytes)
+    except Exception as e:
+        return jsonify({"error": f"Failed to parse file: {str(e)}"}), 500
+
+    # Frontend can override the auto-detected category
+    override = (request.form.get("category") or "").strip().lower()
+    category = override if override in CV_CATEGORIES else _detect_cv_category(parsed_text)
+
+    # Pull skills + summary so we don't have to re-parse on every search.
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    summary, skills = "", []
+    if api_key and _anthropic:
+        try:
+            r = _parse_cv_ai(parsed_text, api_key).get_json()
+            summary = r.get("summary", "")
+            skills  = r.get("skills", []) or []
+        except Exception:
+            skills  = extract_skills_from_text(parsed_text)
+            summary = " ".join(parsed_text.split())[:240]
+    else:
+        skills  = extract_skills_from_text(parsed_text)
+        summary = " ".join(parsed_text.split())[:240]
+
+    now = datetime.utcnow().isoformat()
+
+    with _db_conn() as conn:
+        # First CV uploaded for this user becomes the default automatically
+        cur = conn.execute("SELECT COUNT(*) AS n FROM cvs WHERE user_id = ?", (uid,))
+        is_default = 1 if (_row_get(cur.fetchone(), "n", 0) == 0) else 0
+
+        cur = conn.execute(
+            "INSERT INTO cvs (user_id, filename, category, mime_type, file_blob, "
+            "parsed_text, ai_summary, ai_skills, is_default, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)" + (" RETURNING id" if USE_POSTGRES else ""),
+            (uid, filename, category, mime, _psycopg2.Binary(file_bytes) if USE_POSTGRES else file_bytes,
+             parsed_text[:200000], summary, json.dumps(skills), is_default, now),
+        )
+        if USE_POSTGRES:
+            new_id = _row_get(cur.fetchone(), "id")
+        else:
+            new_id = cur.lastrowid
+
+    return jsonify({
+        "id":         new_id,
+        "filename":   filename,
+        "category":   category,
+        "summary":    summary,
+        "skills":     skills,
+        "is_default": bool(is_default),
+    })
+
+
+@app.route("/api/cvs/<int:cv_id>", methods=["GET"])
+def cvs_download(cv_id):
+    uid, err = _auth_required()
+    if err: return err
+    with _db_conn() as conn:
+        cur = conn.execute(
+            "SELECT filename, mime_type, file_blob FROM cvs WHERE id = ? AND user_id = ?",
+            (cv_id, uid),
+        )
+        row = cur.fetchone()
+    if not row:
+        return jsonify({"error": "Not found"}), 404
+    blob = _row_get(row, "file_blob")
+    # psycopg2 returns memoryview for BYTEA; sqlite returns bytes
+    if hasattr(blob, "tobytes"): blob = blob.tobytes()
+    return send_file(
+        io.BytesIO(blob),
+        mimetype=_row_get(row, "mime_type", "application/octet-stream"),
+        as_attachment=True,
+        download_name=_row_get(row, "filename", f"cv_{cv_id}"),
+    )
+
+
+@app.route("/api/cvs/<int:cv_id>", methods=["DELETE"])
+def cvs_delete(cv_id):
+    uid, err = _auth_required()
+    if err: return err
+    with _db_conn() as conn:
+        cur = conn.execute(
+            "SELECT is_default FROM cvs WHERE id = ? AND user_id = ?", (cv_id, uid)
+        )
+        row = cur.fetchone()
+        if not row:
+            return jsonify({"error": "Not found"}), 404
+        was_default = bool(_row_get(row, "is_default", 0))
+        conn.execute("DELETE FROM cvs WHERE id = ? AND user_id = ?", (cv_id, uid))
+        # If the deleted one was the default, promote the most recent remaining
+        if was_default:
+            cur = conn.execute(
+                "SELECT id FROM cvs WHERE user_id = ? ORDER BY id DESC LIMIT 1", (uid,)
+            )
+            r2 = cur.fetchone()
+            if r2:
+                conn.execute("UPDATE cvs SET is_default = 1 WHERE id = ?",
+                             (_row_get(r2, "id"),))
+    return jsonify({"deleted": cv_id})
+
+
+@app.route("/api/cvs/<int:cv_id>/default", methods=["POST"])
+def cvs_set_default(cv_id):
+    uid, err = _auth_required()
+    if err: return err
+    with _db_conn() as conn:
+        cur = conn.execute("SELECT id FROM cvs WHERE id = ? AND user_id = ?",
+                           (cv_id, uid))
+        if not cur.fetchone():
+            return jsonify({"error": "Not found"}), 404
+        conn.execute("UPDATE cvs SET is_default = 0 WHERE user_id = ?", (uid,))
+        conn.execute("UPDATE cvs SET is_default = 1 WHERE id = ? AND user_id = ?",
+                     (cv_id, uid))
+    return jsonify({"id": cv_id, "is_default": True})
+
+
+@app.route("/api/cv-pick", methods=["POST"])
+def cv_pick():
+    """Given a job (title, description, url), return the best-matching CV.
+    Tie-break order: exact category match → default CV → most recent."""
+    uid, err = _auth_required()
+    if err: return err
+    data = request.get_json(force=True) or {}
+    job  = data.get("job") or {}
+    blob = (job.get("title", "") or "") + " " + (job.get("description", "") or "")
+    job_cat, score = _categorize_text(blob)
+
+    with _db_conn() as conn:
+        cur = conn.execute(
+            "SELECT id, filename, category, ai_summary, is_default "
+            "FROM cvs WHERE user_id = ? ORDER BY is_default DESC, id DESC",
+            (uid,),
+        )
+        rows = cur.fetchall() or []
+
+    if not rows:
+        return jsonify({"error": "No CVs uploaded yet",
+                        "job_category": job_cat}), 404
+
+    cvs = [_cv_to_dict(r) for r in rows]
+    # 1) Exact category match
+    match = next((c for c in cvs if c["category"] == job_cat), None)
+    reason = f"Job classified as '{job_cat}' — matched by category."
+    if not match:
+        # 2) Fall back to default
+        match = next((c for c in cvs if c["is_default"]), None)
+        reason = f"No CV tagged '{job_cat}'. Using default CV."
+    if not match:
+        # 3) Fall back to most recent
+        match = cvs[0]
+        reason = f"No CV tagged '{job_cat}' and no default set. Using most recent."
+
+    return jsonify({
+        "cv":            match,
+        "job_category":  job_cat,
+        "match_score":   score,
+        "reason":        reason,
+        "all_cvs":       cvs,
+    })
 
 
 @app.route("/api/cover-letters", methods=["GET"])
