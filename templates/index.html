@@ -3257,25 +3257,35 @@ async function refreshFollowUps() {
   const list = document.getElementById('followUpList');
   const count = document.getElementById('followUpCount');
   btn.disabled = true;
-  btn.innerHTML = '<i class="spinner-border spinner-border-sm me-1"></i>Scanning Gmail...';
-  list.innerHTML = '<div style="font-size:.8rem;color:#6c757d;"><i class="spinner-border spinner-border-sm me-2"></i>Reading the last 30 days of inbox + matching applications...</div>';
-  try {
-    // 1. Gmail scan first — auto-bumps any app that already got a reply
-    const scan = await fetch('/api/gmail/scan', {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
-    });
-    let scanInfo = null;
-    if (scan.ok) {
-      scanInfo = await scan.json();
-    } else if (scan.status !== 500) {
-      // Non-500 errors (auth) propagate up
-      const err = await scan.json().catch(() => ({}));
-      throw new Error(err.error || 'Scan failed');
+  list.innerHTML = '<div style="font-size:.8rem;color:#6c757d;"><i class="spinner-border spinner-border-sm me-2"></i>Scanning email…</div>';
+
+  // Scan both providers — Gmail (personal) and Outlook (job applications).
+  // Each scan is best-effort: a missing/misconfigured provider 500s but
+  // doesn't kill the flow.
+  const scans = [];
+  for (const provider of ['gmail', 'outlook']) {
+    btn.innerHTML = `<i class="spinner-border spinner-border-sm me-1"></i>${provider}…`;
+    try {
+      const r = await fetch('/api/gmail/scan', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider }),
+      });
+      if (r.status === 401) {
+        showLockScreen('login');
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-arrow-clockwise me-1"></i>Refresh & find';
+        return;
+      }
+      const data = await r.json().catch(() => ({}));
+      scans.push({ provider, ok: r.ok, ...data });
+    } catch (e) {
+      scans.push({ provider, ok: false, error: String(e) });
     }
-    // 2. Pull candidates
+  }
+
+  try {
     const r = await fetch('/api/follow-up/candidates', {
       method: 'POST', credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
@@ -3285,7 +3295,7 @@ async function refreshFollowUps() {
     if (!r.ok) throw new Error(data.error || 'Failed to load candidates');
     followUpCandidates = data.candidates || [];
     count.textContent = followUpCandidates.length;
-    renderFollowUpList(scanInfo);
+    renderFollowUpList(scans);
   } catch (e) {
     list.innerHTML = `<div style="font-size:.8rem;color:#dc3545;">Error: ${escHtml(e.message || String(e))}</div>`;
   } finally {
@@ -3294,14 +3304,19 @@ async function refreshFollowUps() {
   }
 }
 
-function renderFollowUpList(scanInfo) {
+function renderFollowUpList(scans) {
   const list = document.getElementById('followUpList');
   let header = '';
-  if (scanInfo) {
-    const u = scanInfo.updated || 0;
-    const m = scanInfo.matched || 0;
+  if (Array.isArray(scans) && scans.length) {
+    const parts = scans.map(s => {
+      if (!s.ok) {
+        const err = (s.error || 'unavailable').toString().slice(0, 80);
+        return `<span title="${escHtml(err)}" style="color:#b45309;">${s.provider}: ${escHtml(err)}</span>`;
+      }
+      return `${s.provider}: ${s.matched || 0} matched, ${s.updated || 0} updated`;
+    });
     header = `<div style="font-size:.72rem;color:#6c757d;margin-bottom:6px;">
-      <i class="bi bi-info-circle me-1"></i>Gmail scan: ${m} matched, ${u} status updates applied.
+      <i class="bi bi-info-circle me-1"></i>${parts.join(' &nbsp;·&nbsp; ')}
     </div>`;
   }
   if (!followUpCandidates.length) {

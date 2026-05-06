@@ -1830,14 +1830,33 @@ def gmail_scan():
     uid, err = _auth_required()
     if err: return err
 
-    gmail_user = os.environ.get("GMAIL_USER", "")
-    gmail_pass = os.environ.get("GMAIL_APP_PASSWORD", "")
-    if not gmail_user or not gmail_pass:
-        return jsonify({"error": "GMAIL_USER / GMAIL_APP_PASSWORD not set on server"}), 500
-
     body_json = request.get_json(silent=True) or {}
     dry_run  = bool(body_json.get("dry_run"))
     verbose  = bool(body_json.get("verbose"))
+
+    # Provider selection. "gmail" reads imap.gmail.com using GMAIL_USER /
+    # GMAIL_APP_PASSWORD. "outlook" reads outlook.office365.com using
+    # OUTLOOK_USER / OUTLOOK_APP_PASSWORD — works for personal outlook.com
+    # accounts that have 2FA + an app password generated. Default = gmail
+    # for back-compat with the existing daily-digest cron.
+    provider = (body_json.get("provider") or "gmail").lower().strip()
+    if provider == "outlook":
+        imap_host    = os.environ.get("OUTLOOK_IMAP_HOST", "outlook.office365.com")
+        imap_user    = os.environ.get("OUTLOOK_USER", "")
+        imap_pass    = os.environ.get("OUTLOOK_APP_PASSWORD", "")
+        provider_lbl = "Outlook"
+    elif provider == "gmail":
+        imap_host    = "imap.gmail.com"
+        imap_user    = os.environ.get("GMAIL_USER", "")
+        imap_pass    = os.environ.get("GMAIL_APP_PASSWORD", "")
+        provider_lbl = "Gmail"
+    else:
+        return jsonify({"error": f"Unknown provider {provider!r} — use 'gmail' or 'outlook'"}), 400
+
+    if not imap_user or not imap_pass:
+        var_a = "OUTLOOK_USER" if provider == "outlook" else "GMAIL_USER"
+        var_b = "OUTLOOK_APP_PASSWORD" if provider == "outlook" else "GMAIL_APP_PASSWORD"
+        return jsonify({"error": f"{var_a} / {var_b} not set on server"}), 500
     # Allow overriding the per-scan cap. 300 default keeps the request under
     # the gunicorn 300s timeout for typical inboxes (each IMAP fetch is ~0.3s).
     # Ceiling at 1000 so power users can do an exhaustive sweep when needed.
@@ -1952,20 +1971,22 @@ def gmail_scan():
                                         "do-not-reply", "mailer-daemon",
                                         "notifications", "automated"))
 
-    # Connect to Gmail IMAP. Default folder = INBOX. If the user has filters
-    # that auto-archive ATS confirmations, they're moved out of INBOX into
-    # labels — pass {"folder": "[Gmail]/All Mail"} to sweep everything.
+    # Connect to IMAP. Default folder = INBOX. Gmail also exposes
+    # "[Gmail]/All Mail" for archived messages; Outlook stores everything
+    # in INBOX by default but has "Archive" as a real folder if the user
+    # uses sweep rules.
     folder = body_json.get("folder") or "INBOX"
     try:
-        mail = imaplib.IMAP4_SSL("imap.gmail.com", 993)
-        mail.login(gmail_user, gmail_pass)
+        mail = imaplib.IMAP4_SSL(imap_host, 993)
+        mail.login(imap_user, imap_pass)
         # Folder names with spaces / brackets need quoting for IMAP SELECT.
         sel_typ, sel_data = mail.select(f'"{folder}"')
         if sel_typ != "OK":
-            return jsonify({"error": f"IMAP folder '{folder}' not selectable: "
-                                     f"{sel_data}"}), 500
+            return jsonify({"error": f"IMAP folder '{folder}' not selectable on "
+                                     f"{provider_lbl}: {sel_data}"}), 500
     except Exception as e:
-        return jsonify({"error": f"IMAP connect/login failed: {e}"}), 500
+        return jsonify({"error": f"IMAP connect/login failed for {provider_lbl} "
+                                 f"({imap_host}): {e}"}), 500
 
     try:
         since = (datetime.utcnow() - timedelta(days=30)).strftime("%d-%b-%Y")
@@ -2175,12 +2196,15 @@ def gmail_scan():
             "max_emails": max_emails,
             "hits":       hits,
         }
+        result["provider"] = provider
         if verbose:
             result["diag"] = {
                 "classified_no_app": diag_classified_no_app,
                 "matched_no_status": diag_matched_no_status,
                 "noise":             diag_noise,
                 "folder":            folder,
+                "provider":          provider,
+                "imap_host":         imap_host,
                 "applications_in_db": len(apps),
                 "company_tokens_sample": [
                     {"company": a.get("company"), "tokens": t}
