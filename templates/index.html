@@ -3310,8 +3310,16 @@ function renderFollowUpList(scans) {
   if (Array.isArray(scans) && scans.length) {
     const parts = scans.map(s => {
       if (!s.ok) {
-        const err = (s.error || 'unavailable').toString().slice(0, 80);
-        return `<span title="${escHtml(err)}" style="color:#b45309;">${s.provider}: ${escHtml(err)}</span>`;
+        const err = (s.error || 'unavailable').toString();
+        // Microsoft killed basic-auth IMAP for personal Outlook in 2025;
+        // OUTLOOK_USER/_APP_PASSWORD on Render won't work without OAuth2.
+        // Surface this as a soft "skipped" tag instead of an alarming red error.
+        const isOutlookAuth =
+          s.provider === 'outlook' && /LOGIN failed|OUTLOOK_USER|OUTLOOK_APP/i.test(err);
+        if (isOutlookAuth) {
+          return `<span title="Outlook now requires OAuth2 — basic IMAP no longer works. Glance at Outlook manually before sending." style="color:#6c757d;">outlook: skipped</span>`;
+        }
+        return `<span title="${escHtml(err.slice(0, 200))}" style="color:#b45309;">${s.provider}: ${escHtml(err.slice(0, 60))}</span>`;
       }
       return `${s.provider}: ${s.matched || 0} matched, ${s.updated || 0} updated`;
     });

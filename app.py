@@ -2364,14 +2364,46 @@ BODY:
     if not body:
         # Template fallback — still useful, just not tailored to the CV.
         salutation = ("Hi" if contact else "Hello") + (" there," if not contact else ",")
-        bullet     = (cv_summary or
-                      "3+ years of customer-facing technical support, "
-                      "currently pursuing a Cybersecurity Masters at Franklin University.")
+        # IMPORTANT: cv_summary often holds the first ~240 chars of the parsed
+        # CV (header + contact line + "PROFESSIONAL SUMMARY...") when CV upload
+        # ran without an Anthropic key. Dropping that verbatim into a follow-up
+        # email looks awful. Detect a header dump and fall back to a canonical,
+        # category-aware bio instead.
+        def _looks_like_header_dump(s):
+            if not s: return True
+            s_low = s.lower()
+            # Phone, email, "professional summary", or a name in ALL CAPS at start
+            if "@" in s_low or "professional summary" in s_low: return True
+            first = (s.split()[0] if s.split() else "")
+            if first.isupper() and len(first) >= 4: return True
+            return False
+        # Pick a category-aware canonical bio. Defaults to IT.
+        cv_cat = (_row_get(cv_row, "filename", "") or "").lower()
+        # Use the actual category if we have one; for now infer from filename.
+        if any(k in cv_cat for k in ("bartender", "mixologist", "casino", "hospitality")):
+            canonical_bio = (
+                "5+ years of high-volume customer-facing operations at Ocean Casino "
+                "Resort and Harrah's, plus a Cybersecurity Masters in progress at "
+                "Franklin University. Bilingual EN/ES, multitasks under pressure, "
+                "and learns new tools rapidly."
+            )
+        else:
+            canonical_bio = (
+                "Bilingual EN/ES IT Support candidate with 3+ years of technical "
+                "experience at Cholo Tech (development, troubleshooting, "
+                "hardware/software support) plus 5+ years of high-volume "
+                "customer-facing operations at Ocean Casino Resort and Harrah's. "
+                "Currently pursuing a Cybersecurity Masters at Franklin University "
+                "with hands-on labs in Windows administration, networking, endpoint "
+                "hardening, and incident response. Holds the Google Cybersecurity "
+                "Professional Certificate."
+            )
+        bullet = canonical_bio if _looks_like_header_dump(cv_summary) else cv_summary
         body = (f"{salutation}\n\n"
                 f"I'm following up on my application for the {title} role at {company}, "
                 f"submitted about {days_label} ago. I'm still very interested and wanted to "
                 f"check on next steps.\n\n"
-                f"Quick refresher on my background: {bullet[:280]}\n\n"
+                f"Quick refresher on my background: {bullet}\n\n"
                 f"Happy to share more or hop on a quick call. Thanks for your time.\n\n"
                 f"Best,\nGeorge Tupayachi\n"
                 f"georgetupayachijobs@outlook.com\n+1 (609) 553-6215")
