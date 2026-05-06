@@ -1836,7 +1836,14 @@ def gmail_scan():
         return jsonify({"error": "GMAIL_USER / GMAIL_APP_PASSWORD not set on server"}), 500
 
     body_json = request.get_json(silent=True) or {}
-    dry_run = bool(body_json.get("dry_run"))
+    dry_run  = bool(body_json.get("dry_run"))
+    verbose  = bool(body_json.get("verbose"))
+    # Allow overriding the per-scan cap. Default raised from 200 to 500 to
+    # cover noisier inboxes; ceiling at 1000 to keep IMAP responsive.
+    try:
+        max_emails = max(50, min(1000, int(body_json.get("max_emails", 500))))
+    except Exception:
+        max_emails = 500
 
     # Load THIS user's applications only — other tenants' data must not leak.
     with _db_conn() as conn:
@@ -1949,12 +1956,17 @@ def gmail_scan():
     try:
         since = (datetime.utcnow() - timedelta(days=30)).strftime("%d-%b-%Y")
         typ, data = mail.search(None, f'(SINCE {since})')
-        ids = (data[0].split() if data and data[0] else [])[-200:]  # cap at 200
+        ids = (data[0].split() if data and data[0] else [])[-max_emails:]
 
         # Collect best proposal per application (forward-only ranking)
         proposals = {}  # app_id -> { status, subject, from, current, date }
         scanned = 0
         matched = 0
+        # Diagnostic buckets — only populated when verbose=true.
+        # classified_no_app: looked like ATS reply but no application token matched.
+        # matched_no_status: matched an application but didn't fit any status keyword.
+        diag_classified_no_app = []
+        diag_matched_no_status = []
 
         for i in ids:
             try:
@@ -2001,10 +2013,24 @@ def gmail_scan():
                 scanned += 1
 
                 proposed = classify(subject + " " + snippet)
-                if not proposed:
-                    continue
                 app = match_app(from_addr, subject, snippet)
-                if not app:
+                if not proposed and not app:
+                    continue
+                if not proposed and app:
+                    if verbose and len(diag_matched_no_status) < 25:
+                        diag_matched_no_status.append({
+                            "company": app.get("company"),
+                            "from": from_addr.strip()[:80],
+                            "subject": (subject or "(no subject)").strip()[:120],
+                        })
+                    continue
+                if proposed and not app:
+                    if verbose and len(diag_classified_no_app) < 25:
+                        diag_classified_no_app.append({
+                            "proposed_status": proposed,
+                            "from": from_addr.strip()[:80],
+                            "subject": (subject or "(no subject)").strip()[:120],
+                        })
                     continue
                 matched += 1
 
@@ -2095,13 +2121,25 @@ def gmail_scan():
                         "contact":     new_contact,
                     })
 
-        return jsonify({
-            "scanned": scanned,
-            "matched": matched,
-            "updated": updated,
-            "dry_run": dry_run,
-            "hits": hits,
-        })
+        result = {
+            "scanned":    scanned,
+            "matched":    matched,
+            "updated":    updated,
+            "dry_run":    dry_run,
+            "max_emails": max_emails,
+            "hits":       hits,
+        }
+        if verbose:
+            result["diag"] = {
+                "classified_no_app": diag_classified_no_app,
+                "matched_no_status": diag_matched_no_status,
+                "applications_in_db": len(apps),
+                "company_tokens_sample": [
+                    {"company": a.get("company"), "tokens": t}
+                    for a, t in app_tokens[:30]
+                ],
+            }
+        return jsonify(result)
     except Exception as e:
         try: mail.logout()
         except Exception: pass
