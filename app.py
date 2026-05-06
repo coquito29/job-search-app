@@ -1838,12 +1838,13 @@ def gmail_scan():
     body_json = request.get_json(silent=True) or {}
     dry_run  = bool(body_json.get("dry_run"))
     verbose  = bool(body_json.get("verbose"))
-    # Allow overriding the per-scan cap. Default raised from 200 to 500 to
-    # cover noisier inboxes; ceiling at 1000 to keep IMAP responsive.
+    # Allow overriding the per-scan cap. 300 default keeps the request under
+    # the gunicorn 300s timeout for typical inboxes (each IMAP fetch is ~0.3s).
+    # Ceiling at 1000 so power users can do an exhaustive sweep when needed.
     try:
-        max_emails = max(50, min(1000, int(body_json.get("max_emails", 500))))
+        max_emails = max(50, min(1000, int(body_json.get("max_emails", 300))))
     except Exception:
-        max_emails = 500
+        max_emails = 300
 
     # Load THIS user's applications only — other tenants' data must not leak.
     with _db_conn() as conn:
