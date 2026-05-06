@@ -1952,11 +1952,18 @@ def gmail_scan():
                                         "do-not-reply", "mailer-daemon",
                                         "notifications", "automated"))
 
-    # Connect to Gmail IMAP
+    # Connect to Gmail IMAP. Default folder = INBOX. If the user has filters
+    # that auto-archive ATS confirmations, they're moved out of INBOX into
+    # labels — pass {"folder": "[Gmail]/All Mail"} to sweep everything.
+    folder = body_json.get("folder") or "INBOX"
     try:
         mail = imaplib.IMAP4_SSL("imap.gmail.com", 993)
         mail.login(gmail_user, gmail_pass)
-        mail.select("INBOX")
+        # Folder names with spaces / brackets need quoting for IMAP SELECT.
+        sel_typ, sel_data = mail.select(f'"{folder}"')
+        if sel_typ != "OK":
+            return jsonify({"error": f"IMAP folder '{folder}' not selectable: "
+                                     f"{sel_data}"}), 500
     except Exception as e:
         return jsonify({"error": f"IMAP connect/login failed: {e}"}), 500
 
@@ -1996,8 +2003,11 @@ def gmail_scan():
         # Diagnostic buckets — only populated when verbose=true.
         # classified_no_app: looked like ATS reply but no application token matched.
         # matched_no_status: matched an application but didn't fit any status keyword.
+        # noise: passed the subject filter but neither classified nor matched —
+        #        helps spot whether the IMAP pre-filter is letting non-ATS emails through.
         diag_classified_no_app = []
         diag_matched_no_status = []
+        diag_noise             = []
 
         for i in ids:
             try:
@@ -2046,6 +2056,11 @@ def gmail_scan():
                 proposed = classify(subject + " " + snippet)
                 app = match_app(from_addr, subject, snippet)
                 if not proposed and not app:
+                    if verbose and len(diag_noise) < 25:
+                        diag_noise.append({
+                            "from": from_addr.strip()[:80],
+                            "subject": (subject or "(no subject)").strip()[:120],
+                        })
                     continue
                 if not proposed and app:
                     if verbose and len(diag_matched_no_status) < 25:
@@ -2164,6 +2179,8 @@ def gmail_scan():
             result["diag"] = {
                 "classified_no_app": diag_classified_no_app,
                 "matched_no_status": diag_matched_no_status,
+                "noise":             diag_noise,
+                "folder":            folder,
                 "applications_in_db": len(apps),
                 "company_tokens_sample": [
                     {"company": a.get("company"), "tokens": t}
