@@ -1924,9 +1924,15 @@ def gmail_scan():
         for app, tokens in app_tokens:
             if not tokens:
                 continue
-            score = sum(1 for t in tokens if t in blob)
+            # Word-boundary match — short tokens like "vxi", "gnc", "tds" used
+            # to substring-match unrelated emails (Klarna OTPs, Popeyes coupons).
+            # \b on each end forces a real word boundary.
+            score = sum(1 for t in tokens if re.search(r"\b" + re.escape(t) + r"\b", blob))
             if score > best_score:
                 best, best_score = app, score
+        # Single-token apps (just the company name, e.g. "Endava") are common.
+        # For those we still require the one token to match. For multi-token
+        # apps we require at least 1 (which is what we had).
         return best if best_score >= 1 else None
 
     def _extract_email(from_header):
@@ -1956,8 +1962,32 @@ def gmail_scan():
 
     try:
         since = (datetime.utcnow() - timedelta(days=30)).strftime("%d-%b-%Y")
-        typ, data = mail.search(None, f'(SINCE {since})')
-        ids = (data[0].split() if data and data[0] else [])[-max_emails:]
+        # Narrow at IMAP-search time to subjects that look like ATS replies.
+        # Without this we spend the whole budget parsing newsletters/marketing.
+        # Each query returns a UID list; we union them. Falls back to a plain
+        # SINCE search if none of the targeted searches return anything.
+        ats_subject_filters = [
+            "application", "applying", "applied", "candidacy", "candidate",
+            "interview", "phone screen", "screen", "next step", "next steps",
+            "received your", "received from you", "thank you for",
+            "regret to inform", "moving forward", "not moving forward",
+            "offer", "position", "role", "opportunity",
+        ]
+        candidate_ids = set()
+        for kw in ats_subject_filters:
+            try:
+                typ, data = mail.search(None, f'(SINCE {since} SUBJECT "{kw}")')
+                if typ == "OK" and data and data[0]:
+                    candidate_ids.update(data[0].split())
+            except Exception:
+                continue
+        if candidate_ids:
+            # Sort so we process newest-first (IMAP UIDs are roughly chronological)
+            ids = sorted(candidate_ids, key=lambda x: int(x))[-max_emails:]
+        else:
+            # Fallback: scan whatever's there (matches old behaviour)
+            typ, data = mail.search(None, f'(SINCE {since})')
+            ids = (data[0].split() if data and data[0] else [])[-max_emails:]
 
         # Collect best proposal per application (forward-only ranking)
         proposals = {}  # app_id -> { status, subject, from, current, date }
