@@ -1240,7 +1240,60 @@
       <button class="btn btn-outline-danger btn-sm" id="trackerFilterRej" onclick="filterTracker('rejected')">Rejected</button>
     </div>
   </div>
+
+  <!-- Follow-up tracker — surfaces apps stuck at "Applied" for 7+ days -->
+  <div class="section-card" id="followUpSection" style="margin:8px 12px;">
+    <div class="d-flex align-items-center justify-content-between gap-2 mb-2">
+      <div class="card-title" style="margin:0;">
+        <i class="bi bi-envelope-arrow-up text-warning"></i>
+        Time to follow up
+        <span class="badge bg-warning text-dark ms-1" id="followUpCount" style="font-size:.65rem;">0</span>
+      </div>
+      <button class="btn btn-sm btn-outline-primary" id="followUpRefreshBtn" onclick="refreshFollowUps()">
+        <i class="bi bi-arrow-clockwise me-1"></i>Refresh & find
+      </button>
+    </div>
+    <div id="followUpList" style="font-size:.85rem; color:#6c757d;">
+      Tap "Refresh & find" — I'll scan Gmail for new replies, then list apps that need a nudge.
+    </div>
+  </div>
+
   <div id="trackerList"></div>
+</div>
+
+<!-- ══ Follow-up Draft modal ════════════════════════════════════════════════ -->
+<div class="modal fade" id="followUpDraftModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-fullscreen-sm-down modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Follow-up draft</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div id="followUpHeader" class="mb-2"></div>
+        <label class="form-label fw-semibold mb-1" style="font-size:.8rem;">To</label>
+        <input id="followUpTo" class="form-control form-control-sm mb-2" type="email"
+               placeholder="recruiter@company.com" />
+        <div id="followUpToHint" style="font-size:.7rem;color:#6c757d;margin-top:-6px;margin-bottom:8px;"></div>
+
+        <label class="form-label fw-semibold mb-1" style="font-size:.8rem;">Subject</label>
+        <input id="followUpSubject" class="form-control form-control-sm mb-2" type="text" />
+
+        <label class="form-label fw-semibold mb-1" style="font-size:.8rem;">Body</label>
+        <textarea id="followUpBody" class="form-control" rows="10"
+                  style="font-size:.78rem; font-family:Menlo,Consolas,monospace;"></textarea>
+        <div id="followUpStatus" class="mt-2" style="font-size:.78rem;color:#6c757d;"></div>
+      </div>
+      <div class="modal-footer d-flex flex-column gap-2">
+        <button class="btn btn-success w-100" id="followUpSendBtn" onclick="sendFollowUp()">
+          <i class="bi bi-send me-1"></i>Send follow-up
+        </button>
+        <button class="btn btn-outline-secondary w-100" onclick="regenerateFollowUpDraft()">
+          <i class="bi bi-arrow-clockwise me-1"></i>Regenerate draft
+        </button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- ══ Loading overlay ═══════════════════════════════════════════════════════ -->
@@ -3183,6 +3236,204 @@ if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/static/sw.js').catch(() => {});
   });
+}
+
+// ════════════════════════════════════════════════════════════════════════
+//  Follow-up tracker — surfaces apps stuck at "Applied" 7+ days
+// ════════════════════════════════════════════════════════════════════════
+let followUpCandidates = [];
+let followUpCurrentApp = null;
+let followUpDraftModal = null;
+
+function ensureFollowUpModal() {
+  if (!followUpDraftModal) {
+    followUpDraftModal = new bootstrap.Modal(document.getElementById('followUpDraftModal'));
+  }
+  return followUpDraftModal;
+}
+
+async function refreshFollowUps() {
+  const btn = document.getElementById('followUpRefreshBtn');
+  const list = document.getElementById('followUpList');
+  const count = document.getElementById('followUpCount');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="spinner-border spinner-border-sm me-1"></i>Scanning Gmail...';
+  list.innerHTML = '<div style="font-size:.8rem;color:#6c757d;"><i class="spinner-border spinner-border-sm me-2"></i>Reading the last 30 days of inbox + matching applications...</div>';
+  try {
+    // 1. Gmail scan first — auto-bumps any app that already got a reply
+    const scan = await fetch('/api/gmail/scan', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    let scanInfo = null;
+    if (scan.ok) {
+      scanInfo = await scan.json();
+    } else if (scan.status !== 500) {
+      // Non-500 errors (auth) propagate up
+      const err = await scan.json().catch(() => ({}));
+      throw new Error(err.error || 'Scan failed');
+    }
+    // 2. Pull candidates
+    const r = await fetch('/api/follow-up/candidates', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Failed to load candidates');
+    followUpCandidates = data.candidates || [];
+    count.textContent = followUpCandidates.length;
+    renderFollowUpList(scanInfo);
+  } catch (e) {
+    list.innerHTML = `<div style="font-size:.8rem;color:#dc3545;">Error: ${escHtml(e.message || String(e))}</div>`;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-arrow-clockwise me-1"></i>Refresh & find';
+  }
+}
+
+function renderFollowUpList(scanInfo) {
+  const list = document.getElementById('followUpList');
+  let header = '';
+  if (scanInfo) {
+    const u = scanInfo.updated || 0;
+    const m = scanInfo.matched || 0;
+    header = `<div style="font-size:.72rem;color:#6c757d;margin-bottom:6px;">
+      <i class="bi bi-info-circle me-1"></i>Gmail scan: ${m} matched, ${u} status updates applied.
+    </div>`;
+  }
+  if (!followUpCandidates.length) {
+    list.innerHTML = header + `<div style="font-size:.85rem;color:#198754;">
+      <i class="bi bi-check2-circle me-1"></i>Nothing waiting. All applications are either fresh, replied, or already followed up.
+    </div>`;
+    return;
+  }
+  list.innerHTML = header + followUpCandidates.map(c => {
+    const noContact = !c.last_contact_email;
+    return `
+      <div class="d-flex align-items-start gap-2" style="border-top:1px solid #e9ecef; padding:8px 0;">
+        <div style="flex:1; min-width:0;">
+          <div style="font-weight:700; color:#212529;">${escHtml(c.title)}</div>
+          <div style="font-size:.78rem; color:#6c757d;">
+            ${escHtml(c.company)}${c.ats ? ' · ' + escHtml(c.ats) : ''}
+            <span class="dot">·</span>
+            <span style="color:#b45309;">${c.days_ago}d ago</span>
+          </div>
+          <div style="font-size:.72rem; color:${noContact ? '#dc3545' : '#198754'}; margin-top:2px;">
+            <i class="bi bi-${noContact ? 'exclamation-circle' : 'person-check'} me-1"></i>
+            ${noContact ? 'No human contact email captured — you\'ll need to enter one' : 'Reply to ' + escHtml(c.last_contact_email)}
+          </div>
+        </div>
+        <button class="btn btn-sm btn-warning" onclick="openFollowUpDraft(${c.id})" style="font-size:.72rem;">
+          <i class="bi bi-pencil-square me-1"></i>Draft
+        </button>
+        <button class="btn btn-sm btn-outline-secondary" onclick="snoozeFollowUp(${c.id})"
+                title="Hide for now (won't surface again until next scan)" style="font-size:.72rem;">
+          <i class="bi bi-bell-slash"></i>
+        </button>
+      </div>`;
+  }).join('');
+}
+
+function snoozeFollowUp(appId) {
+  // Local-only snooze for the current page render — backend candidates list
+  // is the source of truth and recomputes on next refresh.
+  followUpCandidates = followUpCandidates.filter(c => c.id !== appId);
+  document.getElementById('followUpCount').textContent = followUpCandidates.length;
+  renderFollowUpList(null);
+}
+
+async function openFollowUpDraft(appId) {
+  const cand = followUpCandidates.find(c => c.id === appId);
+  if (!cand) return;
+  followUpCurrentApp = cand;
+
+  document.getElementById('followUpHeader').innerHTML = `
+    <div style="font-weight:700;">${escHtml(cand.title)}</div>
+    <div style="font-size:.8rem; color:#6c757d;">
+      ${escHtml(cand.company)} · applied ${cand.days_ago} days ago
+    </div>`;
+  document.getElementById('followUpTo').value = cand.last_contact_email || '';
+  document.getElementById('followUpToHint').textContent = cand.last_contact_email
+    ? "We captured this address from a real reply on this thread."
+    : "No human contact email was captured. Enter the recruiter's email manually before sending.";
+  document.getElementById('followUpSubject').value = '';
+  document.getElementById('followUpBody').value = '';
+  document.getElementById('followUpStatus').textContent = 'Generating draft…';
+  ensureFollowUpModal().show();
+  await regenerateFollowUpDraft();
+}
+
+async function regenerateFollowUpDraft() {
+  if (!followUpCurrentApp) return;
+  const status = document.getElementById('followUpStatus');
+  status.textContent = 'Generating…';
+  try {
+    const r = await fetch('/api/follow-up/draft', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ app_id: followUpCurrentApp.id }),
+    });
+    const data = await r.json();
+    if (!r.ok) { status.textContent = data.error || 'Could not generate draft.'; return; }
+    document.getElementById('followUpSubject').value = data.subject || '';
+    document.getElementById('followUpBody').value    = data.body    || '';
+    if (data.to_email && !document.getElementById('followUpTo').value) {
+      document.getElementById('followUpTo').value = data.to_email;
+    }
+    status.textContent = data.ai
+      ? 'AI-tailored to your CV. Edit anything before sending.'
+      : 'Template draft (set ANTHROPIC_API_KEY for tailored drafts). Edit before sending.';
+  } catch (e) {
+    status.textContent = 'Network error.';
+  }
+}
+
+async function sendFollowUp() {
+  if (!followUpCurrentApp) return;
+  const to      = document.getElementById('followUpTo').value.trim();
+  const subject = document.getElementById('followUpSubject').value.trim();
+  const body    = document.getElementById('followUpBody').value.trim();
+  const status  = document.getElementById('followUpStatus');
+  if (!to)      { status.textContent = 'Recipient email required.'; return; }
+  if (!subject) { status.textContent = 'Subject required.';        return; }
+  if (!body)    { status.textContent = 'Body required.';           return; }
+
+  if (!confirm(`Send this follow-up to ${to}?`)) return;
+
+  const btn = document.getElementById('followUpSendBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="spinner-border spinner-border-sm me-1"></i>Sending...';
+  try {
+    const r = await fetch('/api/follow-up/send', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        app_id: followUpCurrentApp.id,
+        to_email: to, subject, body,
+      }),
+    });
+    const data = await r.json();
+    if (!r.ok) {
+      status.textContent = data.error || 'Send failed.';
+      return;
+    }
+    showToast(`Follow-up sent to ${to}`, 'success');
+    ensureFollowUpModal().hide();
+    // Remove from candidates so the list updates immediately
+    followUpCandidates = followUpCandidates.filter(c => c.id !== followUpCurrentApp.id);
+    document.getElementById('followUpCount').textContent = followUpCandidates.length;
+    renderFollowUpList(null);
+  } catch (e) {
+    status.textContent = 'Network error.';
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-send me-1"></i>Send follow-up';
+  }
 }
 
 // ════════════════════════════════════════════════════════════════════════

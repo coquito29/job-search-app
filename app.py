@@ -172,14 +172,18 @@ def _init_applications_db():
             )
         """)
 
-    # Idempotent migration: add user_id to existing applications rows.
-    # Run in its own connection so a "column exists" error doesn't poison
-    # the broader CREATE TABLE transaction on Postgres.
-    try:
-        with _db_conn() as conn:
-            conn.execute("ALTER TABLE applications ADD COLUMN user_id INTEGER NOT NULL DEFAULT 1")
-    except Exception:
-        pass
+    # Idempotent migrations. Each in its own connection so a "column exists"
+    # error doesn't poison the broader CREATE TABLE transaction on Postgres.
+    for ddl in (
+        "ALTER TABLE applications ADD COLUMN user_id INTEGER NOT NULL DEFAULT 1",
+        "ALTER TABLE applications ADD COLUMN follow_up_sent_at TEXT",
+        "ALTER TABLE applications ADD COLUMN last_contact_email TEXT",
+    ):
+        try:
+            with _db_conn() as conn:
+                conn.execute(ddl)
+        except Exception:
+            pass  # column already exists, fine
 
     # Seed the default user if missing
     with _db_conn() as conn:
@@ -1811,6 +1815,8 @@ def gmail_scan():
       sender domain + subject + body snippet.
     - Applies forward-only progression: Applied → Phone Screen → Interview
       → Offer. Rejection can override anything except Offer.
+    - Captures the latest non-noreply sender as last_contact_email so the
+      follow-up flow has a real human to reply to.
     - Appends a note documenting each auto-change.
 
     Requires GMAIL_USER + GMAIL_APP_PASSWORD env vars.
@@ -1821,6 +1827,9 @@ def gmail_scan():
     from email.header import decode_header
     from datetime import timedelta
 
+    uid, err = _auth_required()
+    if err: return err
+
     gmail_user = os.environ.get("GMAIL_USER", "")
     gmail_pass = os.environ.get("GMAIL_APP_PASSWORD", "")
     if not gmail_user or not gmail_pass:
@@ -1829,9 +1838,11 @@ def gmail_scan():
     body_json = request.get_json(silent=True) or {}
     dry_run = bool(body_json.get("dry_run"))
 
-    # Load all applications (tracker is small)
+    # Load THIS user's applications only — other tenants' data must not leak.
     with _db_conn() as conn:
-        rows = conn.execute("SELECT * FROM applications").fetchall()
+        rows = conn.execute(
+            "SELECT * FROM applications WHERE user_id = ?", (uid,)
+        ).fetchall()
     apps = [dict(r) for r in rows]
     if not apps:
         return jsonify({"scanned": 0, "matched": 0, "updated": 0, "hits": [],
@@ -1910,6 +1921,23 @@ def gmail_scan():
                 best, best_score = app, score
         return best if best_score >= 1 else None
 
+    def _extract_email(from_header):
+        """Pull "user@host" out of "Name <user@host>" or just "user@host"."""
+        if not from_header: return ""
+        m = re.search(r"<([^>]+)>", from_header)
+        if m: return m.group(1).strip().lower()
+        m = re.search(r"[\w.+-]+@[\w-]+\.[\w.-]+", from_header)
+        return m.group(0).lower() if m else ""
+
+    def _is_real_human(email):
+        if not email: return False
+        local, _, _ = email.partition("@")
+        l = local.lower()
+        # noreply, no-reply, donotreply, mailer-daemon, etc.
+        return not any(p in l for p in ("noreply", "no-reply", "donotreply",
+                                        "do-not-reply", "mailer-daemon",
+                                        "notifications", "automated"))
+
     # Connect to Gmail IMAP
     try:
         mail = imaplib.IMAP4_SSL("imap.gmail.com", 993)
@@ -1980,18 +2008,30 @@ def gmail_scan():
                     continue
                 matched += 1
 
-                # Keep the highest-ranked proposal per app
+                from_email = _extract_email(from_addr)
+
+                # Keep the highest-ranked proposal per app, but ALWAYS update
+                # last_contact_email if we now have a better (human) sender.
                 prev = proposals.get(app["id"])
                 prev_rank = (1000 if prev and prev["status"] == "Rejected"
                              else STATUS_RANK.get(prev["status"], 0) if prev else -1)
                 new_rank = 1000 if proposed == "Rejected" else STATUS_RANK.get(proposed, 0)
+                # Real-human contact email: capture the latest one we see, even
+                # if the proposed status doesn't beat the existing one.
+                contact_email = ""
+                if _is_real_human(from_email):
+                    contact_email = from_email
                 if new_rank > prev_rank:
                     proposals[app["id"]] = {
                         "status": proposed,
                         "subject": (subject or "(no subject)").strip()[:140],
                         "from": from_addr.strip()[:100],
+                        "from_email": from_email,
+                        "contact_email": contact_email or (prev or {}).get("contact_email", ""),
                         "current": app["status"],
                     }
+                elif prev and contact_email and not prev.get("contact_email"):
+                    prev["contact_email"] = contact_email
             except Exception:
                 continue
 
@@ -2018,30 +2058,41 @@ def gmail_scan():
             with _db_conn() as conn:
                 for app_id, p in proposals.items():
                     row = conn.execute(
-                        "SELECT status, notes, company FROM applications WHERE id = ?",
-                        (app_id,)
+                        "SELECT status, notes, company, last_contact_email FROM applications "
+                        "WHERE id = ? AND user_id = ?", (app_id, uid),
                     ).fetchone()
                     if not row:
                         continue
                     current = row["status"]
-                    if not should_update(current, p["status"]):
+                    do_status = should_update(current, p["status"])
+                    new_contact = p.get("contact_email") or _row_get(row, "last_contact_email", "") or ""
+                    if not do_status and new_contact == _row_get(row, "last_contact_email", ""):
                         continue
-                    audit = (f"[Gmail scan {now_iso[:10]}] {current} → {p['status']} · "
-                             f"from {p['from']} · {p['subject']}")
-                    existing = (row["notes"] or "").strip()
-                    new_notes = (existing + "\n" + audit).strip() if existing else audit
-                    conn.execute(
-                        "UPDATE applications SET status = ?, notes = ?, updated_at = ? WHERE id = ?",
-                        (p["status"], new_notes, now_iso, app_id),
-                    )
-                    updated += 1
+                    if do_status:
+                        audit = (f"[Gmail scan {now_iso[:10]}] {current} -> {p['status']} - "
+                                 f"from {p['from']} - {p['subject']}")
+                        existing = (row["notes"] or "").strip()
+                        new_notes = (existing + "\n" + audit).strip() if existing else audit
+                        conn.execute(
+                            "UPDATE applications SET status = ?, notes = ?, "
+                            "last_contact_email = ?, updated_at = ? WHERE id = ?",
+                            (p["status"], new_notes, new_contact or None, now_iso, app_id),
+                        )
+                        updated += 1
+                    else:
+                        # Just refresh the contact email — status unchanged
+                        conn.execute(
+                            "UPDATE applications SET last_contact_email = ?, updated_at = ? WHERE id = ?",
+                            (new_contact, now_iso, app_id),
+                        )
                     hits.append({
-                        "app_id": app_id,
-                        "company": row["company"],
-                        "from": current,
-                        "to": p["status"],
-                        "subject": p["subject"],
-                        "email_from": p["from"],
+                        "app_id":      app_id,
+                        "company":     row["company"],
+                        "from":        current,
+                        "to":          p["status"] if do_status else current,
+                        "subject":     p["subject"],
+                        "email_from":  p["from"],
+                        "contact":     new_contact,
                     })
 
         return jsonify({
@@ -2055,6 +2106,253 @@ def gmail_scan():
         try: mail.logout()
         except Exception: pass
         return jsonify({"error": str(e)}), 500
+
+
+# ── Follow-up tracker ────────────────────────────────────────────────────────
+# Surfaces apps stuck at "Applied" for 7+ days where Gmail scan didn't already
+# bump them forward. Auto-drafts a tailored follow-up using the picked CV and
+# the original job description; user reviews + sends with one tap.
+
+FOLLOW_UP_MIN_DAYS_SINCE_APPLY = 7   # don't pester before this
+FOLLOW_UP_COOLDOWN_DAYS        = 14  # don't follow up twice within this window
+
+
+def _days_between(iso_a, iso_b):
+    try:
+        a = datetime.fromisoformat(iso_a.rstrip("Z"))
+        b = datetime.fromisoformat(iso_b.rstrip("Z"))
+        return abs((a - b).total_seconds()) / 86400
+    except Exception:
+        return None
+
+
+@app.route("/api/follow-up/candidates", methods=["GET", "POST"])
+def follow_up_candidates():
+    """Return apps that look ripe for a follow-up.
+
+    Filters to status=Applied AND applied_at >= 7 days ago, EXCLUDING apps
+    where follow_up_sent_at is within the cooldown window. The caller is
+    expected to POST /api/gmail/scan first if they want fresh statuses (the
+    frontend wires this as a single 'Refresh & find' button)."""
+    uid, err = _auth_required()
+    if err: return err
+
+    now_iso = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    with _db_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM applications WHERE user_id = ? AND status = 'Applied' "
+            "ORDER BY applied_at ASC", (uid,),
+        ).fetchall()
+
+    candidates = []
+    for r in rows:
+        applied_at = _row_get(r, "applied_at", "")
+        days_ago = _days_between(applied_at, now_iso)
+        if days_ago is None or days_ago < FOLLOW_UP_MIN_DAYS_SINCE_APPLY:
+            continue
+        sent_at = _row_get(r, "follow_up_sent_at", "")
+        if sent_at:
+            cooldown = _days_between(sent_at, now_iso)
+            if cooldown is not None and cooldown < FOLLOW_UP_COOLDOWN_DAYS:
+                continue
+        candidates.append({
+            "id":                 _row_get(r, "id"),
+            "company":            _row_get(r, "company", ""),
+            "title":              _row_get(r, "title", ""),
+            "url":                _row_get(r, "url", ""),
+            "ats":                _row_get(r, "ats", ""),
+            "applied_at":         applied_at,
+            "days_ago":           int(days_ago),
+            "last_contact_email": _row_get(r, "last_contact_email", "") or "",
+            "follow_up_sent_at":  sent_at or "",
+            "notes":              _row_get(r, "notes", "") or "",
+        })
+
+    return jsonify({"candidates": candidates, "count": len(candidates)})
+
+
+@app.route("/api/follow-up/draft", methods=["POST"])
+def follow_up_draft():
+    """Generate a tailored follow-up email for a tracked application.
+
+    Returns: { subject, body, to_email, to_name, ai }
+    Uses Claude when available; falls back to a sane template otherwise.
+    The frontend can present this in a textarea for review before sending.
+    """
+    uid, err = _auth_required()
+    if err: return err
+
+    data = request.get_json(force=True) or {}
+    app_id = data.get("app_id")
+    if not app_id:
+        return jsonify({"error": "app_id required"}), 400
+
+    # Load the application + its default CV (for grounding)
+    with _db_conn() as conn:
+        app_row = conn.execute(
+            "SELECT * FROM applications WHERE id = ? AND user_id = ?", (int(app_id), uid),
+        ).fetchone()
+        if not app_row:
+            return jsonify({"error": "Application not found"}), 404
+        cv_row = conn.execute(
+            "SELECT parsed_text, ai_summary, filename FROM cvs "
+            "WHERE user_id = ? ORDER BY is_default DESC, id DESC LIMIT 1", (uid,),
+        ).fetchone()
+
+    company  = _row_get(app_row, "company", "") or "the company"
+    title    = _row_get(app_row, "title", "") or "the role"
+    applied  = _row_get(app_row, "applied_at", "")
+    contact  = _row_get(app_row, "last_contact_email", "") or ""
+    cv_text  = _row_get(cv_row, "parsed_text", "") if cv_row else ""
+    cv_summary = _row_get(cv_row, "ai_summary", "") if cv_row else ""
+
+    days_ago = _days_between(applied, datetime.utcnow().isoformat(timespec="seconds") + "Z")
+    days_label = f"{int(days_ago)} days" if days_ago else "a couple of weeks"
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    subject = f"Following up — {title} application"
+    body    = ""
+    used_ai = False
+
+    if api_key and _anthropic and cv_text:
+        try:
+            client = _anthropic.Anthropic(api_key=api_key)
+            cv_excerpt = re.sub(r"\s+", " ", cv_text[:2500]).strip()
+            prompt = f"""Write a polite, concise, professional follow-up email for a job application.
+
+CONTEXT:
+- I applied to {company} for the {title} role about {days_label} ago.
+- I haven't received a response yet.
+- The recipient is {("a specific person: " + contact) if contact else "the hiring team (no specific contact known)"}.
+
+MY RESUME (excerpt — pull one or two real, specific points; do NOT invent):
+{cv_excerpt}
+
+Write:
+1. SUBJECT: a short subject line (under 60 chars). Just the subject text, no quotes.
+2. BODY: 4–6 short sentences. Polite, not pushy. Reference the role + that I applied. Mention ONE specific qualification from my resume that matches this role. Express continued interest. End with "Best, George Tupayachi".
+
+Return ONLY this exact format (no markdown, no extra commentary):
+SUBJECT: <subject>
+BODY:
+<body lines>"""
+            msg = client.messages.create(
+                model="claude-sonnet-4-6",
+                max_tokens=600,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            raw = (msg.content[0].text or "").strip()
+            # Parse SUBJECT: ... \n BODY: ...
+            m = re.match(r"SUBJECT:\s*(.+?)\s*\n+BODY:\s*\n?(.+)", raw, re.DOTALL | re.IGNORECASE)
+            if m:
+                subject = m.group(1).strip()[:120]
+                body    = m.group(2).strip()
+                used_ai = True
+        except Exception:
+            pass
+
+    if not body:
+        # Template fallback — still useful, just not tailored to the CV.
+        salutation = ("Hi" if contact else "Hello") + (" there," if not contact else ",")
+        bullet     = (cv_summary or
+                      "3+ years of customer-facing technical support, "
+                      "currently pursuing a Cybersecurity Masters at Franklin University.")
+        body = (f"{salutation}\n\n"
+                f"I'm following up on my application for the {title} role at {company}, "
+                f"submitted about {days_label} ago. I'm still very interested and wanted to "
+                f"check on next steps.\n\n"
+                f"Quick refresher on my background: {bullet[:280]}\n\n"
+                f"Happy to share more or hop on a quick call. Thanks for your time.\n\n"
+                f"Best,\nGeorge Tupayachi\n"
+                f"georgetupayachijobs@outlook.com\n+1 (609) 553-6215")
+
+    return jsonify({
+        "subject":  subject,
+        "body":     body,
+        "to_email": contact,
+        "ai":       used_ai,
+        "app_id":   int(app_id),
+    })
+
+
+@app.route("/api/follow-up/send", methods=["POST"])
+def follow_up_send():
+    """Send a follow-up email via Gmail SMTP and mark the app accordingly.
+
+    Body: { app_id, to_email, subject, body }
+    Refuses if follow_up_sent_at is within the cooldown window — caller must
+    explicitly pass force=true to override.
+    """
+    import smtplib
+    from email.mime.text import MIMEText
+
+    uid, err = _auth_required()
+    if err: return err
+
+    data = request.get_json(force=True) or {}
+    app_id   = data.get("app_id")
+    to_email = (data.get("to_email") or "").strip()
+    subject  = (data.get("subject") or "").strip()
+    body     = (data.get("body") or "").strip()
+    force    = bool(data.get("force"))
+
+    if not (app_id and to_email and subject and body):
+        return jsonify({"error": "app_id, to_email, subject, body all required"}), 400
+    if "@" not in to_email or "." not in to_email.split("@", 1)[-1]:
+        return jsonify({"error": "to_email looks invalid"}), 400
+
+    gmail_user = os.environ.get("GMAIL_USER", "")
+    gmail_pass = os.environ.get("GMAIL_APP_PASSWORD", "")
+    if not gmail_user or not gmail_pass:
+        return jsonify({"error": "GMAIL_USER / GMAIL_APP_PASSWORD not set on server"}), 500
+
+    # Cooldown check
+    with _db_conn() as conn:
+        row = conn.execute(
+            "SELECT id, status, follow_up_sent_at, notes FROM applications "
+            "WHERE id = ? AND user_id = ?", (int(app_id), uid),
+        ).fetchone()
+    if not row:
+        return jsonify({"error": "Application not found"}), 404
+    sent_at = _row_get(row, "follow_up_sent_at", "")
+    if sent_at and not force:
+        cooldown = _days_between(
+            sent_at, datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        )
+        if cooldown is not None and cooldown < FOLLOW_UP_COOLDOWN_DAYS:
+            return jsonify({
+                "error": f"Follow-up already sent {int(cooldown)} days ago. "
+                         f"Pass force=true to override.",
+                "last_sent_at": sent_at,
+            }), 409
+
+    # Send
+    msg = MIMEText(body, "plain", "utf-8")
+    msg["Subject"] = subject
+    msg["From"]    = gmail_user
+    msg["To"]      = to_email
+    msg["Reply-To"] = "georgetupayachijobs@outlook.com"
+    try:
+        with smtplib.SMTP("smtp.gmail.com", 587) as server:
+            server.ehlo(); server.starttls(); server.ehlo()
+            server.login(gmail_user, gmail_pass)
+            server.sendmail(gmail_user, to_email, msg.as_string())
+    except Exception as e:
+        return jsonify({"sent": False, "error": str(e)}), 500
+
+    # Mark on the application
+    now_iso = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    audit = (f"[Follow-up sent {now_iso[:10]}] to {to_email} - {subject[:120]}")
+    existing = (_row_get(row, "notes", "") or "").strip()
+    new_notes = (existing + "\n" + audit).strip() if existing else audit
+    with _db_conn() as conn:
+        conn.execute(
+            "UPDATE applications SET follow_up_sent_at = ?, notes = ?, updated_at = ? "
+            "WHERE id = ? AND user_id = ?",
+            (now_iso, new_notes, now_iso, int(app_id), uid),
+        )
+
+    return jsonify({"sent": True, "to": to_email, "sent_at": now_iso})
 
 
 @app.route("/applications")
