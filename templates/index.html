@@ -359,9 +359,13 @@
       background: linear-gradient(135deg, #0d6efd 0%, #0043a8 100%);
       z-index: 2000;
       display: none;
-      align-items: center;
+      /* Anchor card near the top of the viewport so the on-screen keyboard
+         on iOS/Android doesn't push the Unlock button below the fold. */
+      align-items: flex-start;
       justify-content: center;
-      padding: 16px;
+      padding: max(8vh, 32px) 16px 32px;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
     }
     .lock-overlay.visible { display: flex; }
     .lock-card {
@@ -414,9 +418,15 @@
       letter-spacing: .5px;
     }
     .qa-list { margin: 0; padding: 0; list-style: none; font-size: .82rem; }
-    .qa-list li { display: flex; gap: 6px; padding: 3px 0; }
-    .qa-list li strong { min-width: 110px; color: #495057; }
+    .qa-list li { display: flex; gap: 6px; padding: 3px 0; align-items: center; }
+    .qa-list li strong { min-width: 110px; color: #495057; flex-shrink: 0; }
     .qa-list li span { flex: 1; color: #212529; font-weight: 600; }
+    /* Narrow phones — stack the label above the value/input so neither gets
+       crammed into a 60px-wide column. */
+    @media (max-width: 480px) {
+      .qa-list li { flex-direction: column; align-items: stretch; gap: 2px; }
+      .qa-list li strong { min-width: 0; font-size: .75rem; }
+    }
 
     /* ── Results summary bar ─────────────────────────────── */
     .results-summary {
@@ -852,6 +862,61 @@
     body.dark-mode .text-muted { color: #6c757d !important; }
     body.dark-mode .source-toggle { background: #2d3139 !important; }
     body.dark-mode .source-toggle.checked { opacity: 1; }
+
+    /* ── Dark-mode coverage for v2 sections ─────────────────── */
+    body.dark-mode .lock-card { background: #1e2128; color: #e9ecef; }
+    body.dark-mode .lock-card h2 { color: #e9ecef; }
+    body.dark-mode .lock-card p { color: #adb5bd; }
+    body.dark-mode .lock-card .bi-lock-fill { color: #4d9fff; }
+    body.dark-mode .lock-banner {
+      background: #3d2e0a; color: #ffd66e; border-color: #5a4612;
+    }
+    body.dark-mode .cv-row {
+      background: #2d3139; border-color: #3d4349; color: #e9ecef;
+    }
+    body.dark-mode .cv-row.is-default {
+      background: #1a2c47; border-color: #4d9fff;
+    }
+    body.dark-mode .cv-row .cv-name { color: #e9ecef; }
+    body.dark-mode .cv-row .cv-cat,
+    body.dark-mode .cv-row select.cv-cat-edit {
+      background: #1e2128; color: #adb5bd; border-color: #3d4349;
+    }
+    body.dark-mode .ats-fast    { background: #0d3d2c; color: #4dbb77; }
+    body.dark-mode .ats-walled  { background: #3d2e0a; color: #ffd66e; }
+    body.dark-mode .ats-blocked { background: #3d1818; color: #ff7a7a; }
+    body.dark-mode .ats-unknown { background: #2d3139; color: #adb5bd; }
+    body.dark-mode .blocker-pill { background: #3d1818; color: #ff7a7a; }
+    body.dark-mode .prep-section { background: #2d3139; }
+    body.dark-mode .prep-section h6 { color: #4d9fff; }
+    body.dark-mode .qa-list li strong { color: #adb5bd; }
+    body.dark-mode .qa-list li span,
+    body.dark-mode .qa-list li input { color: #e9ecef; }
+    body.dark-mode .qa-input,
+    body.dark-mode input.qa-input {
+      background: #1e2128; color: #e9ecef; border-color: #3d4349;
+    }
+    body.dark-mode #followUpSection {
+      background: #1e2128; color: #e9ecef; border-color: #2d3139;
+    }
+    /* Dropdown menu (Account settings in header) */
+    body.dark-mode .dropdown-menu {
+      background: #1e2128; border-color: #3d4349;
+    }
+    body.dark-mode .dropdown-menu .dropdown-item { color: #e9ecef; }
+    body.dark-mode .dropdown-menu .dropdown-item:hover { background: #2d3139; }
+    body.dark-mode .dropdown-divider { border-top-color: #3d4349; }
+    /* Today's Matches banner — dark variant */
+    body.dark-mode #dailyResultsBanner {
+      background: #1a2c47; border-color: #2d4a73; color: #cce5ff;
+    }
+    body.dark-mode #savedResultsBanner {
+      background: #3d2e0a; border-color: #5a4612; color: #ffd66e;
+    }
+    body.dark-mode .tracker-notes {
+      background: #2d3139; color: #e9ecef; border-color: #3d4349;
+    }
+    body.dark-mode .tracker-notes::placeholder { color: #6c757d; }
   </style>
 </head>
 <body>
@@ -2148,7 +2213,11 @@ function renderTrackerTab() {
     const date    = job?.date_fmt || '';
     const src     = job?.source || '';
     const srcCls  = SOURCE_CLASS[src] || 'unknown';
-    const note    = jobNotes[url] || '';
+    // Prefer server-side notes (synced across devices via /api/applications)
+    // and fall back to legacy local-only jobNotes if no server entry exists.
+    const serverEntry = appliedIndex.urls[url] || null;
+    const noteValue = (serverEntry && serverEntry.notes) || jobNotes[url] || '';
+    const appId = serverEntry && serverEntry.id;
     return `<div class="tracker-card status-${status}">
       <div class="d-flex align-items-start justify-content-between gap-2">
         <span class="status-pill ${pillClass[status] || ''}">${pillLabel[status] || status}</span>
@@ -2160,7 +2229,13 @@ function renderTrackerTab() {
         ${sal ? `<span class="dot">·</span><strong>${escHtml(sal)}</strong>` : ''}
         ${date ? `<span class="dot">·</span>${escHtml(date)}` : ''}
       </div>
-      ${note ? `<div style="font-size:.75rem;color:#6c757d;margin-top:4px;font-style:italic;"><i class="bi bi-sticky me-1"></i>${escHtml(note.substring(0,80))}${note.length>80?'…':''}</div>` : ''}
+      <textarea class="form-control form-control-sm mt-2 tracker-notes"
+                rows="2"
+                placeholder="Notes — ATS quirks, contacts, follow-up plans..."
+                style="font-size:.78rem; resize:vertical;"
+                ${appId ? `data-app-id="${appId}"` : ''}
+                data-url="${escHtml(url)}"
+                onblur="saveTrackerNotes(this)">${escHtml(noteValue)}</textarea>
       <div class="d-flex gap-2 mt-2 flex-wrap">
         <a class="btn btn-outline-secondary btn-sm" href="${escHtml(url)}" target="_blank" rel="noopener" style="font-size:.75rem;">
           <i class="bi bi-box-arrow-up-right me-1"></i>Open
@@ -2171,6 +2246,36 @@ function renderTrackerTab() {
       </div>
     </div>`;
   }).join('');
+}
+
+async function saveTrackerNotes(textarea) {
+  const url = textarea.dataset.url;
+  const appId = textarea.dataset.appId;
+  const newNotes = textarea.value;
+  // Always update local cache so re-renders show the latest text immediately.
+  jobNotes[url] = newNotes;
+  localStorage.setItem('job_notes', JSON.stringify(jobNotes));
+  if (appliedIndex.urls[url]) appliedIndex.urls[url].notes = newNotes;
+
+  // Persist to server if we have an application id (PATCH /api/applications/:id)
+  if (!appId) return;
+  // Skip the round-trip if nothing actually changed since last paint
+  const prev = textarea.dataset.lastSaved || '';
+  if (prev === newNotes) return;
+  try {
+    const r = await fetch(`/api/applications/${appId}`, {
+      method: 'PATCH',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ notes: newNotes }),
+    });
+    if (r.ok) {
+      textarea.dataset.lastSaved = newNotes;
+      // Tiny visual cue — checkmark fade-in/out
+      textarea.style.borderColor = '#4dbb77';
+      setTimeout(() => { textarea.style.borderColor = ''; }, 900);
+    }
+  } catch (e) { /* offline / network — local cache still has it */ }
 }
 
 function exportTrackerCSV() {

@@ -1824,17 +1824,20 @@ def applied_urls():
     if err: return err
     with _db_conn() as conn:
         rows = conn.execute(
-            "SELECT company, title, url, status, applied_at FROM applications WHERE user_id = ?",
+            "SELECT id, company, title, url, status, applied_at, notes "
+            "FROM applications WHERE user_id = ?",
             (uid,),
         ).fetchall()
     urls = {}
     fingerprints = {}
     for r in rows:
         meta = {
+            "id":         r["id"],
             "applied_at": r["applied_at"],
             "status":     r["status"],
             "company":    r["company"],
             "title":      r["title"],
+            "notes":      r["notes"] or "",
         }
         if r["url"]:
             urls[r["url"]] = meta
@@ -1842,8 +1845,10 @@ def applied_urls():
         ti = (r["title"]   or "").lower().strip()
         if co and ti:
             fingerprints[f"{co}|{ti}"] = {
+                "id":         r["id"],
                 "applied_at": r["applied_at"],
                 "status":     r["status"],
+                "notes":      r["notes"] or "",
             }
     return jsonify({"urls": urls, "fingerprints": fingerprints})
 
