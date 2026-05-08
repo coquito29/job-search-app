@@ -1172,6 +1172,17 @@
       <i class="bi bi-x-circle me-1"></i>Clear
     </button>
   </div>
+  <!-- Today's Matches banner — shown when results came from the daily-digest cron -->
+  <div id="dailyResultsBanner" style="display:none;
+       background:#e7f5ff; border:1px solid #b3daff; border-radius:8px;
+       padding:8px 12px; margin:8px 12px; font-size:.8rem; color:#0d4a8b;
+       align-items:center; gap:8px; justify-content:space-between;">
+    <span><i class="bi bi-calendar-check me-1"></i><span id="dailyResultsLabel">Today's matches</span></span>
+    <button class="btn btn-sm btn-outline-primary" onclick="searchJobs()"
+            style="font-size:.72rem; padding:2px 8px;" title="Run a fresh Apify search ($1.20)">
+      <i class="bi bi-arrow-clockwise me-1"></i>Refresh now
+    </button>
+  </div>
   <div class="results-summary">
     <div class="results-summary-top">
       <span id="resultsSummary">No results yet</span>
@@ -1753,6 +1764,43 @@ function restoreSavedResultsIfAny() {
   return true;
 }
 
+async function loadDailyResultsIfAny() {
+  // Fetch the most recent server-stored daily-digest run. If we already have
+  // local cached results from a manual search, leave those alone — manual
+  // results are presumed fresher / more relevant. Daily run is the fallback.
+  if (allJobs && allJobs.length) return false;
+  try {
+    const r = await fetch('/api/daily-results', { credentials: 'same-origin' });
+    if (!r.ok) return false;
+    const data = await r.json();
+    if (!data.run_at || !Array.isArray(data.jobs) || !data.jobs.length) return false;
+    // Don't auto-show runs older than 48h — user should know they're stale.
+    const ageMs = Date.now() - new Date(data.run_at).getTime();
+    if (ageMs > 48 * 3600 * 1000) return false;
+    allJobs        = data.jobs;
+    jobs           = applyAllFilters(allJobs);
+    lastSourceData = data.source_counts || {};
+    sortMode       = 'match';
+    renderResults({
+      jobs,
+      total_fetched: data.total_fetched || 0,
+      total_remote:  allJobs.length,
+      total_shown:   jobs.length,
+      source_counts: lastSourceData,
+    });
+    const banner = document.getElementById('dailyResultsBanner');
+    const lbl    = document.getElementById('dailyResultsLabel');
+    if (banner && lbl) {
+      const age = formatAge(ageMs);
+      lbl.textContent = `Today's matches · ${jobs.length} jobs · auto-loaded from daily run ${age}`;
+      banner.style.display = 'flex';
+    }
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
 // ════════════════════════════════════════════════════════════════════════
 //  Init
 // ════════════════════════════════════════════════════════════════════════
@@ -1884,7 +1932,10 @@ async function bootAuthAndData() {
       loadAppliedIndex(),
       loadServerProfile(),
     ]).catch(() => {});
-    restoreSavedResultsIfAny();
+    // Manual cached results win over the daily-digest snapshot — only fall
+    // back to the server's stored daily run if we don't have anything local.
+    const restored = restoreSavedResultsIfAny();
+    if (!restored) await loadDailyResultsIfAny();
     if (typeof renderCvLibrary === 'function') renderCvLibrary();
     if (jobs && jobs.length) renderJobCards();
   }

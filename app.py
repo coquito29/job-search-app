@@ -171,6 +171,20 @@ def _init_applications_db():
                 updated_at  TEXT NOT NULL
             )
         """)
+        # Daily digest snapshot: cron-triggered /api/digest writes the top
+        # scored jobs here so the frontend can render "Today's Matches" on
+        # boot without re-running Apify ($1.20/search). One row per run.
+        conn.execute(f"""
+            CREATE TABLE IF NOT EXISTS daily_searches (
+                {id_col},
+                user_id        INTEGER NOT NULL,
+                run_at         TEXT NOT NULL,
+                jobs           TEXT NOT NULL,
+                source_counts  TEXT,
+                total_fetched  INTEGER NOT NULL DEFAULT 0,
+                emailed_to     TEXT
+            )
+        """)
 
     # Idempotent migrations. Each in its own connection so a "column exists"
     # error doesn't poison the broader CREATE TABLE transaction on Postgres.
@@ -1557,22 +1571,35 @@ def daily_digest():
                 seen_fps.add(fp)
             all_jobs.append(job)
 
-    # Score jobs by skill match
-    scored = []
-    for job in all_jobs:
-        text_blob = " ".join([
-            (job.get("title") or ""),
-            (job.get("description") or ""),
-            (job.get("company_name") or ""),
-        ]).lower()
-        hits  = sum(1 for s in skills if s.lower() in text_blob)
-        total = max(len(skills), 1)
-        pct   = min(100, round((hits / total) * 100))
-        job["match_pct"] = pct
-        scored.append(job)
+    # Score jobs using the same pipeline as /api/search so the daily-digest
+    # results render identically (ATS class badges, blocker pills, match_why).
+    profile = UserProfile(summary="", skills=skills, no_go_terms=NO_GO_TERMS)
+    remote_jobs = [j for j in all_jobs if is_remote_job(j)]
+    for job in remote_jobs:
+        job["days_old"] = _days_since_posted(job.get("posted"))
+        job.update(score_job(job, profile))
+        job["salary_clean"] = _clean_salary(job.get("salary", ""))
+        job["date_fmt"]     = fmt_date(job.get("posted"))
+    remote_jobs.sort(key=lambda j: j["match_pct"], reverse=True)
+    top10 = remote_jobs[:10]
 
-    scored.sort(key=lambda j: j["match_pct"], reverse=True)
-    top10 = scored[:10]
+    # Persist to daily_searches BEFORE sending email — so even if SMTP fails,
+    # the frontend still has fresh "Today's Matches" to show.
+    source_counts = {src: len(jobs_list) for src, jobs_list in source_results.items()}
+    now_iso = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    try:
+        # Single-user for now → user_id=1. When multi-user lands, the cron
+        # will iterate per user using their own profile.skills + DIGEST_TO.
+        with _db_conn() as conn:
+            conn.execute(
+                "INSERT INTO daily_searches (user_id, run_at, jobs, source_counts, "
+                "total_fetched, emailed_to) VALUES (?, ?, ?, ?, ?, ?)",
+                (1, now_iso, json.dumps(top10), json.dumps(source_counts),
+                 len(all_jobs), digest_to),
+            )
+    except Exception as e:
+        # Non-fatal — email still goes out, frontend just won't see this run.
+        print(f"[digest] daily_searches write failed: {e}")
 
     if not top10:
         return jsonify({"sent": False, "reason": "No jobs found today"}), 200
@@ -1641,6 +1668,44 @@ def daily_digest():
         return jsonify({"sent": False, "error": str(e)}), 500
 
     return jsonify({"sent": True, "jobs_emailed": len(top10), "to": digest_to})
+
+
+@app.route("/api/daily-results", methods=["GET"])
+def daily_results():
+    """Return the most recent stored daily-digest run for the current user.
+
+    The frontend calls this on app boot to render a "Today's Matches" section
+    above the manual search button — so the user sees fresh jobs the moment
+    they open the app, without paying for another Apify run."""
+    uid, err = _auth_required()
+    if err: return err
+    with _db_conn() as conn:
+        cur = conn.execute(
+            "SELECT id, run_at, jobs, source_counts, total_fetched, emailed_to "
+            "FROM daily_searches WHERE user_id = ? "
+            "ORDER BY run_at DESC LIMIT 1", (uid,),
+        )
+        row = cur.fetchone()
+    if not row:
+        return jsonify({"jobs": [], "run_at": None,
+                        "reason": "No daily run yet. Cron fires at 9am."})
+    try:
+        jobs = json.loads(_row_get(row, "jobs", "[]") or "[]")
+    except Exception:
+        jobs = []
+    try:
+        source_counts = json.loads(_row_get(row, "source_counts", "{}") or "{}")
+    except Exception:
+        source_counts = {}
+    return jsonify({
+        "id":            _row_get(row, "id"),
+        "run_at":        _row_get(row, "run_at"),
+        "jobs":          jobs,
+        "source_counts": source_counts,
+        "total_fetched": _row_get(row, "total_fetched", 0),
+        "emailed_to":    _row_get(row, "emailed_to") or "",
+        "count":         len(jobs),
+    })
 
 
 # ── Applications tracker routes ───────────────────────────────────────────────
