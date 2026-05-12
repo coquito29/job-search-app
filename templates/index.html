@@ -863,6 +863,21 @@
     body.dark-mode .source-toggle { background: #2d3139 !important; }
     body.dark-mode .source-toggle.checked { opacity: 1; }
 
+    /* ── Result banners (saved / daily) ─────────────────────── */
+    .result-banner {
+      align-items: center;
+      gap: 8px;
+      justify-content: space-between;
+      border-radius: 8px;
+      padding: 8px 12px;
+      margin: 8px 12px;
+      font-size: .8rem;
+      border: 1px solid;
+    }
+    .result-banner:not([style*="display:none"]) { display: flex; }
+    .result-banner--saved { background: #fff8e1; border-color: #ffe082; color: #5d4037; }
+    .result-banner--daily { background: #e7f5ff; border-color: #b3daff; color: #0d4a8b; }
+
     /* ── Dark-mode coverage for v2 sections ─────────────────── */
     body.dark-mode .lock-card { background: #1e2128; color: #e9ecef; }
     body.dark-mode .lock-card h2 { color: #e9ecef; }
@@ -1226,11 +1241,10 @@
 
 <!-- ══ Section 4: Results ════════════════════════════════════════════════════ -->
 <div id="resultsSection" style="display:none;">
-  <!-- Saved results banner — shown when restoring from localStorage -->
-  <div id="savedResultsBanner" style="display:none;
-       background:#fff8e1; border:1px solid #ffe082; border-radius:8px;
-       padding:8px 12px; margin:8px 12px; font-size:.8rem; color:#5d4037;
-       display:flex; align-items:center; gap:8px; justify-content:space-between;">
+  <!-- Saved results banner — shown when restoring from localStorage.
+       NB: had two `display:` declarations (none + flex) which made the
+       banner always render. Layout props now live in a class. -->
+  <div id="savedResultsBanner" class="result-banner result-banner--saved" style="display:none;">
     <span><i class="bi bi-clock-history me-1"></i><span id="savedResultsAge">Saved results</span></span>
     <button class="btn btn-sm btn-outline-secondary" onclick="clearSavedResults()"
             style="font-size:.72rem; padding:2px 8px;">
@@ -1238,10 +1252,7 @@
     </button>
   </div>
   <!-- Today's Matches banner — shown when results came from the daily-digest cron -->
-  <div id="dailyResultsBanner" style="display:none;
-       background:#e7f5ff; border:1px solid #b3daff; border-radius:8px;
-       padding:8px 12px; margin:8px 12px; font-size:.8rem; color:#0d4a8b;
-       align-items:center; gap:8px; justify-content:space-between;">
+  <div id="dailyResultsBanner" class="result-banner result-banner--daily" style="display:none;">
     <span><i class="bi bi-calendar-check me-1"></i><span id="dailyResultsLabel">Today's matches</span></span>
     <button class="btn btn-sm btn-outline-primary" onclick="searchJobs()"
             style="font-size:.72rem; padding:2px 8px;" title="Run a fresh Apify search ($1.20)">

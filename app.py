@@ -339,6 +339,17 @@ ATS_BLOCKED = {
     "joblum.com": "Aggregator", "trabajo.org": "Aggregator",
     "learn4good.com": "Aggregator", "jobsora.com": "Aggregator",
     "bebee.com": "Aggregator",
+    # Added 2026-05-06 after dogfood test: daily digest was returning
+    # ~70% of results from these redirect-style aggregators. Real ATS
+    # links (Greenhouse/Workable/SmartRecruiters) drown out the noise
+    # once these get filtered.
+    "jooble.org":       "Aggregator",
+    "dailyremote.com":  "Aggregator",
+    "tallo.com":        "Aggregator",
+    "himalayas.app":    "Aggregator",  # job board, but most listings redirect
+    "apexsystems.com":  "Aggregator",  # staffing agency w/ low-conversion direct apply
+    "socalnonprofitjobs.org": "Aggregator",
+    "remoterocketship.com":   "Aggregator",
 }
 
 
@@ -1697,6 +1708,13 @@ def daily_results():
         source_counts = json.loads(_row_get(row, "source_counts", "{}") or "{}")
     except Exception:
         source_counts = {}
+
+    # Re-filter against the latest aggregator blocklist. A daily run stored
+    # before the list grew might contain URLs that should now be dropped —
+    # this lets us tighten the filter without re-running ($1.20 Apify).
+    blocked = _aggregator_denylist()
+    jobs = [j for j in jobs if not _url_host_matches(j.get("url", ""), blocked)]
+
     return jsonify({
         "id":            _row_get(row, "id"),
         "run_at":        _row_get(row, "run_at"),
