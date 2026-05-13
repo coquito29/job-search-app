@@ -1930,6 +1930,123 @@ def application_stats():
     return jsonify({"total": total, "by_status": by_status})
 
 
+# ── Rich stats dashboard ──────────────────────────────────────────────────────
+
+@app.route("/api/stats", methods=["GET"])
+def stats_dashboard():
+    """Aggregated view for the Stats step. One endpoint, all the numbers."""
+    uid, err = _auth_required()
+    if err: return err
+
+    now = datetime.utcnow()
+    week_cutoff  = (now - timedelta(days=7)).isoformat(timespec="seconds") + "Z"
+    month_cutoff = (now - timedelta(days=30)).isoformat(timespec="seconds") + "Z"
+    month_label  = now.strftime("%Y-%m")
+
+    with _db_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, company, title, url, ats, source, status, applied_at, "
+            "follow_up_sent_at FROM applications WHERE user_id = ?", (uid,),
+        ).fetchall()
+        # Number of digest cron runs this month — proxy for cron-side Apify spend
+        digest_rows = conn.execute(
+            "SELECT COUNT(*) AS n FROM daily_searches "
+            "WHERE user_id = ? AND run_at >= ?", (uid, month_cutoff),
+        ).fetchone()
+        digest_runs_30d = _row_get(digest_rows, "n", 0) or 0
+
+    apps = [dict(r) for r in rows]
+    total = len(apps)
+
+    # Bucket counts
+    by_status   = {s: 0 for s in APP_STATUSES}
+    by_ats_cls  = {"fast": 0, "walled": 0, "blocked": 0, "unknown": 0}
+    by_source   = {}
+    by_ats_name = {}
+    company_counts = {}
+    follow_ups_sent = 0
+    applied_7d  = 0
+    applied_30d = 0
+    last_apply_at = None
+
+    # Recent-activity heatmap (last 30 days, count per day)
+    activity = {}
+    for offset in range(30):
+        day = (now - timedelta(days=offset)).strftime("%Y-%m-%d")
+        activity[day] = 0
+
+    for a in apps:
+        st = a.get("status") or "Applied"
+        by_status[st] = by_status.get(st, 0) + 1
+
+        cls, name = _classify_ats(a.get("url", "") or "")
+        by_ats_cls[cls] = by_ats_cls.get(cls, 0) + 1
+        if name:
+            by_ats_name[name] = by_ats_name.get(name, 0) + 1
+        elif a.get("ats"):
+            # Fall back to whatever was stored in the ats column
+            by_ats_name[a["ats"]] = by_ats_name.get(a["ats"], 0) + 1
+
+        src = a.get("source") or "Unknown"
+        by_source[src] = by_source.get(src, 0) + 1
+
+        co = (a.get("company") or "").strip()
+        if co:
+            company_counts[co] = company_counts.get(co, 0) + 1
+
+        if a.get("follow_up_sent_at"):
+            follow_ups_sent += 1
+
+        ap = a.get("applied_at") or ""
+        if ap:
+            if last_apply_at is None or ap > last_apply_at:
+                last_apply_at = ap
+            if ap >= week_cutoff:
+                applied_7d += 1
+            if ap >= month_cutoff:
+                applied_30d += 1
+            day = ap[:10]
+            if day in activity:
+                activity[day] += 1
+
+    # Top 5 companies (multi-applications signals interest)
+    top_companies = sorted(company_counts.items(), key=lambda x: -x[1])[:5]
+    # Top 5 ATSes used (by app count)
+    top_ats_names = sorted(by_ats_name.items(), key=lambda x: -x[1])[:6]
+
+    # Response rate: anything past Applied counts as a response
+    responded = sum(
+        by_status.get(s, 0)
+        for s in ("Phone Screen", "Interview", "Offer", "Rejected")
+    )
+    response_rate = round((responded / total) * 100) if total else 0
+
+    # Apify spend rough estimate. Daily-digest runs are $1.20 each; manual
+    # /api/search is also $1.20/run but we don't track those server-side
+    # (client-side localStorage has the manual count). Report only the
+    # server-known portion so the number doesn't lie.
+    apify_cron_spend = round(digest_runs_30d * 1.20, 2)
+
+    return jsonify({
+        "total":              total,
+        "applied_this_week":  applied_7d,
+        "applied_this_month": applied_30d,
+        "follow_ups_sent":    follow_ups_sent,
+        "responded":          responded,
+        "response_rate_pct":  response_rate,
+        "last_apply_at":      last_apply_at,
+        "by_status":          by_status,
+        "by_ats_class":       by_ats_cls,
+        "by_source":          by_source,
+        "top_companies":      [{"name": n, "count": c} for n, c in top_companies],
+        "top_ats_names":      [{"name": n, "count": c} for n, c in top_ats_names],
+        "activity_30d":       activity,
+        "digest_runs_30d":    digest_runs_30d,
+        "apify_cron_spend_mtd": apify_cron_spend,
+        "month_label":        month_label,
+    })
+
+
 @app.route("/api/gmail/scan", methods=["POST"])
 def gmail_scan():
     """Scan Gmail for ATS status updates and forward-bump applications.
