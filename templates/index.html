@@ -1275,12 +1275,14 @@
       </div>
     </div>
     <div class="source-counts-bar" id="sourceCountsBar"></div>
-    <!-- Freshness filter chips — combat ghost jobs by limiting to recent posts -->
+    <!-- Freshness filter chips — combat ghost jobs by limiting to recent posts.
+         Default = Last 7 days (avoids 30d+ stale postings cluttering the list). -->
     <div class="d-flex align-items-center gap-2 mt-2 flex-wrap" style="font-size:.78rem;">
       <span style="color:#6c757d;font-weight:600;"><i class="bi bi-clock-history me-1"></i>Posted:</span>
       <button class="btn btn-sm btn-outline-success freshness-btn" data-days="1"  onclick="setFreshnessFilter(1)">Last 24h</button>
       <button class="btn btn-sm btn-outline-warning freshness-btn" data-days="3"  onclick="setFreshnessFilter(3)">Last 3 days</button>
-      <button class="btn btn-sm btn-outline-secondary freshness-btn active" data-days="0"  onclick="setFreshnessFilter(0)">All</button>
+      <button class="btn btn-sm btn-outline-primary freshness-btn active" data-days="7" onclick="setFreshnessFilter(7)">Last 7 days</button>
+      <button class="btn btn-sm btn-outline-secondary freshness-btn" data-days="0"  onclick="setFreshnessFilter(0)">All</button>
       <span id="freshnessCount" style="color:#6c757d;margin-left:auto;"></span>
     </div>
     <!-- ATS triage chips — narrow to fast-apply ATSes for high-velocity batches -->
@@ -1589,7 +1591,7 @@
 let skills         = [];
 let jobs           = [];           // currently rendered jobs (after freshness filter)
 let allJobs        = [];           // unfiltered server response — source of truth for re-filtering
-let freshnessDays  = 0;            // 0 = all, otherwise max days_old to show
+let freshnessDays  = 7;            // 0 = all, otherwise max days_old to show. Default 7 hides month-old posts.
 let atsFilter      = 'all';        // 'all' | 'fast' | 'fast_walled'
 let currentJob     = null;
 let currentCLJob   = null;

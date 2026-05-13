@@ -743,9 +743,6 @@ def score_job(job, profile):
         ("u.s. citizen",              -25, "US-citizen-only"),
         ("citizenship required",      -30, "Citizenship required"),
         ("must be a us citizen",      -30, "US-citizen-only"),
-        ("(french/english)",          -35, "French/English bilingual"),
-        ("french and english",        -25, "French/English bilingual"),
-        ("french/english bilingual",  -35, "French/English bilingual"),
         ("must be located in",        -10, "State-restricted"),
         ("residents of",              -8,  "State-restricted"),
     ]
@@ -753,6 +750,47 @@ def score_job(job, profile):
         if kw in combo:
             block_bonus += pts
             block_labels.append(lbl)
+
+    # Language-requirement detection: George speaks EN + ES. Any job that
+    # REQUIRES a different language (French, Italian, Portuguese, German,
+    # Mandarin, etc.) is structurally a no-go. Catches a variety of phrasings:
+    #   "Bilingual French/English", "Fluent Italian and French",
+    #   "Portuguese-speaking", "must speak German", "French required", etc.
+    NON_ES_LANGUAGES = {
+        "french":     "French",
+        "italian":    "Italian",
+        "portuguese": "Portuguese",
+        "german":     "German",
+        "mandarin":   "Mandarin",
+        "cantonese":  "Cantonese",
+        "japanese":   "Japanese",
+        "korean":     "Korean",
+        "vietnamese": "Vietnamese",
+        "hindi":      "Hindi",
+        "arabic":     "Arabic",
+        "russian":    "Russian",
+        "dutch":      "Dutch",
+        "polish":     "Polish",
+        "tagalog":    "Tagalog",
+    }
+    for lang_kw, lang_label in NON_ES_LANGUAGES.items():
+        # Patterns that signal the language is REQUIRED (not just nice-to-have).
+        # Word-boundaries on either side prevent "german" matching "germane".
+        patterns = [
+            rf"\bbilingual\s+\(?{lang_kw}\b",
+            rf"\bfluent\s+(?:in\s+)?{lang_kw}\b",
+            rf"\b{lang_kw}[/\s-]+english\b",
+            rf"\b{lang_kw}\s*(?:and|&)\s+english\b",
+            rf"\b{lang_kw}[-\s]+speaking\b",
+            rf"\b(?:speak|speaks|speaking)\s+{lang_kw}\b",
+            rf"\b{lang_kw}\s+(?:required|preferred|proficiency|fluency)\b",
+            rf"\bmust\s+speak\s+{lang_kw}\b",
+            rf"\bnative\s+{lang_kw}\b",
+        ]
+        if any(re.search(p, combo) for p in patterns):
+            block_bonus += -35
+            block_labels.append(f"{lang_label} required")
+            break   # one language penalty is enough — don't stack
 
     # Boosts for things directly in George's profile
     fit_bonus = 0
