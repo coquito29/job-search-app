@@ -1930,6 +1930,154 @@ def application_stats():
     return jsonify({"total": total, "by_status": by_status})
 
 
+# ── Profile export for the Chrome extension auto-fill ───────────────────────
+
+@app.route("/api/profile/full", methods=["GET"])
+def profile_full():
+    """Return everything the Chrome extension needs to auto-fill an ATS form.
+
+    Fields are split into the most common shapes ATSes use:
+    - first_name / last_name / full_name
+    - email / phone (formatted + raw digits)
+    - address fields (street, city, state, zip, country, country_code)
+    - links (LinkedIn, portfolio if set)
+    - eeo + work-authorisation answers
+    - per-user editable qa_defaults (from profile.settings)
+
+    Hardcoded for the single-user passcode-locked deploy. When the multi-
+    user (path b) lands, this reads from a user_profile table instead.
+    CORS allows the Chrome extension origin via Allow-Origin: *."""
+    uid, err = _auth_required()
+    if err: return err
+
+    # Pull user's custom Q&A defaults from profile.settings if they edited them
+    qa_defaults = []
+    try:
+        with _db_conn() as conn:
+            row = conn.execute(
+                "SELECT settings FROM profiles WHERE user_id = ?", (uid,)
+            ).fetchone()
+        if row:
+            settings_raw = _row_get(row, "settings")
+            if settings_raw:
+                settings = json.loads(settings_raw)
+                qa = settings.get("qa_defaults") or []
+                if isinstance(qa, list):
+                    qa_defaults = qa
+    except Exception:
+        pass
+
+    # Build a flat dict of common-label → answer lookup from the user's
+    # Q&A defaults. The extension can use this to match by label substring.
+    qa_map = {}
+    for entry in qa_defaults:
+        if isinstance(entry, list) and len(entry) == 2:
+            qa_map[entry[0].lower()] = entry[1]
+
+    profile = {
+        # Identity
+        "first_name":   "George",
+        "last_name":    "Tupayachi",
+        "full_name":    "George Tupayachi",
+        "preferred_name": "George",
+        # Contact
+        "email":        "georgetupayachijobs@outlook.com",
+        "phone":        "+1 (609) 553-6215",
+        "phone_digits": "6095536215",
+        "phone_e164":   "+16095536215",
+        # Address
+        "address": {
+            "street":       "1412 Doughty Road",
+            "city":         "Egg Harbor Township",
+            "state":        "NJ",
+            "state_full":   "New Jersey",
+            "zip":          "08234",
+            "country":      "United States",
+            "country_code": "US",
+        },
+        # Links
+        "linkedin":  "https://www.linkedin.com/in/george-tupayachi",
+        "portfolio": "",
+        # Default answers — these get pasted into yes/no and demographic dropdowns
+        "answers": {
+            "work_authorized_us":       qa_map.get("authorized to work in us", "Yes"),
+            "sponsorship_needed":       qa_map.get("sponsorship needed", "No"),
+            "veteran_status":           qa_map.get("veteran", "Not a protected veteran"),
+            "disability":               qa_map.get("disability", "No"),
+            "gender":                   qa_map.get("gender", "Male"),
+            "hispanic_latino":          qa_map.get("hispanic / latino", "Yes"),
+            "race":                     qa_map.get("race", "White"),
+            "salary_expectation":       qa_map.get("salary expectation", "Negotiable"),
+            "notice_period":            qa_map.get("notice period", "Available immediately (2-week notice)"),
+            "esignature":               qa_map.get("e-signature", "George Tupayachi"),
+            "previously_employed":      "No",
+            "willing_to_relocate":      "Yes",
+            "active_security_clearance":"None",
+            "us_gov_employment":        "Never",
+        },
+        # Education (most ATSes ask)
+        "education": [
+            {
+                "school":      "Franklin University",
+                "degree":      "Masters",
+                "field":       "Cybersecurity",
+                "start_date":  "2024-09",
+                "end_date":    "2027-01",
+                "graduated":   False,
+                "location":    "Remote (Columbus, OH)",
+            },
+            {
+                "school":      "Stockton University",
+                "degree":      "Bachelors",
+                "field":       "Business Management Studies",
+                "start_date":  "2017-01",
+                "end_date":    "2021-05",
+                "graduated":   True,
+                "location":    "Galloway, NJ",
+            },
+        ],
+        # Work history (most recent first)
+        "work_experience": [
+            {
+                "company":  "Harrah's Casino",
+                "title":    "Bartender",
+                "start_date":"2024-07",
+                "end_date":  "",
+                "current":  True,
+                "location": "Atlantic City, NJ",
+                "address":  "777 Harrah's Blvd, Atlantic City, NJ 08401",
+            },
+            {
+                "company":  "Ocean Casino Resort",
+                "title":    "Casino Shift Manager",
+                "start_date":"2021-06",
+                "end_date":  "2022-07",
+                "current":  False,
+                "location": "Atlantic City, NJ",
+                "address":  "500 Boardwalk, Atlantic City, NJ 08401",
+            },
+            {
+                "company":  "Ocean Casino Resort",
+                "title":    "Bartender",
+                "start_date":"2019-06",
+                "end_date":  "2020-08",
+                "current":  False,
+                "location": "Atlantic City, NJ",
+                "address":  "500 Boardwalk, Atlantic City, NJ 08401",
+            },
+        ],
+        # Raw Q&A list so the extension can do fuzzy matching too
+        "qa_defaults": qa_defaults,
+    }
+
+    response = jsonify(profile)
+    # The Chrome extension's content script runs in the page's origin, which
+    # isn't the same as the app's. Allow CORS for the extension's fetches.
+    response.headers["Access-Control-Allow-Origin"]      = "*"
+    response.headers["Access-Control-Allow-Credentials"] = "true"
+    return response
+
+
 # ── Rich stats dashboard ──────────────────────────────────────────────────────
 
 @app.route("/api/stats", methods=["GET"])
