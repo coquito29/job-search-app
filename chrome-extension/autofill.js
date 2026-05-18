@@ -22,16 +22,21 @@
       { value: p.first_name,       patterns: [/\b(first|given|forename)[\s_-]*name\b/i, /\bfname\b/i] },
       { value: p.last_name,        patterns: [/\b(last|family|sur)[\s_-]*name\b/i, /\blname\b/i, /\bsurname\b/i] },
       { value: p.preferred_name,   patterns: [/\b(preferred|nick)[\s_-]*name\b/i, /\bgoes[\s_-]*by\b/i] },
-      { value: p.full_name,        patterns: [/\bfull[\s_-]*name\b/i, /^name$/i, /\byour[\s_-]*name\b/i, /\blegal[\s_-]*name\b/i] },
+      // Bare "name" is the lowest-priority full-name match — fires only after
+      // first/last/preferred have had their shot above. Ashby uses this shape.
+      { value: p.full_name,        patterns: [/\bfull[\s_-]*name\b/i, /^name$/i, /\byour[\s_-]*name\b/i, /\blegal[\s_-]*name\b/i, /\bname\b/i] },
 
       { value: p.email,            patterns: [/\bemail\b/i, /\be-?mail[\s_-]*address\b/i] },
       { value: p.phone,            patterns: [/\bphone\b/i, /\bmobile\b/i, /\btelephone\b/i, /\bcontact[\s_-]*number\b/i] },
 
-      { value: addr.street,        patterns: [/\b(street|address)[\s_-]*(line)?[\s_-]*1?\b/i, /\bstreet[\s_-]*address\b/i, /^address$/i] },
+      // City/state/zip evaluate BEFORE street so that a Workable-style
+      // "Current location (city)" field with name="address" still resolves
+      // to the city, not the street.
       { value: addr.city,          patterns: [/\bcity\b/i, /\btown\b/i, /\blocality\b/i] },
       { value: addr.state,         patterns: [/\bstate\b/i, /\bprovince\b/i, /\bregion\b/i] },
       { value: addr.zip,           patterns: [/\bzip\b/i, /\bpostal[\s_-]*code\b/i, /\bpostcode\b/i] },
       { value: addr.country,       patterns: [/\bcountry\b/i] },
+      { value: addr.street,        patterns: [/\b(street|address)[\s_-]*(line)?[\s_-]*1?\b/i, /\bstreet[\s_-]*address\b/i, /^address$/i] },
 
       { value: p.linkedin,         patterns: [/\blinkedin\b/i] },
       { value: p.portfolio,        patterns: [/\b(portfolio|website|personal[\s_-]*site|homepage|github)\b/i, /\burl\b/i] },
@@ -69,6 +74,13 @@
     let p = el.parentElement;
     for (let i = 0; i < 3 && p; i++, p = p.parentElement) {
       if (p.tagName === "LABEL" && p.textContent) { parts.push(p.textContent); break; }
+    }
+    // Enclosing <fieldset>'s <legend> — radio/checkbox groups put the
+    // question there (Lever, Workday, Greenhouse EEOC sections).
+    const fieldset = el.closest("fieldset");
+    if (fieldset) {
+      const legend = fieldset.querySelector(":scope > legend");
+      if (legend && legend.textContent) parts.push(legend.textContent);
     }
     // ARIA labelling
     const labelledby = el.getAttribute("aria-labelledby");
