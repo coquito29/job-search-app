@@ -46,6 +46,36 @@ app.permanent_session_lifetime = timedelta(days=30)
 # Cheap (mtime check) and harmless in production.
 app.config["TEMPLATES_AUTO_RELOAD"] = True
 
+# Cookie policy for the Chrome extension. A chrome-extension:// origin counts
+# as cross-site, so the session cookie needs SameSite=None; Secure to flow.
+# Render's HTTPS edge satisfies Secure; local HTTP dev keeps the Lax default.
+if os.environ.get("RENDER") or os.environ.get("FLASK_SAMESITE_NONE") == "1":
+    app.config["SESSION_COOKIE_SAMESITE"] = "None"
+    app.config["SESSION_COOKIE_SECURE"]   = True
+
+# Routes that the Chrome extension hits cross-origin. Preflights and credentials
+# need a precise Allow-Origin (reflected from the request) rather than '*'.
+_CORS_PATHS = ("/api/auth/login", "/api/auth/logout", "/api/auth/status",
+               "/api/profile/full")
+
+@app.after_request
+def _extension_cors(resp):
+    origin = request.headers.get("Origin", "")
+    if origin.startswith("chrome-extension://") and request.path in _CORS_PATHS:
+        resp.headers["Access-Control-Allow-Origin"]      = origin
+        resp.headers["Access-Control-Allow-Credentials"] = "true"
+        resp.headers["Vary"]                             = "Origin"
+        resp.headers["Access-Control-Allow-Methods"]     = "GET, POST, OPTIONS"
+        resp.headers["Access-Control-Allow-Headers"]     = "Content-Type"
+    return resp
+
+@app.route("/api/auth/login",   methods=["OPTIONS"])
+@app.route("/api/auth/logout",  methods=["OPTIONS"])
+@app.route("/api/auth/status",  methods=["OPTIONS"])
+@app.route("/api/profile/full", methods=["OPTIONS"])
+def _extension_preflight():
+    return ("", 204)
+
 # ── Applications tracker (Postgres on Render, SQLite locally) ────────────────
 # If DATABASE_URL is set (Render auto-injects this when you attach a Postgres
 # instance), use Postgres so the tracker survives redeploys/restarts.
@@ -2070,12 +2100,7 @@ def profile_full():
         "qa_defaults": qa_defaults,
     }
 
-    response = jsonify(profile)
-    # The Chrome extension's content script runs in the page's origin, which
-    # isn't the same as the app's. Allow CORS for the extension's fetches.
-    response.headers["Access-Control-Allow-Origin"]      = "*"
-    response.headers["Access-Control-Allow-Credentials"] = "true"
-    return response
+    return jsonify(profile)
 
 
 # ── Rich stats dashboard ──────────────────────────────────────────────────────
