@@ -4171,6 +4171,325 @@ render();
 </body></html>"""
 
 
+# ── Extension auto-fill sandbox (dogfood without using a real application) ────
+
+@app.route("/test-form")
+def test_form_page():
+    """Self-contained ATS-shaped form for dogfooding the Chrome extension.
+
+    Covers every field the rule-based filler targets (Phase 1) plus a few
+    custom free-text questions for Phase 2 (AI). Submitting renders a
+    preview of what would have been sent — there is NO server roundtrip,
+    no application data leaves the browser."""
+    return """<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Auto-fill Sandbox · Job Search App</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+<style>
+  body{background:#f0f4f8;padding:0 0 80px;font-size:.95rem}
+  .hdr{background:linear-gradient(135deg,#0d6efd 0%,#0043a8 100%);color:white;padding:18px 20px;box-shadow:0 2px 8px rgba(0,0,0,.25)}
+  .hdr h1{font-size:1.35rem;margin:0;font-weight:700}
+  .hdr .subtitle{font-size:.82rem;opacity:.9;margin:4px 0 0}
+  .card{border:none;border-radius:14px;box-shadow:0 2px 6px rgba(0,0,0,.08);margin:14px;background:white}
+  .card .ph{font-weight:700;color:#0d6efd;font-size:1rem;margin:0 0 14px;padding-bottom:6px;border-bottom:1px solid #e9ecef}
+  .req::after{content:" *";color:#dc3545;font-weight:700}
+  .ashby-radio{display:inline-flex;gap:8px;margin-top:4px}
+  .ashby-radio .opt{padding:8px 18px;border:1.5px solid #ced4da;border-radius:8px;background:white;cursor:pointer;font-weight:500;font-size:.92rem;transition:all .15s}
+  .ashby-radio .opt:hover{border-color:#0d6efd;background:#f0f7ff}
+  .ashby-radio .opt.selected{background:#0d6efd;color:white;border-color:#0d6efd}
+  .preview{background:#212529;color:#e9ecef;padding:14px;border-radius:8px;font-family:Consolas,Monaco,monospace;font-size:.78rem;white-space:pre-wrap;word-break:break-word;max-height:480px;overflow-y:auto}
+  .instructions{background:#e7f5ff;border:1px solid #b3daff;border-radius:10px;padding:12px 14px;margin:14px;font-size:.86rem;line-height:1.45}
+  .instructions code{background:white;padding:1px 6px;border-radius:3px;color:#0d4a8b}
+  .instructions ol{margin:6px 0 0;padding-left:22px}
+  .instructions li{margin:3px 0}
+  .badge-phase{font-size:.66rem;padding:3px 7px;border-radius:999px;font-weight:600;letter-spacing:.3px;vertical-align:middle;margin-left:6px}
+  .badge-phase1{background:#d4edda;color:#155724}
+  .badge-phase2{background:#f3e8ff;color:#6f42c1}
+  label{font-size:.86rem;font-weight:600;color:#212529;margin-bottom:3px}
+  .help{font-size:.74rem;color:#6c757d;display:block;margin-top:2px}
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <h1><i class="bi bi-clipboard-check"></i> Auto-fill Sandbox</h1>
+  <p class="subtitle">Pretend ATS form — exercise every field type the Chrome extension targets without touching a real employer.</p>
+</div>
+
+<div class="instructions">
+  <strong>How to use:</strong>
+  <ol>
+    <li>Make sure you've already logged into the web app (you're seeing this page, so you have).</li>
+    <li>Click the extension's toolbar icon (the black feather) once so it caches your profile. Status should say <em>"Logged in — ready to fill"</em>.</li>
+    <li>Then click <strong>"Auto-fill this form"</strong> in the popup. Filled fields flash green for ~1 second.</li>
+    <li>The popup will list every field it matched (and why it skipped any). The toast at bottom-right shows totals.</li>
+    <li>Click <strong>Submit</strong> at the bottom to render what would have been sent — nothing leaves the browser.</li>
+  </ol>
+  <div style="margin-top:8px;font-size:.78rem;color:#856404;background:#fff3cd;padding:6px 10px;border-radius:6px">
+    <i class="bi bi-info-circle"></i>
+    Auto-fire only triggers on supported ATS hosts. This sandbox is on <code>job-search-app-9pnx.onrender.com</code>, so you trigger it manually via the popup.
+    Phase 2 (AI free-text) needs <code>ANTHROPIC_API_KEY</code> on Render — currently unset, so the AI fields stay empty.
+  </div>
+</div>
+
+<form id="sandboxForm" autocomplete="off">
+
+  <div class="card">
+    <div class="card-body">
+      <p class="ph">Personal Information <span class="badge-phase badge-phase1">Phase 1 rules</span></p>
+
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label for="legalName" class="req">Legal First & Last Name</label>
+          <input type="text" id="legalName" name="legal_name" class="form-control" required>
+          <span class="help">Should fill: George Tupayachi (combined-name rule)</span>
+        </div>
+        <div class="col-md-6">
+          <label for="preferredName">Preferred Name</label>
+          <input type="text" id="preferredName" name="preferred_name" class="form-control">
+        </div>
+        <div class="col-md-6">
+          <label for="firstName">First Name</label>
+          <input type="text" id="firstName" name="first_name" class="form-control">
+        </div>
+        <div class="col-md-6">
+          <label for="lastName">Last Name</label>
+          <input type="text" id="lastName" name="last_name" class="form-control">
+        </div>
+        <div class="col-md-7">
+          <label for="email" class="req">Email Address</label>
+          <input type="email" id="email" name="email" class="form-control" required>
+        </div>
+        <div class="col-md-5">
+          <label for="phone" class="req">Phone Number</label>
+          <input type="tel" id="phone" name="phone" class="form-control" required>
+        </div>
+        <div class="col-md-8">
+          <label for="linkedin">LinkedIn URL</label>
+          <input type="url" id="linkedin" name="linkedin" class="form-control" placeholder="https://www.linkedin.com/in/...">
+        </div>
+        <div class="col-md-4">
+          <label for="portfolio">Portfolio / GitHub</label>
+          <input type="url" id="portfolio" name="portfolio" class="form-control">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body">
+      <p class="ph">Location <span class="badge-phase badge-phase1">Phase 1 rules</span></p>
+      <div class="row g-3">
+        <div class="col-md-12">
+          <label for="loc">Current Location / City and State</label>
+          <input type="text" id="loc" name="location" class="form-control" placeholder="Start typing your city...">
+          <span class="help">Plain text input — the autocomplete handler will still try the dropdown wait, fall through to setNativeValue.</span>
+        </div>
+        <div class="col-md-8">
+          <label for="street">Street Address</label>
+          <input type="text" id="street" name="street" class="form-control">
+        </div>
+        <div class="col-md-4">
+          <label for="apt">Address Line 2 / Apt</label>
+          <input type="text" id="apt" name="apt" class="form-control">
+        </div>
+        <div class="col-md-5">
+          <label for="city">City</label>
+          <input type="text" id="city" name="city" class="form-control">
+        </div>
+        <div class="col-md-4">
+          <label for="state">State</label>
+          <select id="state" name="state" class="form-select">
+            <option value="">Select...</option>
+            <option value="AL">Alabama</option>
+            <option value="CA">California</option>
+            <option value="FL">Florida</option>
+            <option value="NJ">New Jersey</option>
+            <option value="NY">New York</option>
+            <option value="TX">Texas</option>
+          </select>
+          <span class="help">Should fill: New Jersey (state_full) or NJ (abbreviation).</span>
+        </div>
+        <div class="col-md-3">
+          <label for="zip">ZIP Code</label>
+          <input type="text" id="zip" name="zip" class="form-control">
+        </div>
+        <div class="col-md-6">
+          <label for="country">Country</label>
+          <select id="country" name="country" class="form-select">
+            <option value="">Select...</option>
+            <option value="US">United States</option>
+            <option value="CA">Canada</option>
+            <option value="MX">Mexico</option>
+            <option value="GB">United Kingdom</option>
+          </select>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body">
+      <p class="ph">Work Authorization & Demographics <span class="badge-phase badge-phase1">Phase 1 rules</span></p>
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="d-block">Are you authorized to work in the United States?</label>
+          <div class="form-check form-check-inline"><input class="form-check-input" type="radio" name="work_auth" id="wa_yes" value="Yes"><label class="form-check-label" for="wa_yes">Yes</label></div>
+          <div class="form-check form-check-inline"><input class="form-check-input" type="radio" name="work_auth" id="wa_no"  value="No"><label class="form-check-label" for="wa_no">No</label></div>
+        </div>
+        <div class="col-md-6">
+          <label class="d-block">Will you now or in the future require sponsorship?</label>
+          <div class="form-check form-check-inline"><input class="form-check-input" type="radio" name="sponsor" id="sp_yes" value="Yes"><label class="form-check-label" for="sp_yes">Yes</label></div>
+          <div class="form-check form-check-inline"><input class="form-check-input" type="radio" name="sponsor" id="sp_no"  value="No"><label class="form-check-label" for="sp_no">No</label></div>
+        </div>
+        <div class="col-md-4">
+          <label for="gender">Gender</label>
+          <select id="gender" name="gender" class="form-select">
+            <option value="">Decline to answer</option>
+            <option>Male</option><option>Female</option><option>Non-binary</option>
+          </select>
+        </div>
+        <div class="col-md-4">
+          <label for="race">Race / Ethnicity</label>
+          <select id="race" name="race" class="form-select">
+            <option value="">Decline to answer</option>
+            <option>White</option>
+            <option>Black or African American</option>
+            <option>Asian</option>
+            <option>Two or more races</option>
+          </select>
+        </div>
+        <div class="col-md-4">
+          <label for="hispanic">Hispanic or Latino?</label>
+          <select id="hispanic" name="hispanic_latino" class="form-select">
+            <option value="">Decline to answer</option>
+            <option>Yes</option><option>No</option>
+          </select>
+        </div>
+        <div class="col-md-6">
+          <label for="vet">Veteran Status</label>
+          <select id="vet" name="veteran" class="form-select">
+            <option value="">Decline to answer</option>
+            <option>Not a protected veteran</option>
+            <option>Protected veteran</option>
+          </select>
+        </div>
+        <div class="col-md-6">
+          <label for="disab">Disability Status</label>
+          <select id="disab" name="disability" class="form-select">
+            <option value="">Decline to answer</option>
+            <option>Yes</option><option>No</option>
+            <option>I don't want to answer</option>
+          </select>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body">
+      <p class="ph">Custom button-radio group <span class="badge-phase badge-phase1">Phase 1 rules (Ashby-style)</span></p>
+      <label class="d-block mb-1">Are you willing to relocate for this position?</label>
+      <div class="ashby-radio" id="relocateBtns">
+        <button type="button" class="opt" data-val="Yes">Yes</button>
+        <button type="button" class="opt" data-val="No">No</button>
+      </div>
+      <input type="hidden" name="willing_to_relocate" id="relocateVal">
+      <span class="help">Should fill: Yes (button click — clickMatchingButton path).</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body">
+      <p class="ph">Logistics <span class="badge-phase badge-phase1">Phase 1 rules</span></p>
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label for="salary">Salary Expectation</label>
+          <input type="text" id="salary" name="salary" class="form-control">
+        </div>
+        <div class="col-md-6">
+          <label for="notice">Notice Period / Start Date</label>
+          <input type="text" id="notice" name="notice" class="form-control">
+        </div>
+        <div class="col-md-6">
+          <label class="d-block">Have you previously worked at this company?</label>
+          <div class="form-check form-check-inline"><input class="form-check-input" type="radio" name="prev_emp" id="pe_yes" value="Yes"><label class="form-check-label" for="pe_yes">Yes</label></div>
+          <div class="form-check form-check-inline"><input class="form-check-input" type="radio" name="prev_emp" id="pe_no"  value="No"><label class="form-check-label" for="pe_no">No</label></div>
+        </div>
+        <div class="col-md-6">
+          <label for="clearance">Active Security Clearance</label>
+          <input type="text" id="clearance" name="clearance" class="form-control">
+        </div>
+        <div class="col-md-12">
+          <label for="sig" class="req">Electronic Signature</label>
+          <input type="text" id="sig" name="esignature" class="form-control" required>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body">
+      <p class="ph">Free-text questions <span class="badge-phase badge-phase2">Phase 2 AI</span></p>
+      <div class="mb-3">
+        <label for="why">Why are you interested in this role?</label>
+        <textarea id="why" name="why" class="form-control" rows="3" maxlength="500"></textarea>
+        <span class="help">Won't fill until ANTHROPIC_API_KEY is set on Render.</span>
+      </div>
+      <div class="mb-2">
+        <label for="story">Describe a time you handled a difficult customer.</label>
+        <textarea id="story" name="story" class="form-control" rows="3" maxlength="500"></textarea>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body">
+      <button type="submit" class="btn btn-primary btn-lg w-100">
+        <i class="bi bi-eye"></i> Submit (preview only — nothing leaves your browser)
+      </button>
+    </div>
+  </div>
+
+</form>
+
+<div class="card" id="previewCard" style="display:none">
+  <div class="card-body">
+    <p class="ph">What would have been sent <span class="badge-phase badge-phase1" style="background:#fff3cd;color:#856404">Preview only</span></p>
+    <div class="preview" id="previewJson"></div>
+  </div>
+</div>
+
+<script>
+  // Ashby-style button-radio wiring
+  document.querySelectorAll('#relocateBtns .opt').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#relocateBtns .opt').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+      document.getElementById('relocateVal').value = btn.dataset.val;
+    });
+  });
+
+  // Submit handler: just preview, don't POST anywhere.
+  document.getElementById('sandboxForm').addEventListener('submit', e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const obj = {};
+    fd.forEach((v, k) => obj[k] = v);
+    // Reflect the button-radio's hidden value
+    obj.willing_to_relocate = document.getElementById('relocateVal').value || '';
+    document.getElementById('previewJson').textContent = JSON.stringify(obj, null, 2);
+    document.getElementById('previewCard').style.display = '';
+    document.getElementById('previewCard').scrollIntoView({behavior:'smooth', block:'start'});
+  });
+</script>
+
+</body></html>"""
+
+
 # ── Startup ───────────────────────────────────────────────────────────────────
 
 def _get_local_ip():
