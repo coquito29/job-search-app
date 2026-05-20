@@ -3673,6 +3673,189 @@ def cv_pick():
     })
 
 
+# ── AI field mapping (Chrome extension Phase 2) ──────────────────────────────
+
+def _select_best_cv_row(uid, job_text):
+    """Internal version of /api/cv-pick. Returns the best-match CV row as a
+    dict with parsed_text loaded, or None if the user has no CVs yet.
+    Tie-break order matches /api/cv-pick: category → default → most recent."""
+    job_cat, _ = _categorize_text(job_text or "")
+    with _db_conn() as conn:
+        cur = conn.execute(
+            "SELECT id, filename, category, parsed_text, is_default "
+            "FROM cvs WHERE user_id = ? ORDER BY is_default DESC, id DESC",
+            (uid,),
+        )
+        rows = cur.fetchall() or []
+    if not rows:
+        return None
+    cvs = [{
+        "id":          _row_get(r, "id"),
+        "filename":    _row_get(r, "filename"),
+        "category":    _row_get(r, "category"),
+        "parsed_text": _row_get(r, "parsed_text") or "",
+        "is_default":  bool(_row_get(r, "is_default")),
+    } for r in rows]
+    match = next((c for c in cvs if c["category"] == job_cat), None)
+    if not match: match = next((c for c in cvs if c["is_default"]), None)
+    if not match: match = cvs[0]
+    return match
+
+
+def _autofill_cors_response(rv):
+    """Add the CORS headers the Chrome extension needs to a Flask response
+    or a (body, status) tuple."""
+    resp = app.make_response(rv) if isinstance(rv, tuple) else rv
+    resp.headers["Access-Control-Allow-Origin"]      = "*"
+    resp.headers["Access-Control-Allow-Credentials"] = "true"
+    resp.headers["Access-Control-Allow-Methods"]     = "POST, OPTIONS"
+    resp.headers["Access-Control-Allow-Headers"]     = "Content-Type"
+    return resp
+
+
+def _build_autofill_prompt(fields, page_context, cv_text):
+    fields_json = json.dumps(
+        [{"id":          f.get("id"),
+          "label":       (f.get("label") or "")[:200],
+          "type":        f.get("type"),
+          "options":     (f.get("options") or [])[:25],
+          "placeholder": (f.get("placeholder") or "")[:120],
+          "maxlength":   f.get("maxlength")} for f in fields],
+        indent=2,
+    )
+    page_line = (
+        f"Page title: {page_context.get('title','')} | "
+        f"H1: {page_context.get('h1','')} | "
+        f"URL: {page_context.get('url','')}"
+    )
+    cv_block = cv_text or "(no CV available — answer from general profile only)"
+    return f"""You are filling out a job application form on behalf of George Tupayachi.
+
+GEORGE'S RESUME (use these for grounded answers — never invent companies or dates):
+{cv_block}
+
+PAGE CONTEXT:
+{page_line}
+
+FORM FIELDS TO FILL:
+{fields_json}
+
+For each field above, return ONE entry in a JSON array with this shape:
+{{"id": "<field id verbatim>", "value": "<answer>", "skip": false, "reason": "<one-line why>", "confidence": <0.0-1.0>}}
+
+Rules:
+- If a field is a select/radio/button-group with options, the "value" MUST be one of the listed options (case-sensitive match preferred).
+- For free-text/textarea, write 2-4 sentences in George's voice — professional, concrete, no filler. Reference real experience from the resume when relevant.
+- Never invent employers, certifications, or dates not in the resume.
+- If a field is too personal, too speculative, or you can't ground it in the resume + page context, set skip=true and explain briefly in reason.
+- Respect maxlength when provided.
+- Return ONLY the JSON array — no markdown, no prose before or after."""
+
+
+@app.route("/api/autofill", methods=["POST", "OPTIONS"])
+def autofill():
+    """AI-powered field mapping for the Chrome extension Phase 2.
+
+    Request body:
+      {
+        "fields": [{"id","label","type","options","placeholder","maxlength"}, ...],
+        "page_context": {"url","hostname","title","h1","company_hint"},
+        "cv_id": <int>  // optional; server picks best if omitted
+      }
+    Response (200): {"ai_used": true, "cv_used": {...}, "fills": [...]}
+    Response (503): {"ai_used": false, "error": "AI not configured ..."}
+    Response (502): {"ai_used": false, "error": "AI call failed: ...", "fills": []}
+    """
+    if request.method == "OPTIONS":
+        return _autofill_cors_response(("", 204))
+
+    uid, err = _auth_required()
+    if err: return _autofill_cors_response(err)
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key or not _anthropic:
+        return _autofill_cors_response(
+            (jsonify({"ai_used": False,
+                      "error": "AI not configured — set ANTHROPIC_API_KEY",
+                      "fills": []}), 503))
+
+    data         = request.get_json(force=True) or {}
+    fields       = (data.get("fields") or [])[:25]   # cap prompt size
+    page_context = data.get("page_context") or {}
+    cv_id        = data.get("cv_id")
+
+    if not fields:
+        return _autofill_cors_response(
+            (jsonify({"ai_used": False, "fills": []}), 200))
+
+    # Resolve CV: explicit cv_id wins, otherwise pick best for the page context.
+    cv_row = None
+    if cv_id:
+        try:
+            with _db_conn() as conn:
+                row = conn.execute(
+                    "SELECT id, filename, parsed_text FROM cvs "
+                    "WHERE id = ? AND user_id = ?", (int(cv_id), uid)
+                ).fetchone()
+            if row:
+                cv_row = {
+                    "id":          _row_get(row, "id"),
+                    "filename":    _row_get(row, "filename"),
+                    "parsed_text": _row_get(row, "parsed_text") or "",
+                }
+        except Exception:
+            pass
+    if not cv_row:
+        job_blob = " ".join([
+            page_context.get("title", "") or "",
+            page_context.get("h1", "") or "",
+            page_context.get("company_hint", "") or "",
+        ])
+        cv_row = _select_best_cv_row(uid, job_blob)
+
+    cv_text = (cv_row.get("parsed_text") or "")[:3500] if cv_row else ""
+    prompt  = _build_autofill_prompt(fields, page_context, cv_text)
+
+    try:
+        client  = _anthropic.Anthropic(api_key=api_key)
+        message = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=1500,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text  = message.content[0].text.strip()
+        match = re.search(r"\[.*\]", text, re.DOTALL)
+        fills = json.loads(match.group() if match else text)
+        if not isinstance(fills, list):
+            raise ValueError("AI did not return a JSON list")
+    except Exception as e:
+        return _autofill_cors_response(
+            (jsonify({"ai_used": False,
+                      "error": f"AI call failed: {e}",
+                      "fills": []}), 502))
+
+    # Validate + dedupe by id
+    seen, clean = set(), []
+    for f in fills:
+        if not isinstance(f, dict): continue
+        fid = str(f.get("id") or "").strip()
+        if not fid or fid in seen: continue
+        seen.add(fid)
+        clean.append({
+            "id":         fid,
+            "value":      "" if f.get("value") is None else str(f.get("value")),
+            "skip":       bool(f.get("skip")),
+            "reason":     str(f.get("reason", ""))[:240],
+            "confidence": float(f.get("confidence") or 0.0),
+        })
+
+    return _autofill_cors_response((jsonify({
+        "ai_used": True,
+        "cv_used": {"id": cv_row["id"], "filename": cv_row["filename"]} if cv_row else None,
+        "fills":   clean,
+    }), 200))
+
+
 @app.route("/api/cover-letters", methods=["GET"])
 def cover_letters_list():
     return jsonify({"letters": _list_cover_letters()})

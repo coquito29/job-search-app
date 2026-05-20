@@ -142,35 +142,95 @@ $("signout").addEventListener("click", async () => {
 
 $("autofill").addEventListener("click", async () => {
   clearMsg();
-  const { profile } = await getStored();
+  const { profile, appUrl } = await getStored();
   if (!profile) { msg("Sign in first.", "err"); return; }
 
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab || !tab.id) { msg("No active tab.", "err"); return; }
 
-  // Inject the autofill engine, then run it. Works on any page, not just
-  // the manifest-matched ATS domains.
+  $("autofill").disabled = true;
   try {
+    // Inject the autofill engine into every frame (top-level + iframes).
     await chrome.scripting.executeScript({
       target: { tabId: tab.id, allFrames: true },
       files: ["autofill.js"],
     });
-    const results = await chrome.scripting.executeScript({
+
+    // ── Phase 1: rule-based fill (sync, returns {filled, total}) ─────────
+    const phase1 = await chrome.scripting.executeScript({
       target: { tabId: tab.id, allFrames: true },
       func: (p) => window.__jobTrackerAutofill && window.__jobTrackerAutofill.run(p),
       args: [profile],
     });
-    const totals = results.reduce((acc, r) => {
+    const totals = phase1.reduce((acc, r) => {
       if (r.result) { acc.filled += r.result.filled; acc.total += r.result.total; }
       return acc;
     }, { filled: 0, total: 0 });
-    if (totals.filled === 0) {
-      msg(`No matching fields found (${totals.total} scanned).`, "err");
-    } else {
-      msg(`Filled ${totals.filled} of ${totals.total} fields. Review before submit.`, "ok");
+
+    // ── Phase 2: AI fill for fields the rules couldn't match ─────────────
+    // Run only on the top frame — Claude's prompt size and the typical ATS
+    // form-in-iframe pattern aren't worth the extra cost for sub-frames.
+    let aiFilled = 0, aiSkipped = 0, aiReason = "";
+    try {
+      const collectRes = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: (p) => window.__jobTrackerAutofill && window.__jobTrackerAutofill.collectUnfilledFields(p),
+        args: [profile],
+      });
+      const unfilled = (collectRes && collectRes[0] && collectRes[0].result) || [];
+      if (unfilled.length && appUrl) {
+        const pageCtx = await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: () => ({
+            url: location.href, hostname: location.hostname,
+            title: (document.title || "").slice(0, 200),
+            h1: (document.querySelector("h1")?.innerText || "").slice(0, 200),
+          }),
+        });
+        const page_context = (pageCtx && pageCtx[0] && pageCtx[0].result) || {};
+        // Relay through the background worker so the round-trip survives the popup closing.
+        const reply = await new Promise(res =>
+          chrome.runtime.sendMessage(
+            { type: "aiFill", appUrl, fields: unfilled, page_context },
+            r => res(r || { status: 0, body: { error: "no reply" } })
+          )
+        );
+        if (reply.status === 200 && Array.isArray(reply.body && reply.body.fills)) {
+          const applyRes = await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            func: (fills) => window.__jobTrackerAutofill && window.__jobTrackerAutofill.applyAiFills(fills),
+            args: [reply.body.fills],
+          });
+          const r = (applyRes && applyRes[0] && applyRes[0].result) || { applied: 0, skipped: 0 };
+          aiFilled  = r.applied;
+          aiSkipped = r.skipped;
+        } else if (reply.status === 503) {
+          aiReason = "AI not configured on server";
+        } else if (reply.body && reply.body.error) {
+          aiReason = reply.body.error;
+        }
+      }
+    } catch (e) {
+      aiReason = e.message || "AI step failed";
     }
+
+    // Build final status line
+    const combined = totals.filled + aiFilled;
+    let line;
+    if (combined === 0) {
+      line = `No matching fields found (${totals.total} scanned).`;
+    } else {
+      line = `Filled ${totals.filled}` +
+        (aiFilled ? ` + ${aiFilled} AI` : "") +
+        ` of ${totals.total} fields.`;
+    }
+    if (aiReason) line += ` AI: ${aiReason}.`;
+    line += " Review before submit.";
+    msg(line, combined > 0 ? "ok" : "err");
   } catch (e) {
     msg(e.message || "Autofill failed (can't inject into this page).", "err");
+  } finally {
+    $("autofill").disabled = false;
   }
 });
 

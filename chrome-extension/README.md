@@ -31,6 +31,21 @@ Selects pick an option whose visible text or value matches; radios/checkboxes
 click the matching choice. The user's `qa_defaults` from the app act as a
 fuzzy fallback when no structured rule fires.
 
+## Phase 2 — AI fill for custom questions (v0.2.0)
+
+When the popup's **Autofill this tab** button runs, after the rule pass it
+collects any field that didn't match a rule (custom free-text questions,
+unusual selects), POSTs them to `/api/autofill` on your app, and applies
+the per-field suggestions Claude returns. Resume text from your default CV
+grounds the answers so they reference real experience, not invented detail.
+
+The fetch is relayed through `background.js` so the 3-5s Claude round-trip
+survives the popup closing. The popup status line shows
+`Filled 7 + 3 AI of 12 fields`. If the server returns 503 (i.e.
+`ANTHROPIC_API_KEY` isn't set on the deploy), the AI pass silently no-ops
+and you still get the rule fills. Production needs the env var set; without
+it Phase 2 is dormant.
+
 ## What it does NOT do
 
 - It does not auto-submit forms. You always click Submit yourself.

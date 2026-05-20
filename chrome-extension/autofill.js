@@ -228,5 +228,85 @@
     return { filled, total: fields.length };
   }
 
-  window.__jobTrackerAutofill = { run };
+  // ── AI Phase 2 helpers ─────────────────────────────────────────────────────
+  // After run() handles what the rules can match, the popup can call
+  // collectUnfilledFields() to gather metadata for the remaining fields, send
+  // them to /api/autofill (Claude), then call applyAiFills() with the response.
+  //
+  // collectUnfilledFields tags each candidate with a data-jt-id attribute so
+  // applyAiFills can re-find them by querySelector without re-walking the DOM.
+
+  function collectUnfilledFields(profile) {
+    const skipNames = new Set();
+    const out = [];
+    let counter = 0;
+    const fields = Array.from(document.querySelectorAll("input, select, textarea"))
+      .filter(isFillable);
+    for (const el of fields) {
+      if (el.type === "radio" && el.name) {
+        if (skipNames.has(el.name)) continue;
+        skipNames.add(el.name);
+      }
+      // Skip elements that already have a value (probably filled by run())
+      if (el.type === "checkbox" || el.type === "radio") {
+        // Hard to tell if Phase 1 picked this group — be conservative:
+        // include the group only if no member is checked yet.
+        const group = el.form && el.name
+          ? Array.from(el.form.querySelectorAll(
+              `input[type="${el.type}"][name="${CSS.escape(el.name)}"]`))
+          : [el];
+        if (group.some(g => g.checked)) continue;
+      } else if ((el.value || "").trim() !== "") {
+        continue;
+      }
+      const label = probeText(el).trim();
+      if (!label || label.length < 3) continue;
+      const id = "jt-" + (++counter);
+      try { el.setAttribute("data-jt-id", id); } catch (_) { continue; }
+      const type = el.tagName === "SELECT" ? "select"
+                 : el.tagName === "TEXTAREA" ? "textarea"
+                 : el.type === "radio" ? "radio"
+                 : el.type === "checkbox" ? "checkbox" : "text";
+      let options = [];
+      if (type === "select") {
+        options = Array.from(el.options || [])
+          .map(o => (o.text || o.value || "").trim())
+          .filter(Boolean);
+      } else if (type === "radio" && el.name && el.form) {
+        options = Array.from(el.form.querySelectorAll(
+          `input[type="radio"][name="${CSS.escape(el.name)}"]`))
+          .map(r => probeText(r).split("|").pop().trim() || r.value)
+          .filter(Boolean);
+      }
+      out.push({
+        id, type, options,
+        label:       label.slice(0, 200),
+        name:        el.name || "",
+        placeholder: (el.placeholder || "").slice(0, 120),
+        maxlength:   el.maxLength > 0 ? el.maxLength : null,
+      });
+    }
+    return out;
+  }
+
+  function applyAiFills(fills) {
+    if (!Array.isArray(fills)) return { applied: 0, skipped: 0 };
+    let applied = 0, skipped = 0;
+    for (const f of fills) {
+      if (!f || !f.id) { skipped++; continue; }
+      if (f.skip || f.value === "" || f.value == null) { skipped++; continue; }
+      const el = document.querySelector(`[data-jt-id="${CSS.escape(f.id)}"]`);
+      if (!el) { skipped++; continue; }
+      const ok = applyValue(el, f.value);
+      if (ok) {
+        applied++;
+        try { el.style.outline = "2px solid #6f42c1"; setTimeout(() => el.style.outline = "", 1500); } catch (_) {}
+      } else {
+        skipped++;
+      }
+    }
+    return { applied, skipped };
+  }
+
+  window.__jobTrackerAutofill = { run, collectUnfilledFields, applyAiFills };
 })();
