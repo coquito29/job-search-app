@@ -2066,45 +2066,36 @@ document.addEventListener('DOMContentLoaded', () => {
     if (lbl) lbl.style.display = '';
   }
 
-  // Restore token: prefer localStorage, then fall back to server env var
+  // Restore token: prefer localStorage; otherwise rely on the server's env var
+  // (the search endpoint falls back to env vars when the client sends none).
+  // /api/config returns booleans, not the raw secrets, so the inputs stay
+  // empty when nothing is in localStorage — the user just sees the "saved
+  // on server" badge.
   const savedToken = localStorage.getItem('apify_token') || '';
   if (savedToken) {
     document.getElementById('tokenInput').value = savedToken;
     showTokenSaved(true);
-    fetch('/api/config').then(r => r.json()).then(cfg => {
-      if (cfg.ai_enabled) showAiBadge();
-      applySourceConfig(cfg);
-    }).catch(() => {});
-  } else {
-    fetch('/api/config')
-      .then(r => r.json())
-      .then(cfg => {
-        if (cfg.apify_token) {
-          document.getElementById('tokenInput').value = cfg.apify_token;
-          localStorage.setItem('apify_token', cfg.apify_token);
-          showTokenSaved(true);
-        }
-        if (cfg.rapidapi_key) {
-          document.getElementById('jsearchKeyInput').value = cfg.rapidapi_key;
-          localStorage.setItem('rapidapi_key', cfg.rapidapi_key);
-          showJsearchKeySaved(true);
-          const lbl = document.getElementById('lbl-jsearch');
-          if (lbl) lbl.style.display = '';
-        }
-        if (cfg.adzuna_id && cfg.adzuna_key) {
-          document.getElementById('adzunaIdInput').value = cfg.adzuna_id;
-          document.getElementById('adzunaKeyInput').value = cfg.adzuna_key;
-          localStorage.setItem('adzuna_id', cfg.adzuna_id);
-          localStorage.setItem('adzuna_key', cfg.adzuna_key);
-          showAdzunaKeysSaved(true);
-          const lbl = document.getElementById('lbl-adzuna');
-          if (lbl) lbl.style.display = '';
-        }
-        if (cfg.ai_enabled) showAiBadge();
-        applySourceConfig(cfg);
-      })
-      .catch(() => {});
   }
+  fetch('/api/config')
+    .then(r => r.json())
+    .then(cfg => {
+      if (cfg.ai_enabled) showAiBadge();
+      // Show "saved" badges from the server's *_set flags too, so a fresh
+      // device still indicates that the source is configured upstream.
+      if (cfg.apify_token_set)  showTokenSaved(true);
+      if (cfg.rapidapi_key_set) {
+        showJsearchKeySaved(true);
+        const lbl = document.getElementById('lbl-jsearch');
+        if (lbl) lbl.style.display = '';
+      }
+      if (cfg.adzuna_id_set && cfg.adzuna_key_set) {
+        showAdzunaKeysSaved(true);
+        const lbl = document.getElementById('lbl-adzuna');
+        if (lbl) lbl.style.display = '';
+      }
+      applySourceConfig(cfg);
+    })
+    .catch(() => {});
 
   const savedSkills = localStorage.getItem('job_search_skills');
   if (savedSkills) {

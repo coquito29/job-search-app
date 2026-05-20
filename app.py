@@ -1104,15 +1104,22 @@ def index():
 
 @app.route("/api/config")
 def config():
-    """Return server-side config so the frontend can auto-fill all API keys."""
+    """Return server-side config booleans so the frontend can light up source
+    badges and step indicators. Raw API keys are NEVER returned — the server
+    uses its own env vars when the client doesn't supply one (see
+    /api/search), so there's no reason to send secrets to the browser."""
+    apify_token  = os.environ.get("APIFY_TOKEN", "")
+    rapidapi_key = os.environ.get("RAPIDAPI_KEY", "")
+    adzuna_id    = os.environ.get("ADZUNA_APP_ID", "")
+    adzuna_key   = os.environ.get("ADZUNA_APP_KEY", "")
     return jsonify({
-        "apify_token":  os.environ.get("APIFY_TOKEN", ""),
-        "rapidapi_key": os.environ.get("RAPIDAPI_KEY", ""),
-        "adzuna_id":    os.environ.get("ADZUNA_APP_ID", ""),
-        "adzuna_key":   os.environ.get("ADZUNA_APP_KEY", ""),
-        "ai_enabled":   bool(os.environ.get("ANTHROPIC_API_KEY") and _anthropic),
-        "adzuna_enabled": bool(os.environ.get("ADZUNA_APP_ID") and os.environ.get("ADZUNA_APP_KEY")),
-        "jsearch_enabled": bool(os.environ.get("RAPIDAPI_KEY")),
+        "ai_enabled":         bool(os.environ.get("ANTHROPIC_API_KEY") and _anthropic),
+        "apify_token_set":    bool(apify_token),
+        "rapidapi_key_set":   bool(rapidapi_key),
+        "adzuna_id_set":      bool(adzuna_id),
+        "adzuna_key_set":     bool(adzuna_key),
+        "adzuna_enabled":     bool(adzuna_id and adzuna_key),
+        "jsearch_enabled":    bool(rapidapi_key),
     })
 
 
@@ -1327,7 +1334,9 @@ def parse_cv():
 @app.route("/api/search", methods=["POST"])
 def search_jobs():
     data = request.get_json(force=True)
-    token        = (data.get("token") or "").strip()
+    # Env-var fallback for every key — the client used to send raw secrets
+    # received from /api/config, but /api/config now returns booleans only.
+    token        = (data.get("token") or os.environ.get("APIFY_TOKEN", "")).strip()
     rapidapi_key = (data.get("rapidapi_key") or os.environ.get("RAPIDAPI_KEY", "")).strip()
     adzuna_id    = (data.get("adzuna_id") or os.environ.get("ADZUNA_APP_ID", "")).strip()
     adzuna_key   = (data.get("adzuna_key") or os.environ.get("ADZUNA_APP_KEY", "")).strip()
