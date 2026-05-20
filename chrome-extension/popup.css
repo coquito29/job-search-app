@@ -1,0 +1,46 @@
+* { box-sizing: border-box; }
+body {
+  width: 320px;
+  margin: 0;
+  padding: 14px 16px 16px;
+  font: 14px/1.4 system-ui, -apple-system, sans-serif;
+  color: #1f2937;
+  background: #f9fafb;
+}
+header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 12px;
+}
+h1 { font-size: 15px; margin: 0; font-weight: 600; }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.dot-off { background: #d1d5db; }
+.dot-on  { background: #10b981; }
+label {
+  display: block; font-size: 12px; color: #4b5563;
+  margin-bottom: 8px;
+}
+input {
+  display: block; width: 100%; margin-top: 4px;
+  padding: 8px 10px; font: inherit;
+  border: 1px solid #d1d5db; border-radius: 6px; background: #fff;
+}
+input:focus { outline: 2px solid #93c5fd; outline-offset: -1px; border-color: #93c5fd; }
+button {
+  display: block; width: 100%; margin-top: 8px;
+  padding: 9px 12px; font: 600 13px/1 system-ui, sans-serif;
+  border: 1px solid #d1d5db; border-radius: 6px; cursor: pointer;
+  background: #fff; color: #1f2937;
+}
+button.primary { background: #0d6efd; color: #fff; border-color: #0d6efd; }
+button.primary:hover { background: #0b5ed7; }
+button.ghost   { background: transparent; border-color: transparent; color: #6b7280; }
+button:hover   { background: #f3f4f6; }
+button.primary:hover { background: #0b5ed7; }
+.profile-line { margin: 0 0 4px; }
+.muted { color: #6b7280; font-size: 12px; margin: 0 0 10px; }
+.msg {
+  margin-top: 12px; padding: 8px 10px; border-radius: 6px;
+  background: #fef3c7; color: #92400e; font-size: 12px;
+}
+.msg.err { background: #fee2e2; color: #991b1b; }
+.msg.ok  { background: #d1fae5; color: #065f46; }

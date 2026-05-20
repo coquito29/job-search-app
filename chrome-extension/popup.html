@@ -1,0 +1,37 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <h1>Job Tracker Autofill</h1>
+    <span id="status-dot" class="dot dot-off" title="signed out"></span>
+  </header>
+
+  <section id="settings">
+    <label>
+      App URL
+      <input id="app-url" type="url" placeholder="https://your-app.onrender.com" autocomplete="off">
+    </label>
+    <label>
+      Passcode
+      <input id="passcode" type="password" placeholder="••••" autocomplete="off">
+    </label>
+    <button id="signin" type="button">Sign in &amp; sync profile</button>
+  </section>
+
+  <section id="active" hidden>
+    <p class="profile-line">Signed in as <strong id="profile-name">—</strong></p>
+    <p class="muted" id="last-sync">Last sync: —</p>
+    <button id="autofill"     type="button" class="primary">Autofill this tab</button>
+    <button id="refresh"      type="button">Refresh profile</button>
+    <button id="signout"      type="button" class="ghost">Sign out</button>
+  </section>
+
+  <p id="msg" class="msg" hidden></p>
+
+  <script src="popup.js"></script>
+</body>
+</html>

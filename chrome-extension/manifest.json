@@ -1,0 +1,45 @@
+{
+  "manifest_version": 3,
+  "name": "Job Tracker Autofill",
+  "version": "0.1.0",
+  "description": "Autofill ATS application forms from your job-tracker profile.",
+  "permissions": ["storage", "activeTab", "scripting", "notifications"],
+  "host_permissions": ["<all_urls>"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Job Tracker Autofill"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.greenhouse.io/*",
+        "*://boards.greenhouse.io/*",
+        "*://*.lever.co/*",
+        "*://jobs.lever.co/*",
+        "*://*.workable.com/*",
+        "*://jobs.workable.com/*",
+        "*://*.ashbyhq.com/*",
+        "*://jobs.ashbyhq.com/*",
+        "*://*.smartrecruiters.com/*",
+        "*://jobs.smartrecruiters.com/*",
+        "*://*.myworkdayjobs.com/*",
+        "*://*.bamboohr.com/*",
+        "*://*.recruitee.com/*",
+        "*://*.breezy.hr/*",
+        "*://*.applytojob.com/*",
+        "*://*.jobvite.com/*",
+        "*://*.rippling.com/*",
+        "*://ats.rippling.com/*",
+        "*://*.polymer.co/*"
+      ],
+      "js": ["autofill.js", "content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["autofill.js"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}
