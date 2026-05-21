@@ -31,6 +31,24 @@ Selects pick an option whose visible text or value matches; radios/checkboxes
 click the matching choice. The user's `qa_defaults` from the app act as a
 fuzzy fallback when no structured rule fires.
 
+## v0.8.0 — Native date input handling
+
+HTML5 `<input type="date">` requires `YYYY-MM-DD` and rejects shorter
+formats silently — the field stays empty even if our rule fired with
+the right value. The profile stores dates as `YYYY-MM` ("2024-07")
+because that's the precision the user typed. Bridge added:
+
+  normalizeDate(value, el):
+    type="date"   → append "-01" (first of the month)
+    type="month"  → leave YYYY-MM as-is
+    text input    → consult placeholder/aria for format hints
+                    (mm/yyyy, yyyy-mm-dd, etc.)
+    YYYY-MM-DD    → return as-is
+
+applyValue routes type="date" / type="month" through fillDate before
+the generic fillTextLike path so the format conversion lands before
+setNativeValue's React dispatch.
+
 ## v0.7.0 — "Add Another" button auto-expansion
 
 Workday + Greenhouse + most ATSes render only the FIRST education and

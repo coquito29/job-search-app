@@ -326,6 +326,42 @@
     return true;
   }
 
+  // ── Date input handling ───────────────────────────────────────────────────
+  // Profile stores dates as "2024-07" (or "" for current jobs). HTML5
+  // <input type="date"> requires YYYY-MM-DD; <input type="month"> accepts
+  // YYYY-MM directly. Some forms use plain text inputs with a placeholder
+  // like "MM/YYYY". This helper normalizes a profile date into whatever
+  // format the input wants.
+  function normalizeDate(value, el) {
+    if (!value) return "";
+    const v = String(value).trim();
+    const t = (el.type || "").toLowerCase();
+    // YYYY-MM-DD already? leave it
+    if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+    // YYYY-MM → format depends on input type
+    if (/^\d{4}-\d{2}$/.test(v)) {
+      if (t === "date")  return v + "-01";  // first of month
+      if (t === "month") return v;          // already correct
+      // Text input — guess based on placeholder/aria
+      const hint = ((el.placeholder || "") + " " + (el.getAttribute("aria-describedby") || "")).toLowerCase();
+      if (/mm\/yyyy/i.test(hint))     return v.slice(5) + "/" + v.slice(0, 4);
+      if (/mm-yyyy|m\/yyyy/.test(hint)) return v.slice(5) + "/" + v.slice(0, 4);
+      if (/yyyy[-\/]?mm[-\/]?dd/i.test(hint)) return v + "-01";
+      return v;  // fall back to YYYY-MM
+    }
+    // YYYY → leave as-is for year inputs
+    if (/^\d{4}$/.test(v)) return v;
+    return v;
+  }
+
+  function fillDate(el, value) {
+    const normalized = normalizeDate(value, el);
+    if (!normalized) return false;
+    if (el.value && el.value.trim()) return false;
+    setNativeValue(el, normalized);
+    return true;
+  }
+
   // ── Autocomplete (Google Places / React combobox) ──────────────────────────
   function simulateClick(el) {
     for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup", "click"]) {
@@ -379,6 +415,9 @@
     const v = String(value);
     if (el.tagName === "SELECT") return fillSelect(el, v);
     if (el.type === "radio" || el.type === "checkbox") return fillRadioOrCheckbox(el, v);
+    // Native date/month inputs — convert YYYY-MM to whatever format the
+    // input accepts. Browsers reject malformed values silently otherwise.
+    if (el.type === "date" || el.type === "month") return fillDate(el, v);
     // Autocomplete-aware path for combobox-like inputs. Defaults on; opts can
     // disable for fast jsdom tests.
     if ((opts?.autocomplete ?? true) && isComboboxLike(el)) {

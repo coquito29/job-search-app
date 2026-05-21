@@ -4627,6 +4627,31 @@ def test_form_page():
 
   <div class="card">
     <div class="card-body">
+      <p class="ph">Native Date Inputs <span class="badge-phase badge-phase1">Phase 1 rules (v0.8)</span></p>
+      <p style="font-size:.78rem;color:#6c757d;margin:0 0 10px">HTML5 native <code>type="date"</code> and <code>type="month"</code>. Profile stores "2024-07" — engine should normalize: date inputs get "2024-07-01", month inputs get "2024-07" as-is.</p>
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label for="emp_start_date">Employment Start Date (type=date)</label>
+          <input type="date" id="emp_start_date" name="employment_start_date" class="form-control">
+        </div>
+        <div class="col-md-6">
+          <label for="emp_start_month">Employment Start Month (type=month)</label>
+          <input type="month" id="emp_start_month" name="employment_start_month" class="form-control">
+        </div>
+        <div class="col-md-6">
+          <label for="grad_month">Graduation Month (type=month)</label>
+          <input type="month" id="grad_month" name="graduation_month" class="form-control">
+        </div>
+        <div class="col-md-6">
+          <label for="grad_full_date">Graduation Date (type=date)</label>
+          <input type="date" id="grad_full_date" name="graduation_date" class="form-control">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body">
       <p class="ph">Free-text questions <span class="badge-phase badge-phase2">Phase 2 AI</span></p>
       <div class="mb-3">
         <label for="why">Why are you interested in this role?</label>

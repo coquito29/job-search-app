@@ -266,6 +266,23 @@ const BUTTON_RADIO = `
   </div>
 </form>`;
 
+// Native date inputs — type="date" wants YYYY-MM-DD (so YYYY-MM gets
+// "-01" appended), type="month" accepts YYYY-MM as-is.
+const NATIVE_DATES = `
+<form>
+  <label for="emp_start_date">Employment Start Date</label>
+  <input id="emp_start_date" name="employment_start_date" type="date" />
+
+  <label for="emp_start_month">Employment Start Month</label>
+  <input id="emp_start_month" name="employment_start_month" type="month" />
+
+  <label for="grad_month">Graduation Month</label>
+  <input id="grad_month" name="graduation_month" type="month" />
+
+  <label for="grad_full_date">Graduation Date</label>
+  <input id="grad_full_date" name="graduation_date" type="date" />
+</form>`;
+
 // "Add Another" button. Starts with only row 0 visible. The engine
 // should detect the + Add Another Education button, click it once,
 // then fill both rows from profile.education[].
@@ -578,6 +595,19 @@ async function runAssertions(name, html, getExpected) {
     return {
       "#loc filled with city":  [$("loc").value, "Egg Harbor Township"],
       "#email_loc filled":      [$("email_loc").value, "georgetupayachijobs@outlook.com"],
+    };
+  });
+
+  // ── Native date inputs (v0.8) — YYYY-MM → YYYY-MM-DD conversion ────
+  await runAssertions("Native date inputs", NATIVE_DATES, (w) => {
+    const $ = (id) => w.document.getElementById(id);
+    return {
+      // Employment start = work_experience[0].start_date = "2024-07"
+      "type=date gets day appended":   [$("emp_start_date").value, "2024-07-01"],
+      "type=month stays YYYY-MM":      [$("emp_start_month").value, "2024-07"],
+      // Graduation = education[0].end_date = "2027-01"
+      "grad month":                    [$("grad_month").value, "2027-01"],
+      "grad date":                     [$("grad_full_date").value, "2027-01-01"],
     };
   });
 
