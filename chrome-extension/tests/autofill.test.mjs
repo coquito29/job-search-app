@@ -198,6 +198,27 @@ const ASHBY = `
   <input id="linkedin_url" name="linkedin_url" type="url" />
 </form>`;
 
+// Workday / Hinge Health Ashby variant: combined "Legal First & Last Name"
+// in a single text input. Regression for the bug where the last_name regex
+// fired first and filled only the surname.
+const COMBINED_NAME = `
+<form>
+  <label for="legal_name">Legal First & Last Name *</label>
+  <input id="legal_name" name="legal_name" type="text" />
+
+  <label for="preferred">Preferred Name</label>
+  <input id="preferred" name="preferred_name" type="text" />
+
+  <label for="applicant_name">Applicant Name</label>
+  <input id="applicant_name" name="applicant_name" type="text" />
+
+  <label for="full_legal_name">Full Legal Name</label>
+  <input id="full_legal_name" name="full_legal_name" type="text" />
+
+  <label for="email_combined">Email</label>
+  <input id="email_combined" name="email" type="email" />
+</form>`;
+
 // ── Test harness ───────────────────────────────────────────────────────────
 
 function runOn(name, html) {
@@ -264,3 +285,49 @@ runOn("Greenhouse-style form", GREENHOUSE);
 runOn("Lever-style form",      LEVER);
 runOn("Workable-style form",   WORKABLE);
 runOn("Ashby-style form",      ASHBY);
+
+// Assertion-mode run for the combined-name regression — fails the process
+// (exit code 1) if any of the named inputs holds the wrong value. Without
+// the high-priority combined-name rule, #legal_name fills with just
+// "Tupayachi" and the test correctly fails.
+function runAssertions(name, html, expectedById) {
+  const dom = new JSDOM(`<!doctype html><html><body>${html}</body></html>`, {
+    pretendToBeVisual: true,
+    runScripts: "dangerously",
+  });
+  const { window } = dom;
+  Object.defineProperty(window.HTMLElement.prototype, "offsetParent", {
+    get() { return this.ownerDocument.body; },
+  });
+  if (!window.CSS) window.CSS = {};
+  if (!window.CSS.escape) {
+    window.CSS.escape = (s) => String(s).replace(/[^a-zA-Z0-9_-]/g, c => "\\" + c);
+  }
+  const script = window.document.createElement("script");
+  script.textContent = AUTOFILL_SRC;
+  window.document.head.appendChild(script);
+  window.__jobTrackerAutofill.run(PROFILE);
+
+  console.log(`\n══ ${name} (strict) ════════════════════════════════════`);
+  let failed = 0;
+  for (const [id, expected] of Object.entries(expectedById)) {
+    const el = window.document.getElementById(id);
+    const actual = el ? el.value : "(missing)";
+    const ok = actual === expected;
+    console.log(`  ${ok ? "✓" : "✗"} #${id} = ${JSON.stringify(actual)}` +
+                (ok ? "" : `   expected ${JSON.stringify(expected)}`));
+    if (!ok) failed++;
+  }
+  if (failed) {
+    console.error(`\n  ${failed} assertion(s) failed in "${name}"`);
+    process.exit(1);
+  }
+}
+
+runAssertions("Combined-name regression", COMBINED_NAME, {
+  legal_name:      "George Tupayachi",
+  preferred:       "George",
+  applicant_name:  "George Tupayachi",
+  full_legal_name: "George Tupayachi",
+  email_combined:  "georgetupayachijobs@outlook.com",
+});

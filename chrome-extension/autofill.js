@@ -18,13 +18,21 @@
     const addr = p.address || {};
     const ans  = p.answers || {};
     return [
+      // ── Combined-name labels MUST win before the first_name/last_name
+      // singletons. "Legal First & Last Name" contains both "First" and
+      // "Last Name", and without this rule it falls through to the
+      // last_name pattern and fills only the surname.
+      { value: p.full_name,        patterns: [
+          /\bfirst[\s_-]*(?:&|and|\/|,)[\s_-]*last[\s_-]*name\b/i,
+          /\b(?:full|legal|applicant)(?:[\s_-]+(?:full|legal))?[\s_-]*name\b/i,
+      ] },
       // Most-specific first so 'first name' doesn't fall into 'name'.
       { value: p.first_name,       patterns: [/\b(first|given|forename)[\s_-]*name\b/i, /\bfname\b/i] },
       { value: p.last_name,        patterns: [/\b(last|family|sur)[\s_-]*name\b/i, /\blname\b/i, /\bsurname\b/i] },
       { value: p.preferred_name,   patterns: [/\b(preferred|nick)[\s_-]*name\b/i, /\bgoes[\s_-]*by\b/i] },
       // Bare "name" is the lowest-priority full-name match — fires only after
       // first/last/preferred have had their shot above. Ashby uses this shape.
-      { value: p.full_name,        patterns: [/\bfull[\s_-]*name\b/i, /^name$/i, /\byour[\s_-]*name\b/i, /\blegal[\s_-]*name\b/i, /\bname\b/i] },
+      { value: p.full_name,        patterns: [/^name$/i, /\byour[\s_-]*name\b/i, /\bname\b/i] },
 
       { value: p.email,            patterns: [/\bemail\b/i, /\be-?mail[\s_-]*address\b/i] },
       { value: p.phone,            patterns: [/\bphone\b/i, /\bmobile\b/i, /\btelephone\b/i, /\bcontact[\s_-]*number\b/i] },
