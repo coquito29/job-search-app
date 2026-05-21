@@ -1971,24 +1971,9 @@ def application_stats():
 
 # ── Profile export for the Chrome extension auto-fill ───────────────────────
 
-@app.route("/api/profile/full", methods=["GET"])
-def profile_full():
-    """Return everything the Chrome extension needs to auto-fill an ATS form.
-
-    Fields are split into the most common shapes ATSes use:
-    - first_name / last_name / full_name
-    - email / phone (formatted + raw digits)
-    - address fields (street, city, state, zip, country, country_code)
-    - links (LinkedIn, portfolio if set)
-    - eeo + work-authorisation answers
-    - per-user editable qa_defaults (from profile.settings)
-
-    Hardcoded for the single-user passcode-locked deploy. When the multi-
-    user (path b) lands, this reads from a user_profile table instead.
-    CORS allows the Chrome extension origin via Allow-Origin: *."""
-    uid, err = _auth_required()
-    if err: return err
-
+def _build_full_profile(uid):
+    """Build the autofill profile dict for a given user. Shared by
+    /api/profile/full (Chrome extension) and /bookmarklet/run.js (mobile)."""
     # Pull user's custom Q&A defaults from profile.settings if they edited them
     qa_defaults = []
     try:
@@ -2108,8 +2093,15 @@ def profile_full():
         # Raw Q&A list so the extension can do fuzzy matching too
         "qa_defaults": qa_defaults,
     }
+    return profile
 
-    return jsonify(profile)
+
+@app.route("/api/profile/full", methods=["GET"])
+def profile_full():
+    """Return the autofill profile dict (Chrome extension uses this)."""
+    uid, err = _auth_required()
+    if err: return err
+    return jsonify(_build_full_profile(uid))
 
 
 # ── Rich stats dashboard ──────────────────────────────────────────────────────
@@ -4521,6 +4513,239 @@ def test_form_page():
 </script>
 
 </body></html>"""
+
+
+# ── Mobile bookmarklet (autofill without an extension) ──────────────────────
+
+_AUTOFILL_JS_PATH = os.path.join(
+    os.path.dirname(__file__), "chrome-extension", "autofill.js"
+)
+_AUTOFILL_JS_MTIME = None
+_AUTOFILL_JS_CACHED = None
+
+def _read_autofill_js():
+    """Cache the autofill.js content keyed on mtime so dev reloads pick up
+    edits without an app restart."""
+    global _AUTOFILL_JS_MTIME, _AUTOFILL_JS_CACHED
+    try:
+        mtime = os.path.getmtime(_AUTOFILL_JS_PATH)
+    except OSError:
+        return ""
+    if mtime != _AUTOFILL_JS_MTIME:
+        with open(_AUTOFILL_JS_PATH, encoding="utf-8") as f:
+            _AUTOFILL_JS_CACHED = f.read()
+        _AUTOFILL_JS_MTIME = mtime
+    return _AUTOFILL_JS_CACHED or ""
+
+
+@app.route("/bookmarklet")
+def bookmarklet_install():
+    """Install page for the mobile autofill bookmarklet. The user lands here
+    after logging in, drags / long-presses the link into their bookmarks,
+    then taps it on any ATS form to fill. Works on iOS Safari + Android
+    Chrome (Chrome extensions aren't supported on mobile Chrome)."""
+    uid, err = _auth_required()
+    if err: return err
+    # The bookmarklet itself: one-line script injection. The cache-buster
+    # query string forces a fresh fetch each tap so profile updates take
+    # effect immediately.
+    site = "https://job-search-app-9pnx.onrender.com"
+    bookmarklet = (
+        "javascript:(()=>{const s=document.createElement('script');"
+        f"s.src='{site}/bookmarklet/run.js?t='+Date.now();"
+        "s.onerror=()=>alert('Job Search Autofill: open "
+        f"{site}"
+        " first and sign in.');"
+        "document.head.appendChild(s);})()"
+    )
+    return """<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mobile Autofill Bookmarklet · Job Search App</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+<style>
+  body{background:#f0f4f8;padding:0 0 80px;font-size:.95rem;line-height:1.5}
+  .hdr{background:linear-gradient(135deg,#0d6efd 0%,#0043a8 100%);color:white;padding:18px 20px;box-shadow:0 2px 8px rgba(0,0,0,.25)}
+  .hdr h1{font-size:1.35rem;margin:0;font-weight:700}
+  .hdr .subtitle{font-size:.82rem;opacity:.9;margin:4px 0 0}
+  .card{border:none;border-radius:14px;box-shadow:0 2px 6px rgba(0,0,0,.08);margin:14px;background:white}
+  .ph{font-weight:700;color:#0d6efd;font-size:1rem;margin:0 0 14px;padding-bottom:6px;border-bottom:1px solid #e9ecef}
+  .install-btn{display:inline-block;background:#198754;color:white;padding:12px 22px;border-radius:10px;font-weight:700;font-size:1.05rem;text-decoration:none;box-shadow:0 4px 12px rgba(25,135,84,.35)}
+  .install-btn:hover{background:#157347;color:white}
+  .step{padding:8px 12px;background:#f8f9fa;border-left:4px solid #0d6efd;border-radius:6px;margin-bottom:8px;font-size:.9rem}
+  .step b{color:#0d6efd}
+  pre{background:#212529;color:#e9ecef;padding:14px;border-radius:8px;font-size:.78rem;overflow-x:auto;white-space:pre-wrap;word-break:break-all;line-height:1.45}
+  .platform{margin-top:14px;padding:12px 16px;background:#fff8e1;border:1px solid #ffe082;border-radius:10px;font-size:.86rem}
+  .platform h4{font-size:.95rem;margin:0 0 8px;color:#856404;font-weight:700}
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <h1><i class="bi bi-bookmark-fill"></i> Mobile Autofill Bookmarklet</h1>
+  <p class="subtitle">Tap one bookmark on any application form to fill it. Works on iOS Safari + Android Chrome — no extension needed.</p>
+</div>
+
+<div class="card">
+  <div class="card-body">
+    <p class="ph">1. Install the bookmark</p>
+    <p>On <strong>desktop Chrome / Firefox</strong>, drag this button to your bookmarks bar:</p>
+    <p style="text-align:center;margin:18px 0">
+      <a class="install-btn" href=\"""" + bookmarklet.replace('"', '&quot;') + """\">📝 Job Search Autofill</a>
+    </p>
+    <p style="font-size:.8rem;color:#6c757d">Browsers may strip <code>javascript:</code> URLs from dragged links for security. If drag-to-bookmark doesn't work, see the platform-specific instructions below.</p>
+
+    <div class="platform">
+      <h4>📱 iOS Safari</h4>
+      <ol style="padding-left:22px;margin:0">
+        <li>Tap the <strong>Share</strong> button at the bottom of Safari → <strong>Add Bookmark</strong>.</li>
+        <li>Save the bookmark anywhere (Favorites is good).</li>
+        <li>Open <strong>Bookmarks</strong> (book icon at bottom) → tap <strong>Edit</strong>.</li>
+        <li>Tap the bookmark you just saved → tap the <strong>URL</strong> field → <strong>delete</strong> everything → paste the code below.</li>
+        <li>Rename it "Autofill". Done.</li>
+      </ol>
+    </div>
+
+    <div class="platform">
+      <h4>📱 Android Chrome</h4>
+      <ol style="padding-left:22px;margin:0">
+        <li>Tap the <strong>⋮</strong> menu → <strong>Bookmarks</strong> → ⋮ → <strong>Add new bookmark</strong>.</li>
+        <li>Name it "Autofill", paste the code below into the URL field. Save.</li>
+        <li>Trigger by typing "Autofill" into the URL bar and tapping the suggestion. Or open Bookmarks and tap it.</li>
+      </ol>
+      <p style="margin:8px 0 0;font-size:.78rem;color:#856404"><strong>Heads up:</strong> Chrome on Android sometimes blocks <code>javascript:</code> URLs when typed/pasted directly. If yours strips out the <code>javascript:</code> prefix, type the address bar prefix manually then paste the rest.</p>
+    </div>
+
+    <p style="margin-top:18px"><strong>Bookmarklet code</strong> (copy/paste):</p>
+    <pre id="bm-code">""" + bookmarklet.replace('<', '&lt;').replace('>', '&gt;') + """</pre>
+    <button class="btn btn-outline-primary btn-sm" onclick="navigator.clipboard.writeText(document.getElementById('bm-code').textContent).then(()=>this.textContent='Copied ✓')">📋 Copy to clipboard</button>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-body">
+    <p class="ph">2. Use it</p>
+    <ol style="padding-left:22px">
+      <li>Open a job application form (Greenhouse, Ashby, Lever, Workable, etc.) in your phone's browser.</li>
+      <li>Make sure you're signed in to <a href=\"""" + site + """\">""" + site + """</a> on the SAME browser. The session cookie is what authorizes the fill.</li>
+      <li>Tap the <strong>Autofill</strong> bookmark in your bookmarks bar / library.</li>
+      <li>A green toast appears at the bottom right: <em>"Auto-filled N fields"</em>. Review every field, then tap Submit on the form yourself.</li>
+    </ol>
+    <p style="margin-top:14px"><a class="btn btn-primary" href="/test-form">Try it on the sandbox /test-form first →</a></p>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-body">
+    <p class="ph">How it works</p>
+    <p style="font-size:.88rem">Tapping the bookmarklet injects a <code>&lt;script&gt;</code> tag pointing at <code>/bookmarklet/run.js</code>. Your session cookie travels along (SameSite=None, secure). The server returns the same autofill engine the Chrome extension uses, with your profile + answer defaults inlined. The engine runs the rule pass, then if needed posts unfilled fields to <code>/api/autofill</code> for AI grounding from your default CV — same Phase 2 path as the desktop extension.</p>
+    <p style="font-size:.88rem">No data leaves your browser except: <strong>(1)</strong> the cookie-authenticated fetch of <code>/bookmarklet/run.js</code> (your profile flows in), and <strong>(2)</strong> the optional <code>/api/autofill</code> POST when there are custom free-text questions (form labels + page URL flow out). Nothing is submitted on your behalf.</p>
+  </div>
+</div>
+
+</body></html>"""
+
+
+@app.route("/bookmarklet/run.js")
+def bookmarklet_run_js():
+    """Serve the autofill engine + the user's profile + a one-line invocation
+    that runs the engine on whatever page injected this script. The
+    bookmarklet is `<script src="/bookmarklet/run.js?t=...">` injected into
+    the ATS form's DOM, so this code runs in that page's origin with the
+    Render session cookie attached (SameSite=None + Secure)."""
+    uid = _current_user_id()
+    if uid is None:
+        # Return a tiny JS that alerts the user — script-tag injection can't
+        # easily handle non-200, so we 200 with a "you're locked" message.
+        body = (
+            'alert("Job Search Autofill: you are not signed in. Open '
+            'https://job-search-app-9pnx.onrender.com on this device first, '
+            'unlock with your passcode, then tap the bookmark again.");'
+        )
+        resp = app.make_response((body, 200))
+        resp.headers["Content-Type"] = "application/javascript; charset=utf-8"
+        return resp
+
+    profile = _build_full_profile(uid)
+    engine  = _read_autofill_js()
+    if not engine:
+        body = 'alert("Job Search Autofill: engine missing on server.");'
+        resp = app.make_response((body, 500))
+        resp.headers["Content-Type"] = "application/javascript; charset=utf-8"
+        return resp
+
+    # The engine is an IIFE that registers window.__jobTrackerAutofill. After
+    # it runs, we kick off Phase 1 + Phase 2 with the inlined profile.
+    invocation = """
+(async () => {
+  // Inject a green toast on the page so the user knows we ran.
+  function toast(text, kind) {
+    let t = document.getElementById('__jt_bookmarklet_toast');
+    if (t) t.remove();
+    t = document.createElement('div');
+    t.id = '__jt_bookmarklet_toast';
+    t.style.cssText = 'position:fixed;bottom:16px;right:16px;z-index:2147483647;'
+      + 'padding:12px 16px;border-radius:8px;color:#fff;font:600 13px/1.4 system-ui,sans-serif;'
+      + 'box-shadow:0 6px 20px rgba(0,0,0,.25);max-width:340px;'
+      + 'background:' + (kind === 'err' ? '#b91c1c' : '#198754');
+    t.textContent = text;
+    document.documentElement.appendChild(t);
+    setTimeout(() => t.remove(), 12000);
+  }
+  if (!window.__jobTrackerAutofill) {
+    toast('Autofill engine failed to load', 'err'); return;
+  }
+  const profile = window.__jt_bookmarklet_profile;
+  try {
+    const r1 = await window.__jobTrackerAutofill.run(profile);
+    // Phase 2 AI — fetches /api/autofill cross-origin with cookies.
+    const unfilled = window.__jobTrackerAutofill.collectUnfilledFields(profile);
+    let aiCount = 0;
+    if (unfilled.length) {
+      try {
+        const ar = await fetch('https://job-search-app-9pnx.onrender.com/api/autofill', {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fields: unfilled,
+            page_context: {
+              url: location.href, hostname: location.hostname,
+              title: (document.title || '').slice(0, 200),
+              h1: (document.querySelector('h1')?.innerText || '').slice(0, 200),
+            },
+          }),
+        });
+        if (ar.ok) {
+          const body = await ar.json();
+          if (Array.isArray(body.fills)) {
+            const apply = await window.__jobTrackerAutofill.applyAiFills(body.fills);
+            aiCount = apply.applied;
+          }
+        }
+      } catch (e) { /* AI is opportunistic — fail silently */ }
+    }
+    const ruleCount = r1.filled - aiCount;
+    toast(
+      'Auto-filled ' + ruleCount + ' field' + (ruleCount === 1 ? '' : 's')
+      + (aiCount ? ' + ' + aiCount + ' AI' : '')
+      + ' — review before submitting'
+    );
+  } catch (e) {
+    toast('Autofill error: ' + (e.message || e), 'err');
+  }
+})();
+"""
+    body = (
+        "window.__jt_bookmarklet_profile = " + json.dumps(profile) + ";\n"
+        + engine + "\n"
+        + invocation
+    )
+    resp = app.make_response((body, 200))
+    resp.headers["Content-Type"]  = "application/javascript; charset=utf-8"
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 # ── Startup ───────────────────────────────────────────────────────────────────
