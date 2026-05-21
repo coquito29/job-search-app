@@ -31,6 +31,29 @@ Selects pick an option whose visible text or value matches; radios/checkboxes
 click the matching choice. The user's `qa_defaults` from the app act as a
 fuzzy fallback when no structured rule fires.
 
+## v0.6.0 — multi-row education + work history
+
+Adds a new Pass 0 that runs BEFORE the rule-based pass. It scans every
+field for indexed names like:
+
+  education[0][school]              → profile.education[0].school
+  education_1_school                → profile.education[1].school
+  work_experience[1][company]       → profile.work_experience[1].company
+  job_application[work_experience_attributes][0][title]
+                                    → profile.work_experience[0].title
+
+Pass 0 marks each filled element so Pass 1 (single-row rules) skips
+it — otherwise the unindexed `\bschool\b/` pattern would re-fill row 1
+with row 0's school (Franklin → Stockton, Stockton → Franklin etc).
+
+The field-type detection (school vs degree vs field of study vs
+graduation; company vs title vs dates vs current) lives in
+pickRepeatingValue() and uses the same regex shape as the single-row
+rules — just scoped to the indexed haystack.
+
+Covers Workday, Greenhouse, Lever, iCIMS — all of which use
+`education[N][field]` / `work[N][field]` markup for repeating rows.
+
 ## v0.5.0 — single-row work experience
 
 Adds 5 rules covering the most-recent job (profile.work_experience[0]):

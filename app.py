@@ -4489,6 +4489,100 @@ def test_form_page():
 
   <div class="card">
     <div class="card-body">
+      <p class="ph">Multi-row Education <span class="badge-phase badge-phase1">Phase 1 rules (v0.6)</span></p>
+      <p style="font-size:.78rem;color:#6c757d;margin:0 0 10px">Two rows with indexed names (<code>education[0][...]</code>, <code>education[1][...]</code>). Pass 0 should fill row 0 with Franklin / Masters / Cybersecurity and row 1 with Stockton / Bachelors / Business Management Studies.</p>
+      <div class="row g-3" style="border-top:1px dashed #dee2e6;padding-top:10px">
+        <div class="col-md-7">
+          <label for="edu0_school">Row 0 — School</label>
+          <input type="text" id="edu0_school" name="education[0][school]" class="form-control">
+        </div>
+        <div class="col-md-5">
+          <label for="edu0_degree">Row 0 — Degree</label>
+          <input type="text" id="edu0_degree" name="education[0][degree]" class="form-control">
+        </div>
+        <div class="col-md-7">
+          <label for="edu0_major">Row 0 — Field of Study</label>
+          <input type="text" id="edu0_major" name="education[0][field_of_study]" class="form-control">
+        </div>
+        <div class="col-md-5">
+          <label for="edu0_grad">Row 0 — Graduation Year</label>
+          <input type="text" id="edu0_grad" name="education[0][graduation_year]" class="form-control">
+        </div>
+      </div>
+      <div class="row g-3" style="border-top:1px dashed #dee2e6;padding-top:10px;margin-top:14px">
+        <div class="col-md-7">
+          <label for="edu1_school">Row 1 — School</label>
+          <input type="text" id="edu1_school" name="education[1][school]" class="form-control">
+        </div>
+        <div class="col-md-5">
+          <label for="edu1_degree">Row 1 — Degree</label>
+          <input type="text" id="edu1_degree" name="education[1][degree]" class="form-control">
+        </div>
+        <div class="col-md-7">
+          <label for="edu1_major">Row 1 — Field of Study</label>
+          <input type="text" id="edu1_major" name="education[1][field_of_study]" class="form-control">
+        </div>
+        <div class="col-md-5">
+          <label for="edu1_grad">Row 1 — Graduation Year</label>
+          <input type="text" id="edu1_grad" name="education[1][graduation_year]" class="form-control">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body">
+      <p class="ph">Multi-row Work History <span class="badge-phase badge-phase1">Phase 1 rules (v0.6)</span></p>
+      <p style="font-size:.78rem;color:#6c757d;margin:0 0 10px">Two rows. Row 0 should fill from <code>work_experience[0]</code> (Harrah's Casino / Bartender / 2024-07 / current=Yes), row 1 from <code>work_experience[1]</code> (Ocean Casino Resort / Casino Shift Manager / 2021-06 / 2022-07).</p>
+      <div class="row g-3" style="border-top:1px dashed #dee2e6;padding-top:10px">
+        <div class="col-md-7">
+          <label for="we0_company">Row 0 — Company</label>
+          <input type="text" id="we0_company" name="work_experience[0][company]" class="form-control">
+        </div>
+        <div class="col-md-5">
+          <label for="we0_title">Row 0 — Job Title</label>
+          <input type="text" id="we0_title" name="work_experience[0][title]" class="form-control">
+        </div>
+        <div class="col-md-4">
+          <label for="we0_start">Row 0 — Start</label>
+          <input type="text" id="we0_start" name="work_experience[0][start_date]" class="form-control">
+        </div>
+        <div class="col-md-4">
+          <label for="we0_end">Row 0 — End</label>
+          <input type="text" id="we0_end" name="work_experience[0][end_date]" class="form-control">
+        </div>
+        <div class="col-md-4">
+          <label for="we0_current">Row 0 — Current?</label>
+          <input type="text" id="we0_current" name="work_experience[0][current]" class="form-control">
+        </div>
+      </div>
+      <div class="row g-3" style="border-top:1px dashed #dee2e6;padding-top:10px;margin-top:14px">
+        <div class="col-md-7">
+          <label for="we1_company">Row 1 — Company</label>
+          <input type="text" id="we1_company" name="work_experience[1][company]" class="form-control">
+        </div>
+        <div class="col-md-5">
+          <label for="we1_title">Row 1 — Job Title</label>
+          <input type="text" id="we1_title" name="work_experience[1][title]" class="form-control">
+        </div>
+        <div class="col-md-4">
+          <label for="we1_start">Row 1 — Start</label>
+          <input type="text" id="we1_start" name="work_experience[1][start_date]" class="form-control">
+        </div>
+        <div class="col-md-4">
+          <label for="we1_end">Row 1 — End</label>
+          <input type="text" id="we1_end" name="work_experience[1][end_date]" class="form-control">
+        </div>
+        <div class="col-md-4">
+          <label for="we1_current">Row 1 — Current?</label>
+          <input type="text" id="we1_current" name="work_experience[1][current]" class="form-control">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body">
       <p class="ph">Free-text questions <span class="badge-phase badge-phase2">Phase 2 AI</span></p>
       <div class="mb-3">
         <label for="why">Why are you interested in this role?</label>

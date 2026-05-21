@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Job Tracker Autofill",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Autofill ATS application forms from your job-tracker profile. Rules cover identity / contact / address / EEO / button-radio chips, plus Google-Places location autocomplete and AI-filled custom free-text questions when the server has ANTHROPIC_API_KEY set.",
   "permissions": ["storage", "activeTab", "scripting", "notifications"],
   "host_permissions": ["<all_urls>"],

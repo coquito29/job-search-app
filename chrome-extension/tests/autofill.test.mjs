@@ -266,6 +266,32 @@ const BUTTON_RADIO = `
   </div>
 </form>`;
 
+// Multi-row education + work history. Indexed field names like
+// education[0][school] / work_experience[1][title] should resolve to
+// the matching profile array entry — NOT all fill from row 0.
+const MULTI_ROW = `
+<form>
+  <label for="edu0_school">Row 0 — School</label>
+  <input id="edu0_school" name="education[0][school]" type="text" />
+  <label for="edu0_degree">Row 0 — Degree</label>
+  <input id="edu0_degree" name="education[0][degree]" type="text" />
+
+  <label for="edu1_school">Row 1 — School</label>
+  <input id="edu1_school" name="education[1][school]" type="text" />
+  <label for="edu1_degree">Row 1 — Degree</label>
+  <input id="edu1_degree" name="education[1][degree]" type="text" />
+
+  <label for="we0_company">Row 0 — Company</label>
+  <input id="we0_company" name="work_experience[0][company]" type="text" />
+  <label for="we0_title">Row 0 — Title</label>
+  <input id="we0_title" name="work_experience[0][title]" type="text" />
+
+  <label for="we1_company">Row 1 — Company</label>
+  <input id="we1_company" name="work_experience[1][company]" type="text" />
+  <label for="we1_title">Row 1 — Title</label>
+  <input id="we1_title" name="work_experience[1][title]" type="text" />
+</form>`;
+
 // Work experience single row — fills from profile.work_experience[0].
 // Covers the most common shape: company + title + start/end dates + a
 // "currently employed" Yes/No radio.
@@ -521,6 +547,26 @@ async function runAssertions(name, html, getExpected) {
     return {
       "#loc filled with city":  [$("loc").value, "Egg Harbor Township"],
       "#email_loc filled":      [$("email_loc").value, "georgetupayachijobs@outlook.com"],
+    };
+  });
+
+  // ── Multi-row education + work history regression ───────────────────
+  await runAssertions("Multi-row education + work", MULTI_ROW, (w) => {
+    const $ = (id) => w.document.getElementById(id);
+    return {
+      // Education row 0
+      "#edu0_school":   [$("edu0_school").value, "Franklin University"],
+      "#edu0_degree":   [$("edu0_degree").value, "Masters"],
+      // Education row 1
+      "#edu1_school":   [$("edu1_school").value, "Stockton University"],
+      "#edu1_degree":   [$("edu1_degree").value, "Bachelors"],
+      // Work row 0
+      "#we0_company":   [$("we0_company").value, "Harrah's Casino"],
+      "#we0_title":     [$("we0_title").value, "Bartender"],
+      // Work row 1 — was previously filling from row 0 because unindexed
+      // rules don't see the index
+      "#we1_company":   [$("we1_company").value, "Ocean Casino Resort"],
+      "#we1_title":     [$("we1_title").value, "Casino Shift Manager"],
     };
   });
 

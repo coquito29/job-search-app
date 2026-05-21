@@ -483,6 +483,44 @@
   }
 
   // ── Public entry point ─────────────────────────────────────────────────────
+  // ── Repeating-row dispatch ─────────────────────────────────────────────────
+  // Matches name="education[0][school]", name="work_experience[1][company]",
+  // name="job_application[education_attributes][0][school]" and the dotted
+  // / dashed / underscored variants. Returns { section, index, field } or
+  // null. The section keys we recognize: education / work / employment /
+  // experience / job.
+  function parseRepeatingFieldName(haystack) {
+    const sectionRe = /(education|work[\s_-]*experience|work_experience|employment|experience)\b/i;
+    const s = haystack.match(sectionRe);
+    if (!s) return null;
+    // Find the FIRST digit token after the section word — that's the row index
+    const tail = haystack.slice(s.index + s[0].length, s.index + s[0].length + 80);
+    const idxMatch = tail.match(/(\d+)/);
+    if (!idxMatch) return null;
+    const section = /educat/i.test(s[1]) ? "education" : "work";
+    const index   = parseInt(idxMatch[1], 10);
+    return { section, index };
+  }
+
+  function pickRepeatingValue(section, row, haystack) {
+    if (!row) return undefined;
+    const h = haystack.toLowerCase();
+    if (section === "education") {
+      if (/\b(school|university|college|institution)\b/.test(h)) return row.school;
+      if (/\bdegree\b/.test(h)) return row.degree;
+      if (/\b(major|field[\s_-]*of[\s_-]*study|concentration|discipline)\b/.test(h)) return row.field;
+      if (/\b(end|graduation|completion)[\s_-]*(year|date|month)?\b/.test(h)) return row.end_date;
+      if (/\b(start|begin)[\s_-]*(year|date|month)?\b/.test(h)) return row.start_date;
+    } else {
+      if (/\b(company|employer|organization|org)\b/.test(h)) return row.company;
+      if (/\b(title|position|role)\b/.test(h)) return row.title;
+      if (/\b(start|begin)[\s_-]*(date|year|month)?\b/.test(h)) return row.start_date;
+      if (/\b(end|finish|last[\s_-]*day|left)[\s_-]*(date|year|month)?\b/.test(h)) return row.end_date;
+      if (/\b(current|currently|present)\b/.test(h)) return row.current ? "Yes" : "No";
+    }
+    return undefined;
+  }
+
   async function run(profile, opts) {
     opts = opts || {};
     const rules = RULES(profile);
@@ -491,9 +529,30 @@
 
     let filled = 0;
     const skipNames = new Set();
+    const handledByRow = new WeakSet();   // elements filled by Pass 0 — Pass 1 skips them
+
+    // ── Pass 0: repeating rows (education[N], work_experience[N]) ────────────
+    // Runs FIRST so that single-row rules in Pass 1 don't fill row 1+ with
+    // row 0's data via the unindexed /\bschool\b/ pattern.
+    for (const el of fields) {
+      const haystack = `${el.name || ""} ${el.id || ""}`;
+      const r = parseRepeatingFieldName(haystack);
+      if (!r) continue;
+      const row = r.section === "education"
+        ? (profile.education || [])[r.index]
+        : (profile.work_experience || [])[r.index];
+      if (!row) continue;
+      const value = pickRepeatingValue(r.section, row, haystack);
+      if (value === undefined || value === null || value === "") continue;
+      if (await applyValue(el, value, opts)) {
+        filled++;
+        handledByRow.add(el);
+      }
+    }
 
     // ── Pass 1: native inputs ────────────────────────────────────────────────
     for (const el of fields) {
+      if (handledByRow.has(el)) continue;
       if (el.type === "radio" && el.name) {
         if (skipNames.has(el.name)) continue;
         skipNames.add(el.name);
