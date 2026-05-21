@@ -24,6 +24,10 @@ const PROFILE = {
   },
   linkedin: "https://www.linkedin.com/in/george-tupayachi",
   portfolio: "",
+  work_experience: [
+    { company: "Harrah's Casino",   title: "Bartender",            start_date: "2024-07", end_date: "",        current: true },
+    { company: "Ocean Casino Resort", title: "Casino Shift Manager", start_date: "2021-06", end_date: "2022-07", current: false },
+  ],
   education: [
     {
       school:     "Franklin University",
@@ -262,6 +266,30 @@ const BUTTON_RADIO = `
   </div>
 </form>`;
 
+// Work experience single row — fills from profile.work_experience[0].
+// Covers the most common shape: company + title + start/end dates + a
+// "currently employed" Yes/No radio.
+const WORK_EXPERIENCE = `
+<form>
+  <label for="emp_company">Company</label>
+  <input id="emp_company" name="company" type="text" />
+
+  <label for="emp_title">Job Title</label>
+  <input id="emp_title" name="job_title" type="text" />
+
+  <label for="emp_start">Employment Start Date</label>
+  <input id="emp_start" name="employment_start_date" type="text" />
+
+  <label for="emp_end">Employment End Date</label>
+  <input id="emp_end" name="employment_end_date" type="text" />
+
+  <div>
+    <label class="d-block">Is this your current position?</label>
+    <div class="form-check"><input type="radio" name="current_position" id="cp_yes" value="Yes"><label for="cp_yes">Yes</label></div>
+    <div class="form-check"><input type="radio" name="current_position" id="cp_no"  value="No"><label for="cp_no">No</label></div>
+  </div>
+</form>`;
+
 // Education section — single row, fills from profile.education[0]. Covers
 // common ATS naming: school/university/college, degree (select), field
 // of study/major, graduation date. Skipping multi-row repeating
@@ -493,6 +521,19 @@ async function runAssertions(name, html, getExpected) {
     return {
       "#loc filled with city":  [$("loc").value, "Egg Harbor Township"],
       "#email_loc filled":      [$("email_loc").value, "georgetupayachijobs@outlook.com"],
+    };
+  });
+
+  // ── Work-experience single-row regression ────────────────────────────
+  await runAssertions("Work experience single-row", WORK_EXPERIENCE, (w) => {
+    const $ = (id) => w.document.getElementById(id);
+    return {
+      "#emp_company":   [$("emp_company").value, "Harrah's Casino"],
+      "#emp_title":     [$("emp_title").value, "Bartender"],
+      "#emp_start":     [$("emp_start").value, "2024-07"],
+      "#emp_end (empty for current job)": [$("emp_end").value, ""],
+      "current=Yes":    [$("cp_yes").checked, true],
+      "current!=No":    [$("cp_no").checked, false],
     };
   });
 

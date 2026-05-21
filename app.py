@@ -4425,6 +4425,37 @@ def test_form_page():
 
   <div class="card">
     <div class="card-body">
+      <p class="ph">Work Experience <span class="badge-phase badge-phase1">Phase 1 rules</span></p>
+      <div class="row g-3">
+        <div class="col-md-7">
+          <label for="emp_company">Company / Employer</label>
+          <input type="text" id="emp_company" name="company" class="form-control">
+          <span class="help">Should fill: Harrah's Casino (most recent from profile.work_experience[0]).</span>
+        </div>
+        <div class="col-md-5">
+          <label for="emp_title">Job Title</label>
+          <input type="text" id="emp_title" name="job_title" class="form-control">
+        </div>
+        <div class="col-md-6">
+          <label for="emp_start">Employment Start Date</label>
+          <input type="text" id="emp_start" name="employment_start_date" class="form-control" placeholder="YYYY-MM">
+        </div>
+        <div class="col-md-6">
+          <label for="emp_end">Employment End Date</label>
+          <input type="text" id="emp_end" name="employment_end_date" class="form-control" placeholder="YYYY-MM or leave blank">
+        </div>
+        <div class="col-md-12">
+          <label class="d-block">Is this your current position?</label>
+          <div class="form-check form-check-inline"><input class="form-check-input" type="radio" name="current_position" id="cp_yes" value="Yes"><label class="form-check-label" for="cp_yes">Yes</label></div>
+          <div class="form-check form-check-inline"><input class="form-check-input" type="radio" name="current_position" id="cp_no"  value="No"><label class="form-check-label" for="cp_no">No</label></div>
+          <span class="help">Should fill: Yes (Harrah's is profile.work_experience[0].current=true).</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body">
       <p class="ph">Education <span class="badge-phase badge-phase1">Phase 1 rules</span></p>
       <div class="row g-3">
         <div class="col-md-7">

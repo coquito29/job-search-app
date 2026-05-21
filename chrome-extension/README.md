@@ -31,6 +31,22 @@ Selects pick an option whose visible text or value matches; radios/checkboxes
 click the matching choice. The user's `qa_defaults` from the app act as a
 fuzzy fallback when no structured rule fires.
 
+## v0.5.0 — single-row work experience
+
+Adds 5 rules covering the most-recent job (profile.work_experience[0]):
+company/employer, job title/position/role, employment start date,
+employment end date, and a "currently employed" Yes/No radio.
+
+Date rules require an explicit `employment|job|work` qualifier in the
+label or surrounding section, so they don't clobber the education end-date
+rule that matches `graduation year`. The "current position" Yes/No
+resolves to "Yes" when `work_experience[0].current === true` and the
+existing fillRadio path clicks the matching radio.
+
+Multi-row support (Stockton degree + Ocean Casino roles) is the next
+phase — needs `name="education[1][school]"` / `work[1][company]` index
+parsing plus "Add another" button detection.
+
 ## v0.4.0 — single-row education fields
 
 Most ATSes (Workday, Greenhouse, Lever, iCIMS, Ashby) ask for the user's

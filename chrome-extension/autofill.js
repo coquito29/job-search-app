@@ -76,6 +76,37 @@
       { value: ans.active_security_clearance,patterns: [/\b(security)?[\s_-]*clearance\b/i] },
       { value: ans.us_gov_employment,        patterns: [/\bgov(ernment)?[\s_-]*employ(ee|ment)\b/i, /\bfederal[\s_-]*employ/i] },
 
+      // ── Work experience (single-row, fills from work_experience[0]) ────
+      // Patterns lean on explicit "job/employment/work" qualifiers because
+      // generic words like "start date" or "title" overlap with education
+      // fields and personal-info fields. Multi-row support is the next
+      // phase (parse name="work[0][company]" indexes, etc.).
+      { value: p.work_experience?.[0]?.company,    patterns: [
+          /\b(company|employer)\b/i,
+          /\b(current[\s_-]*)?(company|employer)\b/i,
+      ] },
+      { value: p.work_experience?.[0]?.title,      patterns: [
+          /\bjob[\s_-]*title\b/i,
+          /\b(current[\s_-]*)?(position|role|job[\s_-]*role)\b/i,
+      ] },
+      { value: p.work_experience?.[0]?.start_date, patterns: [
+          /\b(employment|job|work)[\s_-]*(start|begin)[\s_-]*(date|year)?\b/i,
+          /\b(start|begin)[\s_-]*date\b.*\b(employ|job|work|position)\b/i,
+      ] },
+      { value: p.work_experience?.[0]?.end_date,   patterns: [
+          /\b(employment|job|work)[\s_-]*end[\s_-]*(date|year)?\b/i,
+          /\bend[\s_-]*date\b.*\b(employ|job|work|position)\b/i,
+          /\blast[\s_-]*day\b/i,
+      ] },
+      // Currently employed: a Yes/No question. Profile stores "current"
+      // boolean on the row; convert to the literal answer string. We
+      // serialize to "Yes" / "No" here so the rule's value matches whatever
+      // option/radio text the form uses (case-insensitive via fillRadio).
+      { value: p.work_experience?.[0]?.current ? "Yes" : "No", patterns: [
+          /\bcurrent(ly)?[\s_-]*(employ|working|position|role|job)/i,
+          /\bis[\s_-]*this[\s_-]*your[\s_-]*current[\s_-]*(job|role|position)\b/i,
+      ] },
+
       // ── Education (single-row, fills from profile.education[0]) ─────────
       // Multi-row repeating education sections will get their own pass
       // later. For now we cover the common case of the first/most-recent
