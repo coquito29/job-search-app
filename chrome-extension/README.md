@@ -31,6 +31,24 @@ Selects pick an option whose visible text or value matches; radios/checkboxes
 click the matching choice. The user's `qa_defaults` from the app act as a
 fuzzy fallback when no structured rule fires.
 
+## v0.4.0 — single-row education fields
+
+Most ATSes (Workday, Greenhouse, Lever, iCIMS, Ashby) ask for the user's
+most recent school + degree + major + graduation date. The profile already
+has this in `education[]`; previously the engine skipped it entirely.
+
+New rules in autofill.js match the first/most-recent row:
+- `\b(school|university|college|institution)\b` → `education[0].school`
+- `\bdegree\b` / `\blevel of education\b` → `education[0].degree`
+- `\bfield of study\b` / `major|concentration|discipline` → `education[0].field`
+- `\bgraduation (year|date)\b` / `expected graduation` / `completion year`
+  → `education[0].end_date`
+
+The start-date rule is intentionally omitted for v1 — generic `\bstart date\b`
+overlaps with employment history fields and we don't yet have row-scoping
+to disambiguate. Multi-row repeating education sections + work history
+rows are the next phase.
+
 ## v0.3.1 — sibling-label radio groups + "no"/"now" false-match fix
 
 Dogfood on `/test-form` exposed two more gaps:

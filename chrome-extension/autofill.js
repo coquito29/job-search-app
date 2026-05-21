@@ -75,6 +75,28 @@
       ] },
       { value: ans.active_security_clearance,patterns: [/\b(security)?[\s_-]*clearance\b/i] },
       { value: ans.us_gov_employment,        patterns: [/\bgov(ernment)?[\s_-]*employ(ee|ment)\b/i, /\bfederal[\s_-]*employ/i] },
+
+      // ── Education (single-row, fills from profile.education[0]) ─────────
+      // Multi-row repeating education sections will get their own pass
+      // later. For now we cover the common case of the first/most-recent
+      // school the user is asked about. The graduation-year rule is
+      // intentionally specific so it doesn't false-match employment date
+      // fields that just say "year".
+      { value: p.education?.[0]?.school,    patterns: [
+          /\b(school|university|college|institution)\b/i,
+          /\b(name[\s_-]*of[\s_-]*)?(school|university|college|institution)\b/i,
+      ] },
+      { value: p.education?.[0]?.degree,    patterns: [/\bdegree\b/i, /\blevel[\s_-]*of[\s_-]*education\b/i] },
+      { value: p.education?.[0]?.field,     patterns: [
+          /\bfield[\s_-]*of[\s_-]*study\b/i,
+          /\b(major|concentration|discipline|area[\s_-]*of[\s_-]*study)\b/i,
+      ] },
+      { value: p.education?.[0]?.end_date,  patterns: [
+          /\bgraduation[\s_-]*(year|date|month)\b/i,
+          /\bexpected[\s_-]*graduation/i,
+          /\bcompletion[\s_-]*(year|date)\b/i,
+          /\b(end|finish)[\s_-]*(year|date)\b.*\b(school|education|degree|college)\b/i,
+      ] },
     ].filter(r => r.value !== undefined && r.value !== null && r.value !== "");
   };
 

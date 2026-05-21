@@ -4433,6 +4433,39 @@ def test_form_page():
 
   <div class="card">
     <div class="card-body">
+      <p class="ph">Education <span class="badge-phase badge-phase1">Phase 1 rules</span></p>
+      <div class="row g-3">
+        <div class="col-md-7">
+          <label for="school">School / University</label>
+          <input type="text" id="school" name="school" class="form-control">
+          <span class="help">Should fill: Franklin University (most recent from profile.education[0]).</span>
+        </div>
+        <div class="col-md-5">
+          <label for="degree">Degree</label>
+          <select id="degree" name="degree" class="form-select">
+            <option value="">Select...</option>
+            <option>High School</option>
+            <option>Associates</option>
+            <option>Bachelors</option>
+            <option>Masters</option>
+            <option>Doctorate</option>
+            <option>Other</option>
+          </select>
+        </div>
+        <div class="col-md-7">
+          <label for="major">Field of Study / Major</label>
+          <input type="text" id="major" name="field_of_study" class="form-control">
+        </div>
+        <div class="col-md-5">
+          <label for="grad_year">Expected Graduation Year</label>
+          <input type="text" id="grad_year" name="graduation_year" class="form-control" placeholder="YYYY-MM">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body">
       <p class="ph">Free-text questions <span class="badge-phase badge-phase2">Phase 2 AI</span></p>
       <div class="mb-3">
         <label for="why">Why are you interested in this role?</label>

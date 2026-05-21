@@ -24,6 +24,24 @@ const PROFILE = {
   },
   linkedin: "https://www.linkedin.com/in/george-tupayachi",
   portfolio: "",
+  education: [
+    {
+      school:     "Franklin University",
+      degree:     "Masters",
+      field:      "Cybersecurity",
+      start_date: "2024-09",
+      end_date:   "2027-01",
+      graduated:  false,
+    },
+    {
+      school:     "Stockton University",
+      degree:     "Bachelors",
+      field:      "Business Management Studies",
+      start_date: "2017-01",
+      end_date:   "2021-05",
+      graduated:  true,
+    },
+  ],
   answers: {
     work_authorized_us: "Yes",
     sponsorship_needed: "No",
@@ -244,6 +262,32 @@ const BUTTON_RADIO = `
   </div>
 </form>`;
 
+// Education section — single row, fills from profile.education[0]. Covers
+// common ATS naming: school/university/college, degree (select), field
+// of study/major, graduation date. Skipping multi-row repeating
+// sections for now; that needs its own pass to detect "Add another"
+// buttons + per-row index parsing in field names.
+const EDUCATION = `
+<form>
+  <label for="school">School / University</label>
+  <input id="school" name="school" type="text" />
+
+  <label for="degree">Degree</label>
+  <select id="degree" name="degree">
+    <option value="">Select...</option>
+    <option>High School</option>
+    <option>Bachelors</option>
+    <option>Masters</option>
+    <option>Doctorate</option>
+  </select>
+
+  <label for="major">Field of Study</label>
+  <input id="major" name="field_of_study" type="text" />
+
+  <label for="grad_year">Expected Graduation Year</label>
+  <input id="grad_year" name="graduation_year" type="text" />
+</form>`;
+
 // Bootstrap-style radios: the QUESTION is a sibling-of-ancestor <label
 // class="d-block">, not a parent label or [for] target. The walk-up in
 // probeText catches this. Also exercises the "now"-substring regression
@@ -449,6 +493,17 @@ async function runAssertions(name, html, getExpected) {
     return {
       "#loc filled with city":  [$("loc").value, "Egg Harbor Township"],
       "#email_loc filled":      [$("email_loc").value, "georgetupayachijobs@outlook.com"],
+    };
+  });
+
+  // ── Education single-row regression ──────────────────────────────────
+  await runAssertions("Education single-row", EDUCATION, (w) => {
+    const $ = (id) => w.document.getElementById(id);
+    return {
+      "#school":    [$("school").value, "Franklin University"],
+      "#degree":    [$("degree").value, "Masters"],
+      "#major":     [$("major").value, "Cybersecurity"],
+      "#grad_year": [$("grad_year").value, "2027-01"],
     };
   });
 
