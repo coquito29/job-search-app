@@ -752,9 +752,11 @@
   async function fillResumeUpload() {
     // Need a CV available
     if (!window.__jt_cv_b64) return 0;
-    // Find file inputs labelled resume / CV / curriculum vitae / upload
+    // Find file inputs labelled resume / CV / curriculum vitae / upload.
+    // Don't use isFillable here — it excludes type="file" specifically
+    // because the rule-based passes can't touch file inputs. Pass 4 CAN.
     const fileInputs = Array.from(document.querySelectorAll('input[type="file"]'))
-      .filter(isFillable);
+      .filter(el => !el.disabled && !el.readOnly);
     if (!fileInputs.length) return 0;
 
     const RESUME_RE = /\b(resume|cv|curriculum[\s_-]*vitae|upload[\s_-]*(your[\s_-]*)?(resume|cv|file))\b|\battach[\s_-]*(your[\s_-]*)?(resume|cv|file)\b/i;
