@@ -81,13 +81,23 @@
       // generic words like "start date" or "title" overlap with education
       // fields and personal-info fields. Multi-row support is the next
       // phase (parse name="work[0][company]" indexes, etc.).
+      //
+      // ORDER MATTERS: the "currently employed" Yes/No rule must come
+      // BEFORE the title rule. Otherwise the title pattern's "position"
+      // word matches "Is this your current position?" first, fillRadio
+      // searches for the title text against Yes/No options, finds nothing,
+      // and the radio never gets clicked.
+      { value: p.work_experience?.[0]?.current ? "Yes" : "No", patterns: [
+          /\bcurrent(ly)?[\s_-]*(employed|working)\b/i,
+          /\bis[\s_-]*this[\s_-]*your[\s_-]*current[\s_-]*(job|role|position)\b/i,
+          /\bcurrent[\s_-]*position\?\b/i,
+      ] },
       { value: p.work_experience?.[0]?.company,    patterns: [
           /\b(company|employer)\b/i,
-          /\b(current[\s_-]*)?(company|employer)\b/i,
       ] },
       { value: p.work_experience?.[0]?.title,      patterns: [
           /\bjob[\s_-]*title\b/i,
-          /\b(current[\s_-]*)?(position|role|job[\s_-]*role)\b/i,
+          /\b(position|role)\b/i,
       ] },
       { value: p.work_experience?.[0]?.start_date, patterns: [
           /\b(employment|job|work)[\s_-]*(start|begin)[\s_-]*(date|year)?\b/i,
@@ -97,14 +107,6 @@
           /\b(employment|job|work)[\s_-]*end[\s_-]*(date|year)?\b/i,
           /\bend[\s_-]*date\b.*\b(employ|job|work|position)\b/i,
           /\blast[\s_-]*day\b/i,
-      ] },
-      // Currently employed: a Yes/No question. Profile stores "current"
-      // boolean on the row; convert to the literal answer string. We
-      // serialize to "Yes" / "No" here so the rule's value matches whatever
-      // option/radio text the form uses (case-insensitive via fillRadio).
-      { value: p.work_experience?.[0]?.current ? "Yes" : "No", patterns: [
-          /\bcurrent(ly)?[\s_-]*(employ|working|position|role|job)/i,
-          /\bis[\s_-]*this[\s_-]*your[\s_-]*current[\s_-]*(job|role|position)\b/i,
       ] },
 
       // ── Education (single-row, fills from profile.education[0]) ─────────
