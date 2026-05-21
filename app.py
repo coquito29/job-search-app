@@ -4231,7 +4231,7 @@ def test_form_page():
   <div style="margin-top:8px;font-size:.78rem;color:#856404;background:#fff3cd;padding:6px 10px;border-radius:6px">
     <i class="bi bi-info-circle"></i>
     Auto-fire only triggers on supported ATS hosts. This sandbox is on <code>job-search-app-9pnx.onrender.com</code>, so you trigger it manually via the popup.
-    Phase 2 (AI free-text) needs <code>ANTHROPIC_API_KEY</code> on Render — currently unset, so the AI fields stay empty.
+    Phase 2 (AI free-text) requires <code>ANTHROPIC_API_KEY</code> on the server; if unset, the AI fields stay empty and Phase 1 still runs. Check the AI badge in the main app header to confirm it's enabled.
   </div>
 </div>
 
