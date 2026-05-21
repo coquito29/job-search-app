@@ -266,6 +266,37 @@ const BUTTON_RADIO = `
   </div>
 </form>`;
 
+// "Add Another" button. Starts with only row 0 visible. The engine
+// should detect the + Add Another Education button, click it once,
+// then fill both rows from profile.education[].
+const ADD_ANOTHER = `
+<form>
+  <div class="education-section">
+    <h3>Education History</h3>
+    <div id="edu-rows">
+      <div data-row="0">
+        <label for="add_edu0_school">Row 0 — School</label>
+        <input id="add_edu0_school" name="education[0][school]" type="text" />
+      </div>
+    </div>
+    <button type="button" id="add-edu-btn">+ Add Another Education</button>
+  </div>
+</form>
+<script>
+  (() => {
+    let next = 1;
+    document.getElementById('add-edu-btn').addEventListener('click', () => {
+      const i = next++;
+      const div = document.createElement('div');
+      div.setAttribute('data-row', String(i));
+      div.innerHTML =
+        '<label for="add_edu' + i + '_school">Row ' + i + ' — School</label>' +
+        '<input id="add_edu' + i + '_school" name="education[' + i + '][school]" type="text" />';
+      document.getElementById('edu-rows').appendChild(div);
+    });
+  })();
+<\/script>`;
+
 // Multi-row education + work history. Indexed field names like
 // education[0][school] / work_experience[1][title] should resolve to
 // the matching profile array entry — NOT all fill from row 0.
@@ -547,6 +578,19 @@ async function runAssertions(name, html, getExpected) {
     return {
       "#loc filled with city":  [$("loc").value, "Egg Harbor Township"],
       "#email_loc filled":      [$("email_loc").value, "georgetupayachijobs@outlook.com"],
+    };
+  });
+
+  // ── "Add Another" button auto-click regression (v0.7) ──────────────
+  // Engine should: (1) detect the "+ Add Another Education" button,
+  // (2) click it once because profile.education has 2 entries and the
+  // form initially shows 1, (3) fill the newly-created row.
+  await runAssertions("Add Another button", ADD_ANOTHER, (w) => {
+    const $ = (id) => w.document.getElementById(id);
+    return {
+      "#add_edu0_school":     [$("add_edu0_school")?.value, "Franklin University"],
+      "#add_edu1_school exists after Add click": [!!$("add_edu1_school"), true],
+      "#add_edu1_school":     [$("add_edu1_school")?.value || "(missing)", "Stockton University"],
     };
   });
 

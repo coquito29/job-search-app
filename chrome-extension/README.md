@@ -31,6 +31,35 @@ Selects pick an option whose visible text or value matches; radios/checkboxes
 click the matching choice. The user's `qa_defaults` from the app act as a
 fuzzy fallback when no structured rule fires.
 
+## v0.7.0 — "Add Another" button auto-expansion
+
+Workday + Greenhouse + most ATSes render only the FIRST education and
+the FIRST work-history row by default. Additional rows appear after the
+user clicks an "Add Another" / "+" button.
+
+New Pass -1 (runs before Pass 0):
+- Scans every visible <button>, [role="button"], and <a> on the page
+- Filters to elements whose text matches ADD_BTN_RE — accepts shapes
+  like "Add", "+ Add", "Add Another", "Add another education",
+  "+ Add work experience", "Add new entry"
+- For each candidate, looks at the closest fieldset / section /
+  card / form ancestor and reads its text. If it contains education
+  keywords → treat as education button; work keywords → work button.
+- Counts existing indexed rows in that ancestor (parsing names like
+  `education[0][school]`)
+- Clicks the button (profile_array_length - existing_rows) times,
+  waiting 300ms after each click for the new row's DOM to render
+- Capped at 5 clicks per button to bound runtime in pathological cases
+
+After Pass -1, the existing Pass 0 sees the newly-created rows and
+fills them with the right profile[N] data.
+
+ADD_BTN_RE intentionally rejects things like "Add LinkedIn", "Add to
+cart", "Add reference" — only matches "Add (another) (educational
+section keyword)" shapes. The ancestor's keyword check provides
+further safety: a generic "Add" button outside a recognized section
+gets ignored.
+
 ## v0.6.0 — multi-row education + work history
 
 Adds a new Pass 0 that runs BEFORE the rule-based pass. It scans every

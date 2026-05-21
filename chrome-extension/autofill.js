@@ -483,6 +483,63 @@
   }
 
   // ── Public entry point ─────────────────────────────────────────────────────
+  // ── Repeating-section expansion ────────────────────────────────────────────
+  // Many ATSes render only the FIRST education / work-history row by default;
+  // additional rows appear after the user clicks an "Add Another" button.
+  // This function detects those buttons, figures out which section each
+  // belongs to (education vs work), counts existing rows by parsing indexed
+  // input names, and clicks the button enough times to match the profile
+  // array length (capped at 5 to avoid runaway loops).
+  const ADD_BTN_RE = /^[\s\+]*add(\s+(another|more|new|additional))?(\s+(education|school|college|degree|job|work|employment|experience|position|role|history))?(\s+(row|entry|item|line))?[\s\+\.]*$/i;
+
+  async function expandRepeatingSections(profile) {
+    const eduCount  = (profile.education       || []).length;
+    const workCount = (profile.work_experience || []).length;
+    if (eduCount < 2 && workCount < 2) return 0;
+
+    let totalClicks = 0;
+    const candidates = Array.from(document.querySelectorAll('button, [role="button"], a'))
+      .filter(isVisible)
+      .filter(b => {
+        const t = cleanText(b.innerText || b.textContent || "").toLowerCase();
+        if (!t || t.length > 50) return false;
+        return ADD_BTN_RE.test(t);
+      });
+
+    for (const btn of candidates) {
+      // Determine the section by looking at the button's context
+      const ancestor = btn.closest("fieldset, section, [class*='card'], [class*='section'], [class*='education'], [class*='work'], [class*='experience'], form");
+      const context = ((ancestor && ancestor.textContent) || "").toLowerCase().slice(0, 1000);
+      const isEdu  = /\b(education|school|university|college|degree|graduat)\b/.test(context);
+      const isWork = /\b(work[\s_-]*(experience|history)|employment[\s_-]*history|previous[\s_-]*(employer|job|position))\b/.test(context);
+      const target = isEdu ? eduCount : isWork ? workCount : 0;
+      if (target < 2) continue;
+
+      // Count existing rows for this section by scanning indexed input names
+      const re = isEdu
+        ? /\b(?:education|school)[\[_.]+(\d+)/i
+        : /\b(?:work_experience|work|employment|experience|job)[\[_.]+(\d+)/i;
+      const rows = new Set();
+      for (const inp of ancestor ? ancestor.querySelectorAll("input, select, textarea") : []) {
+        const name = (inp.name || inp.id || "");
+        const m = name.match(re);
+        if (m) rows.add(parseInt(m[1], 10));
+      }
+      // Fall back to counting visible row containers if no indexed inputs found yet
+      const startRows = rows.size || 1;
+      const need = Math.max(0, target - startRows);
+
+      for (let i = 0; i < need && i < 5; i++) {
+        try { btn.click(); } catch (_) {}
+        totalClicks++;
+        // Wait briefly for the new row's DOM to render. ATSes are typically
+        // React-based and re-render in <50ms, but slower frameworks need more.
+        await new Promise(r => setTimeout(r, 300));
+      }
+    }
+    return totalClicks;
+  }
+
   // ── Repeating-row dispatch ─────────────────────────────────────────────────
   // Matches name="education[0][school]", name="work_experience[1][company]",
   // name="job_application[education_attributes][0][school]" and the dotted
@@ -523,6 +580,12 @@
 
   async function run(profile, opts) {
     opts = opts || {};
+
+    // ── Pass -1: click "Add another" buttons to surface hidden rows ──────────
+    // Runs BEFORE we snapshot `fields` so the newly-created inputs are picked
+    // up by Pass 0's indexed-name dispatch.
+    try { await expandRepeatingSections(profile); } catch (_) {}
+
     const rules = RULES(profile);
     const fields = Array.from(document.querySelectorAll("input, select, textarea"))
       .filter(isFillable);

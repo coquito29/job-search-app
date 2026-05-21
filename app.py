@@ -4583,6 +4583,50 @@ def test_form_page():
 
   <div class="card">
     <div class="card-body">
+      <p class="ph">"Add Another" Education <span class="badge-phase badge-phase1">Phase 1 rules (v0.7)</span></p>
+      <p style="font-size:.78rem;color:#6c757d;margin:0 0 10px">Workday/Greenhouse style — only row 0 is rendered initially. The engine should detect the <strong>+ Add Another Education</strong> button, click it once to surface row 1, then fill both rows.</p>
+      <div id="add-edu-rows">
+        <div class="row g-3" data-row="0" style="border-top:1px dashed #dee2e6;padding-top:10px">
+          <div class="col-md-7">
+            <label for="add_edu0_school">Row 0 — School</label>
+            <input type="text" id="add_edu0_school" name="education[0][school]" class="form-control">
+          </div>
+          <div class="col-md-5">
+            <label for="add_edu0_degree">Row 0 — Degree</label>
+            <input type="text" id="add_edu0_degree" name="education[0][degree]" class="form-control">
+          </div>
+        </div>
+      </div>
+      <button type="button" id="add-edu-btn" class="btn btn-outline-primary btn-sm mt-3">+ Add Another Education</button>
+      <script>
+        (() => {
+          let next = 1;
+          document.getElementById('add-edu-btn').addEventListener('click', () => {
+            const i = next++;
+            const row = document.createElement('div');
+            row.className = 'row g-3';
+            row.setAttribute('data-row', String(i));
+            row.style.borderTop = '1px dashed #dee2e6';
+            row.style.paddingTop = '10px';
+            row.style.marginTop = '14px';
+            row.innerHTML = `
+              <div class="col-md-7">
+                <label for="add_edu${i}_school">Row ${i} — School</label>
+                <input type="text" id="add_edu${i}_school" name="education[${i}][school]" class="form-control">
+              </div>
+              <div class="col-md-5">
+                <label for="add_edu${i}_degree">Row ${i} — Degree</label>
+                <input type="text" id="add_edu${i}_degree" name="education[${i}][degree]" class="form-control">
+              </div>`;
+            document.getElementById('add-edu-rows').appendChild(row);
+          });
+        })();
+      </script>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body">
       <p class="ph">Free-text questions <span class="badge-phase badge-phase2">Phase 2 AI</span></p>
       <div class="mb-3">
         <label for="why">Why are you interested in this role?</label>
