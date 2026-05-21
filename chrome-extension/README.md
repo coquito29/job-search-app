@@ -31,6 +31,33 @@ Selects pick an option whose visible text or value matches; radios/checkboxes
 click the matching choice. The user's `qa_defaults` from the app act as a
 fuzzy fallback when no structured rule fires.
 
+## v0.10.0 — Auto-upload resume/CV file
+
+Browsers block setting `<input type="file">.value` for security, but they
+allow assigning `input.files` via a DataTransfer-constructed FileList.
+Password managers and credential autofill extensions use this technique;
+turns out it also works for résumé file inputs.
+
+Flow:
+1. Server reads the user's default CV from the CV library
+   (`SELECT ... WHERE is_default = 1`; falls back to most-recent if
+   none flagged) and base64-encodes the bytes into the
+   `/bookmarklet/run.js` response as `window.__jt_cv_b64` plus
+   `__jt_cv_filename` + `__jt_cv_mime`.
+2. Engine adds a Pass 4 that finds `<input type="file">` elements
+   labeled resume / CV / curriculum vitae / upload, decodes the
+   base64 → Uint8Array → File, then assigns via DataTransfer.
+3. The native `change` event fires, so the page's "Selected: cv.pdf"
+   indicator renders.
+
+Limitations:
+- Strict-CSP ATSes (Greenhouse, Ashby, Workday) block the script-tag
+  load itself, so the engine never gets to Pass 4. On those, the user
+  manually uploads.
+- Multi-MB CVs make the bookmarklet payload bigger — a 300 KB PDF
+  expands to ~400 KB base64. Modern browsers handle script tags this
+  size fine but the network transfer is noticeable.
+
 ## v0.9.0 — Pronouns + qa_defaults expansion + country code + Submit highlight
 
 Four small additions, all from real-world ATS forms we hadn't covered:

@@ -733,6 +733,13 @@
       if (clickMatchingButton(btns, value)) filled++;
     }
 
+    // ── Pass 4: auto-upload the user's default CV into resume file inputs ──
+    // Browsers block setting input.value on file inputs, but they allow
+    // assigning input.files via a DataTransfer-constructed FileList. The
+    // CV is baked into the bookmarklet payload as base64, so no extra
+    // cross-origin fetch is needed (which strict-CSP ATSes would block).
+    try { filled += await fillResumeUpload(); } catch (_) {}
+
     // ── Submit-button highlight (NOT auto-click) ─────────────────────────────
     // Visual cue that helps the user find the Submit button after a long
     // scroll-through review. We NEVER click the button automatically; the
@@ -740,6 +747,55 @@
     try { highlightSubmitButton(); } catch (_) {}
 
     return { filled, total: fields.length + buttonGroupTotal };
+  }
+
+  async function fillResumeUpload() {
+    // Need a CV available
+    if (!window.__jt_cv_b64) return 0;
+    // Find file inputs labelled resume / CV / curriculum vitae / upload
+    const fileInputs = Array.from(document.querySelectorAll('input[type="file"]'))
+      .filter(isFillable);
+    if (!fileInputs.length) return 0;
+
+    const RESUME_RE = /\b(resume|cv|curriculum[\s_-]*vitae|upload[\s_-]*(your[\s_-]*)?(resume|cv|file))\b|\battach[\s_-]*(your[\s_-]*)?(resume|cv|file)\b/i;
+    let resumeInput = null;
+    for (const el of fileInputs) {
+      const haystack = `${el.name || ""} ${el.id || ""} ${probeText(el)} ${el.accept || ""}`;
+      if (RESUME_RE.test(haystack)) { resumeInput = el; break; }
+    }
+    // Fall back to the first file input if exactly one and labels are ambiguous
+    if (!resumeInput && fileInputs.length === 1) resumeInput = fileInputs[0];
+    if (!resumeInput) return 0;
+    // Skip if a file is already attached
+    if (resumeInput.files && resumeInput.files.length > 0) return 0;
+
+    // Decode base64 → Uint8Array → File via DataTransfer
+    try {
+      const bin = atob(window.__jt_cv_b64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const file = new File(
+        [bytes],
+        window.__jt_cv_filename || "cv.pdf",
+        { type: window.__jt_cv_mime || "application/pdf" }
+      );
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      resumeInput.files = dt.files;
+      // Dispatch the events React / Vue / Angular listen for so framework
+      // state updates and the "Selected: cv.pdf" indicator renders.
+      resumeInput.dispatchEvent(new Event("input",  { bubbles: true }));
+      resumeInput.dispatchEvent(new Event("change", { bubbles: true }));
+      // Flash purple so the user can see what got uploaded
+      try {
+        resumeInput.style.outline = "2px solid #6f42c1";
+        setTimeout(() => { resumeInput.style.outline = ""; }, 2500);
+      } catch (_) {}
+      return 1;
+    } catch (e) {
+      console.warn("[autofill] CV upload failed:", e);
+      return 0;
+    }
   }
 
   function highlightSubmitButton() {

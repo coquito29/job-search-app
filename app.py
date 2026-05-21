@@ -4628,6 +4628,28 @@ def test_form_page():
 
   <div class="card">
     <div class="card-body">
+      <p class="ph">Resume / CV Upload <span class="badge-phase badge-phase1">Phase 1 rules (v0.10)</span></p>
+      <p style="font-size:.78rem;color:#6c757d;margin:0 0 10px">The engine should detect this file input, decode the baked-in CV blob (your default from the CV library), and assign it via DataTransfer. The file name and "Selected: ..." text should appear next to the input.</p>
+      <div class="mb-3">
+        <label for="resume_upload" class="form-label">Upload your resume / CV</label>
+        <input type="file" id="resume_upload" name="resume" class="form-control" accept=".pdf,.doc,.docx">
+        <div id="resume_status" style="font-size:.85rem;color:#198754;margin-top:6px"></div>
+        <script>
+          (() => {
+            const el = document.getElementById('resume_upload');
+            el.addEventListener('change', () => {
+              const f = el.files && el.files[0];
+              document.getElementById('resume_status').textContent =
+                f ? `✓ Selected: ${f.name} (${(f.size/1024).toFixed(1)} KB)` : '';
+            });
+          })();
+        </script>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body">
       <p class="ph">Pronouns + DEI + Country Code + Built-in Q&amp;A <span class="badge-phase badge-phase1">Phase 1 rules (v0.9)</span></p>
       <p style="font-size:.78rem;color:#6c757d;margin:0 0 10px">Pronouns select, phone country-code split, and built-in qa_defaults for common questions.</p>
       <div class="row g-3">
@@ -4753,11 +4775,43 @@ def test_form_page():
 
 # ── Mobile bookmarklet (autofill without an extension) ──────────────────────
 
+import base64 as _base64
+
 _AUTOFILL_JS_PATH = os.path.join(
     os.path.dirname(__file__), "chrome-extension", "autofill.js"
 )
 _AUTOFILL_JS_MTIME = None
 _AUTOFILL_JS_CACHED = None
+
+
+def _get_default_cv_blob(uid):
+    """Returns (file_bytes, filename, mime_type) for the user's default CV
+    (or most recent if none flagged default). Returns None if no CVs."""
+    try:
+        with _db_conn() as conn:
+            row = conn.execute(
+                "SELECT filename, mime_type, file_blob FROM cvs "
+                "WHERE user_id = ? AND is_default = 1 LIMIT 1",
+                (uid,),
+            ).fetchone()
+            if not row:
+                row = conn.execute(
+                    "SELECT filename, mime_type, file_blob FROM cvs "
+                    "WHERE user_id = ? ORDER BY id DESC LIMIT 1",
+                    (uid,),
+                ).fetchone()
+    except Exception:
+        return None
+    if not row:
+        return None
+    blob = _row_get(row, "file_blob")
+    if blob is None:
+        return None
+    # psycopg2 returns memoryview for BYTEA; sqlite returns bytes
+    if isinstance(blob, memoryview):
+        blob = bytes(blob)
+    return (blob, _row_get(row, "filename") or "cv.pdf",
+            _row_get(row, "mime_type") or "application/pdf")
 
 def _read_autofill_js():
     """Cache the autofill.js content keyed on mtime so dev reloads pick up
@@ -4982,8 +5036,26 @@ def bookmarklet_run_js():
   }
 })();
 """
+    # Bake the user's default CV into the response as base64 so the engine
+    # can auto-fill resume file inputs without a separate cross-origin
+    # fetch (which CSP often blocks on strict ATSes anyway).
+    cv_data = _get_default_cv_blob(uid)
+    cv_js = ""
+    if cv_data:
+        blob, filename, mime = cv_data
+        try:
+            cv_b64 = _base64.b64encode(blob).decode("ascii")
+            cv_js = (
+                "window.__jt_cv_b64 = " + json.dumps(cv_b64) + ";\n"
+                + "window.__jt_cv_filename = " + json.dumps(filename) + ";\n"
+                + "window.__jt_cv_mime = " + json.dumps(mime) + ";\n"
+            )
+        except Exception:
+            pass
+
     body = (
         "window.__jt_bookmarklet_profile = " + json.dumps(profile) + ";\n"
+        + cv_js
         + engine + "\n"
         + invocation
     )
