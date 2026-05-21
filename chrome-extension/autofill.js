@@ -41,7 +41,24 @@
       { value: p.full_name,        patterns: [/^name$/i, /\byour[\s_-]*name\b/i, /\bname\b/i] },
 
       { value: p.email,            patterns: [/\bemail\b/i, /\be-?mail[\s_-]*address\b/i] },
-      { value: p.phone,            patterns: [/\bphone\b/i, /\bmobile\b/i, /\btelephone\b/i, /\bcontact[\s_-]*number\b/i] },
+
+      // Phone country code MUST come before the generic phone rule. Forms
+      // that have both a country-code select AND a phone field need them
+      // filled with DIFFERENT values — "+1" or "US" for the country, the
+      // digits-only phone for the number.
+      { value: "+1",               patterns: [
+          /\bcountry[\s_-]*(code|calling[\s_-]*code|dial[\s_-]*code)\b/i,
+          /\b(dial|calling)[\s_-]*code\b/i,
+      ] },
+      { value: p.phone_digits || p.phone, patterns: [
+          /\bphone[\s_-]*number\b/i,
+          /\b(mobile|telephone|cell)[\s_-]*(number)?\b/i,
+      ] },
+      { value: p.phone,            patterns: [/\bphone\b/i, /\bcontact[\s_-]*number\b/i] },
+
+      // Pronouns — increasingly common DEI field. Selects usually have
+      // options like "He/Him", "She/Her", "They/Them", "Prefer not to say".
+      { value: p.pronouns,         patterns: [/\bpronoun(s)?\b/i] },
 
       // City/state/zip evaluate BEFORE street so that a Workable-style
       // "Current location (city)" field with name="address" still resolves
@@ -438,15 +455,42 @@
   }
 
   // ── Q&A fuzzy fallback ─────────────────────────────────────────────────────
+  // Built-in defaults for very common questions that the rule list doesn't
+  // cover and that nearly every job applicant answers the same way. The
+  // user's profile.qa_defaults still wins — these are LAST-RESORT after both
+  // the rules and the user's custom list. Designed so the user can override
+  // any of these by adding their own entry to qa_defaults.
+  const BUILT_IN_QA = [
+    [/\b(are[\s_]+you[\s_]+(at[\s_]+least[\s_]+|over[\s_]+|)((18|eighteen)(\s+(years|yrs)([\s_]+(of[\s_]+)?age)?)?))/i, "Yes"],
+    [/\bover[\s_]+(18|eighteen)\b/i, "Yes"],
+    [/\b(driver'?s?[\s_]+licen[sc]e|valid[\s_]+driv)/i, "Yes"],
+    [/\b(how[\s_]+did[\s_]+you[\s_]+(hear|find)[\s_]+(about|out)|where[\s_]+did[\s_]+you[\s_]+(hear|learn))/i, "LinkedIn"],
+    [/\bdo[\s_]+you[\s_]+have[\s_]+(any[\s_]+|prior[\s_]+|previous[\s_]+)(work[\s_]+|professional[\s_]+|relevant[\s_]+)?experience\b/i, "Yes"],
+    [/\bcan[\s_]+you[\s_]+start[\s_]+(within|in)[\s_]+(2|two)[\s_]+weeks?\b/i, "Yes"],
+    [/\bavailable[\s_]+to[\s_]+(start|begin)[\s_]+(immediately|right[\s_]+away)\b/i, "Yes"],
+    [/\bspeak[\s_]+english\b/i, "Yes"],
+    [/\bfluent[\s_]+in[\s_]+english\b/i, "Yes"],
+    [/\b(non[\s-]*compete|non[\s-]*disclosure)[\s_]+agreement\b/i, "No"],
+    [/\bable[\s_]+to[\s_]+work[\s_]+(remotely|from[\s_]+home)\b/i, "Yes"],
+  ];
+
   async function tryQADefaults(el, qaDefaults, opts) {
-    if (!qaDefaults || !qaDefaults.length) return false;
     const text = probeText(el).toLowerCase();
-    for (const entry of qaDefaults) {
-      if (!Array.isArray(entry) || entry.length < 2) continue;
-      const needle = String(entry[0]).toLowerCase().trim();
-      if (!needle || needle.length < 3) continue;
-      if (text.includes(needle)) {
-        return await applyValue(el, entry[1], opts);
+    // User's qa_defaults first (allows override of built-ins)
+    if (qaDefaults && qaDefaults.length) {
+      for (const entry of qaDefaults) {
+        if (!Array.isArray(entry) || entry.length < 2) continue;
+        const needle = String(entry[0]).toLowerCase().trim();
+        if (!needle || needle.length < 3) continue;
+        if (text.includes(needle)) {
+          return await applyValue(el, entry[1], opts);
+        }
+      }
+    }
+    // Built-in last-resort
+    for (const [re, value] of BUILT_IN_QA) {
+      if (re.test(text)) {
+        return await applyValue(el, value, opts);
       }
     }
     return false;
@@ -690,7 +734,46 @@
       if (clickMatchingButton(btns, value)) filled++;
     }
 
+    // ── Submit-button highlight (NOT auto-click) ─────────────────────────────
+    // Visual cue that helps the user find the Submit button after a long
+    // scroll-through review. We NEVER click the button automatically; the
+    // value of this extension is filling fast so the user can review.
+    try { highlightSubmitButton(); } catch (_) {}
+
     return { filled, total: fields.length + buttonGroupTotal };
+  }
+
+  function highlightSubmitButton() {
+    // Find candidate submit buttons. Prioritize type=submit, then text.
+    const SUBMIT_TEXT = /^(submit|submit\s+application|send\s+application|apply\s+now|finish\s+&?\s*submit|review\s+&?\s*submit)$/i;
+    let btn = null;
+    // Prefer explicit type="submit"
+    for (const b of document.querySelectorAll('button[type="submit"], input[type="submit"]')) {
+      if (isVisible(b)) { btn = b; break; }
+    }
+    // Fall back to text match
+    if (!btn) {
+      for (const b of document.querySelectorAll('button, [role="button"], a.btn, input[type="button"]')) {
+        if (!isVisible(b)) continue;
+        const txt = cleanText(b.innerText || b.value || b.textContent || "");
+        if (SUBMIT_TEXT.test(txt)) { btn = b; break; }
+      }
+    }
+    if (!btn) return;
+    // Pulse outline animation
+    const prev = btn.style.cssText;
+    btn.style.cssText = prev
+      + ";outline:3px solid #198754;outline-offset:3px;"
+      + "transition:outline-color 0.3s;animation:__jt_submit_pulse 1.5s ease-in-out 3";
+    // Inject keyframes once
+    if (!document.getElementById("__jt_submit_pulse_style")) {
+      const style = document.createElement("style");
+      style.id = "__jt_submit_pulse_style";
+      style.textContent = "@keyframes __jt_submit_pulse { 0%, 100% { outline-color: #198754; } 50% { outline-color: #20c997; } }";
+      document.head.appendChild(style);
+    }
+    // Clear the outline after 5s so the form looks normal again
+    setTimeout(() => { try { btn.style.cssText = prev; } catch (_) {} }, 5000);
   }
 
   // ── AI Phase 2 helpers ─────────────────────────────────────────────────────

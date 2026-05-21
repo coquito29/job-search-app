@@ -31,6 +31,30 @@ Selects pick an option whose visible text or value matches; radios/checkboxes
 click the matching choice. The user's `qa_defaults` from the app act as a
 fuzzy fallback when no structured rule fires.
 
+## v0.9.0 — Pronouns + qa_defaults expansion + country code + Submit highlight
+
+Four small additions, all from real-world ATS forms we hadn't covered:
+
+- **Pronouns**: new profile field, fills selects whose label matches
+  /\\bpronoun(s)?\\b/i with "He/Him". Common DEI field at Lever / Workable.
+- **Phone country-code split**: many ATSes have separate inputs for the
+  +1 country code and the 10-digit phone. New rule fires on
+  /country_code|dial_code|calling_code/, fills with "+1"; the
+  /phone_number/ rule then fills the digits from profile.phone_digits.
+  Order matters — country-code rule must precede the generic phone
+  rule.
+- **Built-in qa_defaults**: 11 common questions with canonical answers
+  (over 18, valid driver's licence, "how did you hear about us" →
+  LinkedIn, "can you start within 2 weeks", "non-compete agreement",
+  remote work, English fluency, etc.). User's profile.qa_defaults
+  still wins as override.
+- **Submit-button highlight (NOT auto-click)**: after fill, finds the
+  submit button (type=submit OR text matches "Submit"/"Submit
+  Application"/"Apply Now") and pulses a green outline for 5 seconds.
+  Helps the user spot the button on long forms. The extension still
+  NEVER clicks Submit on the user's behalf — the value of this tool is
+  filling fast so the user reviews and submits themselves.
+
 ## v0.8.0 — Native date input handling
 
 HTML5 `<input type="date">` requires `YYYY-MM-DD` and rejects shorter

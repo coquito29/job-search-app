@@ -15,6 +15,8 @@ const AUTOFILL_SRC = fs.readFileSync(
 const PROFILE = {
   first_name: "George", last_name: "Tupayachi",
   full_name: "George Tupayachi", preferred_name: "George",
+  pronouns: "He/Him",
+  phone_digits: "6095536215",
   email: "georgetupayachijobs@outlook.com",
   phone: "+1 (609) 553-6215",
   address: {
@@ -264,6 +266,33 @@ const BUTTON_RADIO = `
       <button id="prev_no"  type="button">No</button>
     </div>
   </div>
+</form>`;
+
+// Pronouns + country code + built-in qa_defaults (v0.9).
+const DEI_AND_QA = `
+<form>
+  <label for="pronouns">Pronouns</label>
+  <select id="pronouns" name="pronouns">
+    <option value="">Select...</option>
+    <option>He/Him</option>
+    <option>She/Her</option>
+    <option>They/Them</option>
+  </select>
+
+  <label for="cc">Country Code</label>
+  <input id="cc" name="country_code" type="text" />
+
+  <label for="ph">Phone Number</label>
+  <input id="ph" name="phone_number" type="text" />
+
+  <div>
+    <label class="d-block">Are you over 18 years of age?</label>
+    <div><input type="radio" name="over_18" id="o18_yes" value="Yes"><label for="o18_yes">Yes</label></div>
+    <div><input type="radio" name="over_18" id="o18_no"  value="No"><label for="o18_no">No</label></div>
+  </div>
+
+  <label for="src">How did you hear about us?</label>
+  <input id="src" name="referral_source" type="text" />
 </form>`;
 
 // Native date inputs — type="date" wants YYYY-MM-DD (so YYYY-MM gets
@@ -595,6 +624,18 @@ async function runAssertions(name, html, getExpected) {
     return {
       "#loc filled with city":  [$("loc").value, "Egg Harbor Township"],
       "#email_loc filled":      [$("email_loc").value, "georgetupayachijobs@outlook.com"],
+    };
+  });
+
+  // ── DEI + qa_defaults + country code (v0.9) ──────────────────────
+  await runAssertions("Pronouns + country code + built-in QA", DEI_AND_QA, (w) => {
+    const $ = (id) => w.document.getElementById(id);
+    return {
+      "#pronouns":      [$("pronouns").value, "He/Him"],
+      "#cc":            [$("cc").value, "+1"],
+      "#ph":            [$("ph").value, "6095536215"],
+      "Over-18 = Yes":  [$("o18_yes").checked, true],
+      "#src":           [$("src").value, "LinkedIn"],
     };
   });
 

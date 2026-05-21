@@ -2004,6 +2004,7 @@ def _build_full_profile(uid):
         "last_name":    "Tupayachi",
         "full_name":    "George Tupayachi",
         "preferred_name": "George",
+        "pronouns":     "He/Him",
         # Contact
         "email":        "georgetupayachijobs@outlook.com",
         "phone":        "+1 (609) 553-6215",
@@ -4622,6 +4623,47 @@ def test_form_page():
           });
         })();
       </script>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body">
+      <p class="ph">Pronouns + DEI + Country Code + Built-in Q&amp;A <span class="badge-phase badge-phase1">Phase 1 rules (v0.9)</span></p>
+      <p style="font-size:.78rem;color:#6c757d;margin:0 0 10px">Pronouns select, phone country-code split, and built-in qa_defaults for common questions.</p>
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label for="pronouns">Pronouns</label>
+          <select id="pronouns" name="pronouns" class="form-select">
+            <option value="">Select...</option>
+            <option>He/Him</option>
+            <option>She/Her</option>
+            <option>They/Them</option>
+            <option>Prefer not to say</option>
+          </select>
+        </div>
+        <div class="col-md-3">
+          <label for="phone_country_code">Country Code</label>
+          <input type="text" id="phone_country_code" name="country_code" class="form-control" placeholder="+1">
+        </div>
+        <div class="col-md-3">
+          <label for="phone_number">Phone Number</label>
+          <input type="text" id="phone_number" name="phone_number" class="form-control">
+        </div>
+        <div class="col-md-12">
+          <label class="d-block">Are you over 18 years of age?</label>
+          <div class="form-check form-check-inline"><input class="form-check-input" type="radio" name="over_18" id="o18_yes" value="Yes"><label class="form-check-label" for="o18_yes">Yes</label></div>
+          <div class="form-check form-check-inline"><input class="form-check-input" type="radio" name="over_18" id="o18_no"  value="No"><label class="form-check-label" for="o18_no">No</label></div>
+        </div>
+        <div class="col-md-6">
+          <label for="referral_source">How did you hear about us?</label>
+          <input type="text" id="referral_source" name="referral_source" class="form-control">
+        </div>
+        <div class="col-md-6">
+          <label class="d-block">Are you able to work remotely?</label>
+          <div class="form-check form-check-inline"><input class="form-check-input" type="radio" name="remote_ok" id="rok_yes" value="Yes"><label class="form-check-label" for="rok_yes">Yes</label></div>
+          <div class="form-check form-check-inline"><input class="form-check-input" type="radio" name="remote_ok" id="rok_no"  value="No"><label class="form-check-label" for="rok_no">No</label></div>
+        </div>
+      </div>
     </div>
   </div>
 
