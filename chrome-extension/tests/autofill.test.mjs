@@ -633,7 +633,7 @@ async function runAssertions(name, html, getExpected) {
     return {
       "#pronouns":      [$("pronouns").value, "He/Him"],
       "#cc":            [$("cc").value, "+1"],
-      "#ph":            [$("ph").value, "6095536215"],
+      "#ph":            [$("ph").value, "+1 (609) 553-6215"],
       "Over-18 = Yes":  [$("o18_yes").checked, true],
       "#src":           [$("src").value, "LinkedIn"],
     };

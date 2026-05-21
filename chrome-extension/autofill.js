@@ -42,18 +42,17 @@
 
       { value: p.email,            patterns: [/\bemail\b/i, /\be-?mail[\s_-]*address\b/i] },
 
-      // Phone fields. Two patterns to handle:
-      //   A) Single-input form (most common): label "Phone Number", one input
-      //      — fill with the FORMATTED phone "+1 (609) 553-6215".
-      //   B) Split forms (e.g., country code <select> + phone <input>): country
-      //      gets "+1", phone gets digits-only "6095536215".
-      // The page-level _hasCountryCodeField flag (set inside the closure that
-      // builds the rules) determines which branch we're in.
+      // Country code first — explicit country_code/dial_code labels get "+1"
       { value: "+1",               patterns: [
           /\bcountry[\s_-]*(code|calling[\s_-]*code|dial[\s_-]*code)\b/i,
           /\b(dial|calling)[\s_-]*code\b/i,
       ] },
-      { value: p._hasCountryCodeField ? (p.phone_digits || p.phone) : p.phone,
+      // Generic phone rule — fills the FORMATTED phone always. On forms
+      // with a separate country-code field, both fields get filled and the
+      // formatted phone has a redundant "+1" prefix. Most ATSes accept it
+      // (they parse the country code from the front of the number anyway).
+      // Single-input forms (the common case) get the proper formatted value.
+      { value: p.phone,
         patterns: [/\bphone\b/i, /\bmobile\b/i, /\btelephone\b/i, /\bcontact[\s_-]*number\b/i] },
 
       // Pronouns — increasingly common DEI field. Selects usually have
@@ -667,22 +666,6 @@
     return undefined;
   }
 
-  // Detect whether the page has a separate country-code field. If so, the
-  // phone rule fills with digits-only so the country-code field gets "+1".
-  function pageHasCountryCodeField() {
-    const re = /\bcountry[\s_-]*(code|calling|dial)\b|\b(dial|calling)[\s_-]*code\b/i;
-    for (const el of document.querySelectorAll("input, select")) {
-      const hay = (el.name || "") + " " + (el.id || "") + " " + (el.placeholder || "");
-      if (re.test(hay)) return true;
-      // Also check label[for] text
-      if (el.id) {
-        const lab = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
-        if (lab && re.test(lab.textContent || "")) return true;
-      }
-    }
-    return false;
-  }
-
   async function run(profile, opts) {
     opts = opts || {};
 
@@ -691,8 +674,6 @@
     // up by Pass 0's indexed-name dispatch.
     try { await expandRepeatingSections(profile); } catch (_) {}
 
-    // Decorate the profile with a derived flag the RULES function uses
-    profile = Object.assign({}, profile, { _hasCountryCodeField: pageHasCountryCodeField() });
     const rules = RULES(profile);
     const fields = Array.from(document.querySelectorAll("input, select, textarea"))
       .filter(isFillable);
