@@ -4676,6 +4676,15 @@ def bookmarklet_install():
   </div>
 </div>
 
+<div class="card" style="border-left:4px solid #6f42c1">
+  <div class="card-body">
+    <p class="ph">For strict-CSP ATSes (Greenhouse / Ashby / Workday)</p>
+    <p>This standard bookmarklet fetches the engine over HTTPS from <code>job-search-app-9pnx.onrender.com</code>. <strong>Strict-CSP ATSes block that fetch</strong> (Greenhouse + Workday + Ashby all do). If you tap the bookmark on those sites and nothing happens, use the offline version instead:</p>
+    <p style="text-align:center;margin:14px 0"><a class="btn btn-primary" href="/bookmarklet/inline">→ Install the offline (CSP-bypass) bookmarklet</a></p>
+    <p style="font-size:.82rem;color:#6c757d">Trade-off: the offline bookmarklet has Phase 1 rule fills only — no AI on free-text questions, because the AI call needs a cross-origin fetch that CSP also blocks. For Lever / Workable / less-strict ATSes, stick with the regular bookmarklet above.</p>
+  </div>
+</div>
+
 </body></html>"""
 
 
@@ -4777,6 +4786,164 @@ def bookmarklet_run_js():
     resp.headers["Content-Type"]  = "application/javascript; charset=utf-8"
     resp.headers["Cache-Control"] = "no-store"
     return resp
+
+
+@app.route("/bookmarklet/inline")
+def bookmarklet_inline():
+    """Self-contained bookmarklet that bypasses strict-CSP ATSes like
+    Greenhouse / Ashby / Workday. The entire autofill engine + the user's
+    profile are encoded into the javascript: URL itself, so the bookmarklet
+    runs without making ANY cross-origin fetches. CSP doesn't apply to
+    javascript: URLs that the user triggers themselves (per spec).
+
+    Trade-off: Phase 2 AI is offline. The /api/autofill cross-origin POST
+    would still be blocked by connect-src on the same hosts. Phase 1 rule
+    fills cover ~80% of typical ATS forms; for the remaining free-text
+    questions the user just types those manually on mobile-CSP-locked
+    sites. On Lever / Workable / friendlier ATSes, the regular
+    /bookmarklet (external fetch) works AND keeps Phase 2 AI on."""
+    from urllib.parse import quote
+    uid, err = _auth_required()
+    if err: return err
+
+    profile = _build_full_profile(uid)
+    engine  = _read_autofill_js()
+    if not engine:
+        return ("Autofill engine missing on server", 500)
+
+    # Phase 1 only — strip the Phase 2 AI block from the invocation. On
+    # mobile-CSP-locked sites the cross-origin POST would error anyway;
+    # baking it in would just add bytes and a confusing console error.
+    invocation = """
+(async () => {
+  function toast(text, kind) {
+    let t = document.getElementById('__jt_bookmarklet_toast');
+    if (t) t.remove();
+    t = document.createElement('div');
+    t.id = '__jt_bookmarklet_toast';
+    t.style.cssText = 'position:fixed;bottom:16px;right:16px;z-index:2147483647;'
+      + 'padding:12px 16px;border-radius:8px;color:#fff;font:600 13px/1.4 system-ui,sans-serif;'
+      + 'box-shadow:0 6px 20px rgba(0,0,0,.25);max-width:340px;'
+      + 'background:' + (kind === 'err' ? '#b91c1c' : '#198754');
+    t.textContent = text;
+    document.documentElement.appendChild(t);
+    setTimeout(() => t.remove(), 12000);
+  }
+  if (!window.__jobTrackerAutofill) { toast('Autofill engine failed to load', 'err'); return; }
+  try {
+    const r = await window.__jobTrackerAutofill.run(window.__jt_bookmarklet_profile);
+    toast('Auto-filled ' + r.filled + ' field' + (r.filled === 1 ? '' : 's')
+      + ' — review before submitting');
+  } catch (e) {
+    toast('Autofill error: ' + (e.message || e), 'err');
+  }
+})();
+"""
+
+    # The full self-contained JS — engine + profile + invocation
+    full_js = (
+        "window.__jt_bookmarklet_profile = " + json.dumps(profile) + ";"
+        + engine
+        + invocation
+    )
+
+    # Wrap in IIFE then URL-encode for the javascript: URL. quote(safe="")
+    # is paranoid (encodes everything that isn't unreserved) which is what
+    # we want — bookmark URLs go through the address bar parser which is
+    # strict about syntax characters like (, ), ;, =, &.
+    iife = "(()=>{" + full_js + "})()"
+    bookmarklet_url = "javascript:" + quote(iife, safe="")
+
+    site = "https://job-search-app-9pnx.onrender.com"
+
+    # HTML-escape the bookmarklet text for safe rendering inside <pre>.
+    bm_for_pre = bookmarklet_url.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    # For the draggable <a href>, only & needs to be escaped (already not <>).
+    bm_for_href = bookmarklet_url.replace("&", "&amp;").replace('"', "&quot;")
+
+    return """<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Inline Mobile Bookmarklet · Job Search App</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+<style>
+  body{background:#f0f4f8;padding:0 0 80px;font-size:.95rem;line-height:1.5}
+  .hdr{background:linear-gradient(135deg,#6f42c1 0%,#3a1d6a 100%);color:white;padding:18px 20px;box-shadow:0 2px 8px rgba(0,0,0,.25)}
+  .hdr h1{font-size:1.35rem;margin:0;font-weight:700}
+  .hdr .subtitle{font-size:.82rem;opacity:.9;margin:4px 0 0}
+  .card{border:none;border-radius:14px;box-shadow:0 2px 6px rgba(0,0,0,.08);margin:14px;background:white}
+  .ph{font-weight:700;color:#6f42c1;font-size:1rem;margin:0 0 14px;padding-bottom:6px;border-bottom:1px solid #e9ecef}
+  .install-btn{display:inline-block;background:#6f42c1;color:white;padding:12px 22px;border-radius:10px;font-weight:700;font-size:1.05rem;text-decoration:none;box-shadow:0 4px 12px rgba(111,66,193,.35)}
+  .install-btn:hover{background:#5e35a8;color:white}
+  pre{background:#212529;color:#e9ecef;padding:14px;border-radius:8px;font-size:.7rem;overflow-x:auto;word-break:break-all;line-height:1.45;max-height:300px}
+  .platform{margin-top:14px;padding:12px 16px;background:#fff8e1;border:1px solid #ffe082;border-radius:10px;font-size:.86rem}
+  .platform h4{font-size:.95rem;margin:0 0 8px;color:#856404;font-weight:700}
+  .warning{background:#f8d7da;border:1px solid #f5c6cb;color:#721c24;padding:12px 16px;border-radius:10px;margin:14px;font-size:.86rem}
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <h1><i class="bi bi-shield-lock"></i> Inline Mobile Bookmarklet (CSP-bypass)</h1>
+  <p class="subtitle">Self-contained — the entire engine + your profile are baked into the bookmark itself. Works on strict-CSP ATSes (Greenhouse, Ashby, Workday) where the regular bookmarklet's external fetch is blocked.</p>
+</div>
+
+<div class="warning">
+  <strong>Trade-off:</strong> Phase 2 AI (free-text answers from your CV) is OFF in this mode — those questions need a cross-origin fetch that CSP also blocks. You'll still get all the Phase 1 rule fills (name / contact / address / EEO / education / work history / button-radios). For Lever / Workable / less-strict ATSes, prefer the regular <a href="/bookmarklet">/bookmarklet</a> which keeps AI on.
+</div>
+
+<div class="card">
+  <div class="card-body">
+    <p class="ph">1. Install the bookmark</p>
+    <p>Bookmark size: roughly """ + str(len(bookmarklet_url) // 1024) + """ KB. Modern browsers handle this fine; very old mobile browsers may truncate.</p>
+    <p style="text-align:center;margin:18px 0">
+      <a class="install-btn" href=\"""" + bm_for_href + """\">📝 Job Search Autofill (Offline)</a>
+    </p>
+    <div class="platform">
+      <h4>📱 iOS Safari</h4>
+      <ol style="padding-left:22px;margin:0">
+        <li>Tap <strong>Share</strong> → <strong>Add Bookmark</strong>. Save anywhere.</li>
+        <li>Open <strong>Bookmarks</strong> → <strong>Edit</strong> → tap the bookmark → tap the URL field → <strong>delete it all</strong> → tap the Copy button below this list, then paste into the URL field.</li>
+        <li>Rename it "Autofill (Offline)". Done.</li>
+      </ol>
+    </div>
+    <div class="platform">
+      <h4>📱 Android Chrome</h4>
+      <ol style="padding-left:22px;margin:0">
+        <li>Tap <strong>⋮</strong> menu → <strong>Bookmarks</strong> → <strong>⋮</strong> → <strong>Add new bookmark</strong>.</li>
+        <li>Name "Autofill (Offline)", paste the code below into the URL field. Save.</li>
+        <li>To trigger: type "Autofill" into the URL bar and tap the suggestion.</li>
+      </ol>
+    </div>
+    <p style="margin-top:18px"><strong>Bookmarklet code</strong> (copy/paste):</p>
+    <pre id="bm-code">""" + bm_for_pre + """</pre>
+    <button class="btn btn-outline-primary btn-sm" onclick="navigator.clipboard.writeText(document.getElementById('bm-code').textContent).then(()=>this.textContent='Copied ✓')">📋 Copy to clipboard</button>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-body">
+    <p class="ph">2. Use it</p>
+    <ol style="padding-left:22px">
+      <li>Open the strict-CSP application form (Greenhouse, Ashby, Workday).</li>
+      <li>Tap the <strong>Autofill (Offline)</strong> bookmark.</li>
+      <li>Green toast confirms: <em>"Auto-filled N fields"</em>. The free-text questions still need manual answers.</li>
+      <li>Review every field. Click Submit yourself.</li>
+    </ol>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-body">
+    <p class="ph">How it bypasses CSP</p>
+    <p style="font-size:.88rem">CSP's <code>script-src</code> directive controls EXTERNAL <code>&lt;script src&gt;</code> tags, NOT bookmarklets. Bookmarklets execute via the address bar (a user-initiated action) and run outside the page's script-src restrictions. By inlining the entire engine + your profile into the <code>javascript:</code> URL, there are no external fetches at all — just code that runs in the page's context the moment you tap the bookmark.</p>
+    <p style="font-size:.88rem">If you update your profile on the web app (new CV, edited Q&A defaults), the bookmark's inlined profile becomes stale. Re-visit this page and re-install to refresh it.</p>
+  </div>
+</div>
+
+</body></html>"""
 
 
 # ── Startup ───────────────────────────────────────────────────────────────────
