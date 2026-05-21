@@ -13,6 +13,21 @@ import requests as http_req
 from flask import Flask, request, jsonify, render_template, send_file, session
 from werkzeug.security import generate_password_hash, check_password_hash
 
+# Billing helpers live in their own module so app.py stays focused on
+# search/AI/applications logic. billing.py is import-safe even when the
+# `stripe` SDK or env vars are missing (it degrades to no-op).
+from billing import (
+    TIERS as _BILLING_TIERS,
+    stripe_ready as _stripe_ready,
+    stripe_sdk as _stripe_sdk,
+    check_quota as _billing_check_quota,
+    increment_quota as _billing_increment_quota,
+    get_user as _billing_get_user,
+    create_checkout_session as _billing_create_checkout,
+    create_portal_session as _billing_create_portal,
+    apply_subscription_event as _billing_apply_event,
+)
+
 try:
     from pdfminer.high_level import extract_text as pdf_extract_text
 except ImportError:
@@ -222,6 +237,17 @@ def _init_applications_db():
         "ALTER TABLE applications ADD COLUMN user_id INTEGER NOT NULL DEFAULT 1",
         "ALTER TABLE applications ADD COLUMN follow_up_sent_at TEXT",
         "ALTER TABLE applications ADD COLUMN last_contact_email TEXT",
+        # Billing columns. Free tier is default; Stripe webhook flips users to
+        # 'pro' / 'autopilot' on successful checkout, back to 'free' on cancel.
+        # is_founder=1 bypasses all quota checks (set via FOUNDER_USER_KEYS env).
+        "ALTER TABLE users ADD COLUMN tier TEXT NOT NULL DEFAULT 'free'",
+        "ALTER TABLE users ADD COLUMN stripe_customer_id TEXT",
+        "ALTER TABLE users ADD COLUMN stripe_subscription_id TEXT",
+        "ALTER TABLE users ADD COLUMN subscription_status TEXT",
+        "ALTER TABLE users ADD COLUMN current_period_end TEXT",
+        "ALTER TABLE users ADD COLUMN monthly_quota_used INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE users ADD COLUMN quota_reset_at TEXT",
+        "ALTER TABLE users ADD COLUMN is_founder INTEGER NOT NULL DEFAULT 0",
     ):
         try:
             with _db_conn() as conn:
@@ -237,6 +263,21 @@ def _init_applications_db():
                 "INSERT INTO users (user_key, passcode_hash, created_at) VALUES (?, ?, ?)",
                 ("default", None, datetime.utcnow().isoformat()),
             )
+
+    # Founder allowlist: comma-separated user_key values that get unlimited free
+    # access. George's "default" user_key is whitelisted automatically so the
+    # paywall never blocks him on his own deployed app. Must run AFTER the
+    # seed above so a fresh DB still flips the freshly-inserted default user.
+    _founder_keys = os.environ.get("FOUNDER_USER_KEYS", "default").strip()
+    if _founder_keys:
+        for k in [s.strip() for s in _founder_keys.split(",") if s.strip()]:
+            try:
+                with _db_conn() as conn:
+                    conn.execute(
+                        "UPDATE users SET is_founder = 1 WHERE user_key = ?", (k,)
+                    )
+            except Exception:
+                pass
 
 
 _init_applications_db()
@@ -1243,6 +1284,166 @@ def auth_change():
     return jsonify({"ok": True})
 
 
+# ── Billing (Stripe checkout, webhook, status, portal) ───────────────────────
+# Every route returns a clear error when Stripe isn't configured, so the
+# rest of the app keeps working without billing env vars set (useful for
+# local dev and as a graceful fallback if Stripe is down).
+
+def _base_url():
+    """Best-guess of our public origin for building Stripe redirect URLs.
+    Honors X-Forwarded-Proto (Render sets this) and falls back to request.url_root."""
+    proto = request.headers.get("X-Forwarded-Proto", "").split(",")[0].strip()
+    host  = request.headers.get("X-Forwarded-Host",  request.host)
+    if proto and host:
+        return f"{proto}://{host}"
+    return request.url_root.rstrip("/")
+
+
+@app.route("/api/billing/status", methods=["GET"])
+def billing_status():
+    """Return the current user's tier + quota usage. Public — works while
+    locked too (returns 'free' tier so the landing/login page can show
+    pricing without forcing a login)."""
+    uid = _current_user_id()
+    if uid is None:
+        # Anonymous/locked view: just expose tier pricing for the pricing UI
+        return jsonify({
+            "logged_in":  False,
+            "tier":       "free",
+            "is_founder": False,
+            "tiers":      _BILLING_TIERS,
+            "stripe_ready": _stripe_ready(),
+            "publishable_key": os.environ.get("STRIPE_PUBLISHABLE_KEY", ""),
+        })
+    user = _billing_get_user(_db_conn, uid)
+    if user is None:
+        return jsonify({"error": "User not found"}), 404
+    # Run a quota check just to ensure the meter is rolled over if the
+    # window has elapsed — caller may rely on `used` being current.
+    _, info = _billing_check_quota(_db_conn, uid, feature="cover_letter")
+    return jsonify({
+        "logged_in":            True,
+        "tier":                 user["tier"],
+        "is_founder":           user["is_founder"],
+        "subscription_status":  user["subscription_status"],
+        "current_period_end":   user["current_period_end"],
+        "cover_letter_used":    info.get("used", 0),
+        "cover_letter_limit":   info.get("limit"),
+        "cover_letter_remaining": info.get("remaining"),
+        "quota_reset_at":       info.get("reset_at", ""),
+        "tiers":                _BILLING_TIERS,
+        "stripe_ready":         _stripe_ready(),
+        "publishable_key":      os.environ.get("STRIPE_PUBLISHABLE_KEY", ""),
+    })
+
+
+@app.route("/api/billing/checkout", methods=["POST"])
+def billing_checkout():
+    """Create a Stripe Checkout Session and return its URL. Body: {tier: "pro"|"autopilot"}."""
+    uid, err = _auth_required()
+    if err: return err
+    if not _stripe_ready():
+        return jsonify({"error": "Billing is not configured on this server."}), 503
+    data = request.get_json(force=True) or {}
+    tier = (data.get("tier") or "").strip().lower()
+    url, e = _billing_create_checkout(_db_conn, uid, tier, _base_url(),
+                                       email=data.get("email"))
+    if e:
+        return jsonify({"error": e}), 400
+    return jsonify({"url": url})
+
+
+@app.route("/api/billing/portal", methods=["POST"])
+def billing_portal():
+    """Return a Stripe Billing Portal URL so the user can manage their sub."""
+    uid, err = _auth_required()
+    if err: return err
+    if not _stripe_ready():
+        return jsonify({"error": "Billing is not configured on this server."}), 503
+    url, e = _billing_create_portal(_db_conn, uid, _base_url())
+    if e:
+        return jsonify({"error": e}), 400
+    return jsonify({"url": url})
+
+
+@app.route("/api/billing/webhook", methods=["POST"])
+def billing_webhook():
+    """Stripe webhook receiver. Verifies signature, dispatches to
+    apply_subscription_event. Stripe retries on non-2xx so we MUST return
+    200 even if the event was a no-op (otherwise we get duplicate fires)."""
+    sdk = _stripe_sdk()
+    if sdk is None:
+        # No Stripe config means we shouldn't even be receiving webhooks.
+        # Returning 200 prevents a retry storm if a misconfigured Stripe
+        # dashboard points at us with the SDK absent.
+        return jsonify({"ok": True, "skipped": "stripe not configured"})
+    payload   = request.get_data(as_text=False)
+    sig       = request.headers.get("Stripe-Signature", "")
+    secret    = os.environ.get("STRIPE_WEBHOOK_SECRET", "").strip()
+    if secret:
+        try:
+            event = sdk.Webhook.construct_event(payload, sig, secret)
+        except Exception as e:
+            return jsonify({"error": f"Invalid signature: {e}"}), 400
+    else:
+        # No secret configured — accept unverified events but log loudly.
+        # Render dev environments sometimes run without the secret before
+        # the user creates the Stripe webhook endpoint.
+        try:
+            event = json.loads(payload.decode("utf-8"))
+        except Exception:
+            return jsonify({"error": "Bad JSON"}), 400
+        print("[billing] WARNING: STRIPE_WEBHOOK_SECRET not set — event unverified")
+    note = _billing_apply_event(_db_conn, event)
+    print(f"[billing] webhook {event.get('type','?')}: {note}")
+    return jsonify({"ok": True, "note": note})
+
+
+@app.route("/billing")
+def billing_page():
+    """Simple HTML billing/pricing page. Renders `billing.html` if the template
+    exists (the landing-page session will likely add this); otherwise serves a
+    minimal inline fallback so the route never 404s while UI is in flight."""
+    try:
+        return render_template("billing.html", tiers=_BILLING_TIERS)
+    except Exception:
+        # Inline fallback — purely functional, the landing session will
+        # replace this with proper styling.
+        rows = ""
+        for key, t in _BILLING_TIERS.items():
+            price = "Free" if t["price_monthly"] == 0 else f"${t['price_monthly']}/mo"
+            cl    = "Unlimited" if t["cover_letters_month"] is None else f"{t['cover_letters_month']} / month"
+            aa    = "Yes" if t["auto_apply"] else "—"
+            btn   = ("" if key == "free"
+                     else f"<button onclick=\"checkout('{key}')\">Get {t['label']}</button>")
+            rows += (f"<tr><td><b>{t['label']}</b></td><td>{price}</td>"
+                     f"<td>{cl}</td><td>{aa}</td><td>{btn}</td></tr>")
+        return f"""<!DOCTYPE html><html><head><meta charset='UTF-8'>
+<meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>Billing — Job Search App</title>
+<style>
+  body{{font-family:system-ui,sans-serif;max-width:720px;margin:40px auto;padding:16px}}
+  table{{width:100%;border-collapse:collapse}}
+  th,td{{padding:10px 12px;border-bottom:1px solid #ddd;text-align:left}}
+  button{{background:#0d6efd;color:white;border:0;padding:8px 14px;border-radius:6px;cursor:pointer}}
+</style></head><body>
+<h1>Pricing</h1>
+<table><tr><th>Plan</th><th>Price</th><th>Cover letters</th><th>Auto-apply</th><th></th></tr>
+{rows}
+</table>
+<p><a href="/">← Back to app</a> · <button onclick="portal()">Manage subscription</button></p>
+<script>
+async function checkout(tier){{
+  const r=await fetch('/api/billing/checkout',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{tier}}),credentials:'include'}});
+  const d=await r.json(); if(d.url) location=d.url; else alert(d.error||'Error');
+}}
+async function portal(){{
+  const r=await fetch('/api/billing/portal',{{method:'POST',credentials:'include'}});
+  const d=await r.json(); if(d.url) location=d.url; else alert(d.error||'Error');
+}}
+</script></body></html>"""
+
+
 # ── Profile (cross-device sync of skills / summary / settings) ───────────────
 
 @app.route("/api/profile", methods=["GET"])
@@ -1318,13 +1519,24 @@ def parse_cv():
         return jsonify({"error": f"Failed to parse file: {str(e)}"}), 500
 
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    if api_key and _anthropic:
+    # Quota gate: AI CV parsing is the second-most expensive feature. Unlike
+    # cover-letter (hard 402), here we *fall through* to keyword extraction
+    # when the user is over quota — the result is worse but still useful, and
+    # the visible quality drop is a natural upgrade nudge.
+    uid = _current_user_id()
+    ai_allowed = False
+    if uid is not None and api_key and _anthropic:
+        ai_allowed, _ = _billing_check_quota(_db_conn, uid, feature="cv_parse")
+
+    if ai_allowed:
         try:
-            return _parse_cv_ai(text, api_key)
+            resp = _parse_cv_ai(text, api_key)
+            _billing_increment_quota(_db_conn, uid, amount=1)
+            return resp
         except Exception:
             pass
 
-    # Fallback: keyword matching
+    # Fallback: keyword matching (also used when locked, over quota, or AI fails)
     skills = extract_skills_from_text(text)
     lines  = [ln.strip() for ln in text.splitlines() if ln.strip()]
     summary = " ".join(lines[:5])[:300] if lines else ""
@@ -1471,6 +1683,21 @@ def search_jobs():
 
 @app.route("/api/cover-letter", methods=["POST"])
 def cover_letter():
+    # Paywall gate: cover-letter is the AI-heaviest feature (real Anthropic
+    # spend per call). Free tier gets 3/month, paid tiers unlimited. Founders
+    # bypass entirely. We return 402 Payment Required so the frontend can
+    # show an upgrade modal — falling back to a template-only letter would
+    # devalue the paid plan since the template path produces a generic letter.
+    uid, err = _auth_required()
+    if err: return err
+    allowed, qinfo = _billing_check_quota(_db_conn, uid, feature="cover_letter")
+    if not allowed:
+        return jsonify({
+            "error":       "Monthly cover-letter quota reached. Upgrade to keep generating.",
+            "quota":       qinfo,
+            "upgrade_url": "/billing",
+        }), 402
+
     data           = request.get_json(force=True)
     job            = data.get("job") or {}
     skills         = data.get("skills") or []
@@ -1482,27 +1709,30 @@ def cover_letter():
     cv_text = ""
     if cv_id:
         try:
-            uid = _current_user_id()
-            if uid is not None:
-                with _db_conn() as conn:
-                    cur = conn.execute(
-                        "SELECT parsed_text, ai_summary, ai_skills FROM cvs "
-                        "WHERE id = ? AND user_id = ?", (int(cv_id), uid),
-                    )
-                    row = cur.fetchone()
-                if row:
-                    if not resume_summary:
-                        resume_summary = _row_get(row, "ai_summary", "") or ""
-                    cv_text = _row_get(row, "parsed_text", "") or ""
-                    if not skills:
-                        sk_raw = _row_get(row, "ai_skills")
-                        if sk_raw:
-                            try: skills = json.loads(sk_raw)
-                            except Exception: pass
+            with _db_conn() as conn:
+                cur = conn.execute(
+                    "SELECT parsed_text, ai_summary, ai_skills FROM cvs "
+                    "WHERE id = ? AND user_id = ?", (int(cv_id), uid),
+                )
+                row = cur.fetchone()
+            if row:
+                if not resume_summary:
+                    resume_summary = _row_get(row, "ai_summary", "") or ""
+                cv_text = _row_get(row, "parsed_text", "") or ""
+                if not skills:
+                    sk_raw = _row_get(row, "ai_skills")
+                    if sk_raw:
+                        try: skills = json.loads(sk_raw)
+                        except Exception: pass
         except Exception:
             pass  # fall through to the original (skills-only) path
 
     text = generate_cover_letter(job, skills, resume_summary, cv_text=cv_text)
+
+    # Only meter the quota for actual AI calls. The template fallback runs
+    # when ANTHROPIC_API_KEY is unset and shouldn't burn the user's allowance.
+    if os.environ.get("ANTHROPIC_API_KEY") and _anthropic:
+        _billing_increment_quota(_db_conn, uid, amount=1)
 
     buf = io.BytesIO(text.encode("utf-8"))
     buf.seek(0)
