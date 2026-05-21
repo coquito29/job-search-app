@@ -219,9 +219,48 @@ const COMBINED_NAME = `
   <input id="email_combined" name="email" type="email" />
 </form>`;
 
+// Ashby-style: Yes/No question rendered as <button> chips, not <input
+// type="radio">. The button-group pass should find the question label, match
+// it against a rule (relocate → Yes), and click the matching button.
+const BUTTON_RADIO = `
+<form>
+  <label for="email_btn">Email</label>
+  <input id="email_btn" name="email" type="email" />
+
+  <div class="field">
+    <label>Are you willing to relocate for this position?</label>
+    <div class="ashby-radio">
+      <button id="relo_yes" type="button">Yes</button>
+      <button id="relo_no"  type="button">No</button>
+    </div>
+  </div>
+
+  <div class="field">
+    <label>Have you previously worked at this company?</label>
+    <div class="ashby-radio">
+      <button id="prev_yes" type="button">Yes</button>
+      <button id="prev_no"  type="button">No</button>
+    </div>
+  </div>
+</form>`;
+
+// Greenhouse/Lever: location field is a combobox-style autocomplete. The
+// engine should detect the role=combobox + aria-autocomplete attributes
+// and try the autocomplete path; in jsdom there's no real dropdown, so it
+// falls through to setNativeValue with the city.
+const LOCATION_AUTOCOMPLETE = `
+<form>
+  <label for="loc">Current Location</label>
+  <input id="loc" name="location" type="text"
+         role="combobox" aria-autocomplete="list" aria-haspopup="listbox"
+         placeholder="Start typing your city..." />
+  <label for="email_loc">Email</label>
+  <input id="email_loc" name="email" type="email" />
+</form>`;
+
 // ── Test harness ───────────────────────────────────────────────────────────
 
-function runOn(name, html) {
+async function runOn(name, html) {
   const dom = new JSDOM(`<!doctype html><html><body>${html}</body></html>`, {
     pretendToBeVisual: true,
     runScripts: "dangerously",
@@ -248,7 +287,10 @@ function runOn(name, html) {
   window.document.head.appendChild(script);
   const af = window.__jobTrackerAutofill;
 
-  const result = af.run(PROFILE);
+  // Pass autocomplete:false + short wait so combobox fields don't burn
+  // 3 seconds per fixture waiting on a Google-Places dropdown that jsdom
+  // can't render anyway. Real Chrome path is unchanged.
+  const result = await af.run(PROFILE, { autocomplete: false });
 
   // Inspect what actually got filled.
   const fields = [...window.document.querySelectorAll("input, select, textarea")];
@@ -281,16 +323,12 @@ function runOn(name, html) {
   }
 }
 
-runOn("Greenhouse-style form", GREENHOUSE);
-runOn("Lever-style form",      LEVER);
-runOn("Workable-style form",   WORKABLE);
-runOn("Ashby-style form",      ASHBY);
-
-// Assertion-mode run for the combined-name regression — fails the process
-// (exit code 1) if any of the named inputs holds the wrong value. Without
-// the high-priority combined-name rule, #legal_name fills with just
-// "Tupayachi" and the test correctly fails.
-function runAssertions(name, html, expectedById) {
+// Assertion-mode run — fails the process (exit code 1) if any expectation
+// doesn't hold. `getExpected` is a function that takes the jsdom window and
+// returns an object of { description: expected-value, ... } — using a
+// function lets each test introspect the DOM (e.g. read .checked on a
+// button to verify a click landed).
+async function runAssertions(name, html, getExpected) {
   const dom = new JSDOM(`<!doctype html><html><body>${html}</body></html>`, {
     pretendToBeVisual: true,
     runScripts: "dangerously",
@@ -299,6 +337,12 @@ function runAssertions(name, html, expectedById) {
   Object.defineProperty(window.HTMLElement.prototype, "offsetParent", {
     get() { return this.ownerDocument.body; },
   });
+  // jsdom's getBoundingClientRect returns all-zeros by default, which makes
+  // our engine's isVisible() reject the element. Stub a non-zero rect so
+  // button-group visibility checks work in tests.
+  window.HTMLElement.prototype.getBoundingClientRect = function () {
+    return { width: 100, height: 20, top: 0, left: 0, right: 100, bottom: 20 };
+  };
   if (!window.CSS) window.CSS = {};
   if (!window.CSS.escape) {
     window.CSS.escape = (s) => String(s).replace(/[^a-zA-Z0-9_-]/g, c => "\\" + c);
@@ -306,16 +350,24 @@ function runAssertions(name, html, expectedById) {
   const script = window.document.createElement("script");
   script.textContent = AUTOFILL_SRC;
   window.document.head.appendChild(script);
-  window.__jobTrackerAutofill.run(PROFILE);
+  await window.__jobTrackerAutofill.run(PROFILE, { autocomplete: false });
 
   console.log(`\n══ ${name} (strict) ════════════════════════════════════`);
   let failed = 0;
-  for (const [id, expected] of Object.entries(expectedById)) {
-    const el = window.document.getElementById(id);
-    const actual = el ? el.value : "(missing)";
-    const ok = actual === expected;
-    console.log(`  ${ok ? "✓" : "✗"} #${id} = ${JSON.stringify(actual)}` +
-                (ok ? "" : `   expected ${JSON.stringify(expected)}`));
+  // getExpected must return entries shaped { description: [actual, expected] }.
+  // Using a function instead of a literal lets each test introspect the DOM
+  // after autofill (e.g. read .value, check attributes).
+  const expected = getExpected(window);
+  for (const [desc, want] of Object.entries(expected)) {
+    if (!Array.isArray(want) || want.length !== 2) {
+      console.error(`  ✗ ${desc}: malformed expectation (must be [actual, expected])`);
+      failed++;
+      continue;
+    }
+    const [actual, target] = want;
+    const ok = actual === target;
+    console.log(`  ${ok ? "✓" : "✗"} ${desc} = ${JSON.stringify(actual)}` +
+                (ok ? "" : `   expected ${JSON.stringify(target)}`));
     if (!ok) failed++;
   }
   if (failed) {
@@ -324,10 +376,62 @@ function runAssertions(name, html, expectedById) {
   }
 }
 
-runAssertions("Combined-name regression", COMBINED_NAME, {
-  legal_name:      "George Tupayachi",
-  preferred:       "George",
-  applicant_name:  "George Tupayachi",
-  full_legal_name: "George Tupayachi",
-  email_combined:  "georgetupayachijobs@outlook.com",
+// Track button clicks via a global counter set during script init.
+// We use this to verify Pass 2 (button-radio) actually clicked the right one.
+
+(async () => {
+  await runOn("Greenhouse-style form", GREENHOUSE);
+  await runOn("Lever-style form",      LEVER);
+  await runOn("Workable-style form",   WORKABLE);
+  await runOn("Ashby-style form",      ASHBY);
+
+  // ── Combined-name regression ────────────────────────────────────────────
+  await runAssertions("Combined-name regression", COMBINED_NAME, (w) => {
+    const $ = (id) => w.document.getElementById(id);
+    return {
+      "#legal_name fills with full name": [$("legal_name").value, "George Tupayachi"],
+      "#preferred":       [$("preferred").value, "George"],
+      "#applicant_name":  [$("applicant_name").value, "George Tupayachi"],
+      "#full_legal_name": [$("full_legal_name").value, "George Tupayachi"],
+      "#email_combined":  [$("email_combined").value, "georgetupayachijobs@outlook.com"],
+    };
+  });
+
+  // ── Button-radio regression — Ashby Yes/No chips ────────────────────────
+  // The "relocate" question + the user's profile.answers.willing_to_relocate
+  // ("Yes") should result in the #relo_yes button being clicked. Similarly,
+  // "previously employed" + profile ("No") → #prev_no.
+  // We instrument clicks by attaching a marker class in a capture-phase listener.
+  await runAssertions("Button-radio regression", `
+    <script>
+      document.addEventListener('click', (e) => {
+        if (e.target && e.target.tagName === 'BUTTON') {
+          e.target.setAttribute('data-clicked', '1');
+        }
+      }, true);
+    </script>${BUTTON_RADIO}`, (w) => {
+    const $ = (id) => w.document.getElementById(id);
+    return {
+      "#relo_yes clicked":       [$("relo_yes").getAttribute("data-clicked"), "1"],
+      "#relo_no NOT clicked":    [$("relo_no").getAttribute("data-clicked"), null],
+      "#prev_no clicked":        [$("prev_no").getAttribute("data-clicked"), "1"],
+      "#prev_yes NOT clicked":   [$("prev_yes").getAttribute("data-clicked"), null],
+      "email also filled":       [$("email_btn").value, "georgetupayachijobs@outlook.com"],
+    };
+  });
+
+  // ── Autocomplete fallback — combobox without a real dropdown ────────────
+  // In jsdom there's no Google Places to render options; the engine should
+  // detect the combobox attributes, try autocomplete (fails), then fall
+  // through to setNativeValue with the city.
+  await runAssertions("Autocomplete fallback (no dropdown)", LOCATION_AUTOCOMPLETE, (w) => {
+    const $ = (id) => w.document.getElementById(id);
+    return {
+      "#loc filled with city":  [$("loc").value, "Egg Harbor Township"],
+      "#email_loc filled":      [$("email_loc").value, "georgetupayachijobs@outlook.com"],
+    };
+  });
+})().catch(e => {
+  console.error("Test runner failed:", e);
+  process.exit(1);
 });

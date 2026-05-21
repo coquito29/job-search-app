@@ -6,6 +6,12 @@
 //   1. As a content script on known ATS pages (loaded by manifest).
 //   2. Injected on-demand into any tab via chrome.scripting.executeScript.
 // Both contexts call `window.__jobTrackerAutofill.run(profile, opts)`.
+//
+// run() is async because two field types require awaits:
+//   - Custom button-radio groups (Ashby Yes/No chips): synchronous click, but
+//     the rest of the pipeline await-s for symmetry.
+//   - Google-Places-backed location autocompletes: focus + type + wait up to
+//     3s for a dropdown option to appear, then click it.
 
 (function () {
   if (window.__jobTrackerAutofill) return; // idempotent — content script + injection can double-load
@@ -63,34 +69,49 @@
       { value: ans.notice_period,            patterns: [/\b(notice|start)[\s_-]*period\b/i, /\bwhen[\s_-]*can[\s_-]*you[\s_-]*start\b/i, /\bavailability\b/i] },
       { value: ans.esignature,               patterns: [/\b(e[\s_-]*signature|signature|sign[\s_-]*here)\b/i, /\btype[\s_-]*your[\s_-]*name\b/i] },
       { value: ans.willing_to_relocate,      patterns: [/\brelocat/i] },
-      { value: ans.previously_employed,      patterns: [/\bpreviously[\s_-]*employed\b/i, /\bever[\s_-]*worked[\s_-]*(here|with[\s_-]*us|for[\s_-]*(us|the[\s_-]*company))\b/i] },
+      { value: ans.previously_employed,      patterns: [
+          /\bpreviously[\s_-]*(employed|worked)\b/i,
+          /\bever[\s_-]*worked[\s_-]*(here|with[\s_-]*us|for[\s_-]*(us|the[\s_-]*company))\b/i,
+      ] },
       { value: ans.active_security_clearance,patterns: [/\b(security)?[\s_-]*clearance\b/i] },
       { value: ans.us_gov_employment,        patterns: [/\bgov(ernment)?[\s_-]*employ(ee|ment)\b/i, /\bfederal[\s_-]*employ/i] },
     ].filter(r => r.value !== undefined && r.value !== null && r.value !== "");
   };
 
+  // ── Text utilities ─────────────────────────────────────────────────────────
+  function cleanText(s) {
+    return (s || "")
+      .replace(/\s+/g, " ")
+      .replace(/\s*\*\s*$/, "")                   // trailing required-asterisk
+      .replace(/\s*\(required\)\s*$/i, "")
+      .replace(/\s*\(optional\)\s*$/i, "")
+      .trim()
+      .slice(0, 200);
+  }
+
+  function normalizeYesNo(v) {
+    const s = String(v).toLowerCase().trim();
+    if (/^(yes|y|true|1)$/.test(s)) return "yes";
+    if (/^(no|n|false|0)$/.test(s)) return "no";
+    return s;
+  }
+
   // ── Field probing ──────────────────────────────────────────────────────────
-  // The signal we match against: label text + name + id + placeholder + aria.
-  // We concatenate so a single regex match can fire against any of them.
   function probeText(el) {
     const parts = [];
     if (el.id) {
       const lab = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
       if (lab && lab.textContent) parts.push(lab.textContent);
     }
-    // <label> wrapping the input
     let p = el.parentElement;
     for (let i = 0; i < 3 && p; i++, p = p.parentElement) {
       if (p.tagName === "LABEL" && p.textContent) { parts.push(p.textContent); break; }
     }
-    // Enclosing <fieldset>'s <legend> — radio/checkbox groups put the
-    // question there (Lever, Workday, Greenhouse EEOC sections).
     const fieldset = el.closest("fieldset");
     if (fieldset) {
       const legend = fieldset.querySelector(":scope > legend");
       if (legend && legend.textContent) parts.push(legend.textContent);
     }
-    // ARIA labelling
     const labelledby = el.getAttribute("aria-labelledby");
     if (labelledby) {
       labelledby.split(/\s+/).forEach(id => {
@@ -111,11 +132,29 @@
     if (!el || el.disabled || el.readOnly) return false;
     if (el.type === "hidden" || el.type === "file" || el.type === "submit"
         || el.type === "button" || el.type === "reset" || el.type === "image") return false;
-    if (!el.offsetParent && el.type !== "radio" && el.type !== "checkbox") return false; // visibility check
+    if (!el.offsetParent && el.type !== "radio" && el.type !== "checkbox") return false;
     return true;
   }
 
-  // Fire the events React/Vue/Angular listen for so framework state updates.
+  function isVisible(el) {
+    if (!el) return false;
+    if (el.offsetParent === null && getComputedStyle(el).position !== "fixed") return false;
+    const rect = el.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  }
+
+  // True for inputs that pop a Google-Places-style dropdown — Ashby, Lever,
+  // and Greenhouse all use these for location. We detect by ARIA role rather
+  // than label text so it works even when our regex misses the label.
+  function isComboboxLike(el) {
+    if (el.tagName !== "INPUT") return false;
+    return el.getAttribute("role") === "combobox"
+        || el.hasAttribute("aria-autocomplete")
+        || el.getAttribute("aria-haspopup") === "listbox"
+        || /pac-target-input/.test(el.className || "");
+  }
+
+  // ── Fillers ────────────────────────────────────────────────────────────────
   function setNativeValue(el, value) {
     const proto = Object.getPrototypeOf(el);
     const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
@@ -124,15 +163,12 @@
     el.dispatchEvent(new Event("change", { bubbles: true }));
   }
 
-  // For <select> we look for an option whose text contains the value.
   function fillSelect(el, value) {
     const want = String(value).trim().toLowerCase();
     const opts = Array.from(el.options || []);
-    // Exact match on label first, then on value, then substring on label.
     let opt = opts.find(o => o.textContent.trim().toLowerCase() === want)
            || opts.find(o => String(o.value).trim().toLowerCase() === want)
            || opts.find(o => o.textContent.toLowerCase().includes(want));
-    // Yes/No heuristic — many ATSes use "Yes, I am authorized..." etc.
     if (!opt && (want === "yes" || want === "no")) {
       opt = opts.find(o => new RegExp(`\\b${want}\\b`, "i").test(o.textContent));
     }
@@ -143,11 +179,9 @@
     return true;
   }
 
-  // For radio groups + standalone checkboxes (Yes/No, agreement).
   function fillRadioOrCheckbox(el, value) {
     if (el.type !== "radio" && el.type !== "checkbox") return false;
     const want = String(value).trim().toLowerCase();
-    // Find the group (same name) and pick the one whose label matches.
     const group = el.form
       ? Array.from(el.form.querySelectorAll(`input[type="${el.type}"][name="${CSS.escape(el.name || "")}"]`))
       : [el];
@@ -157,9 +191,7 @@
       if (text.includes(want) || valAttr === want
           || (want === "yes" && (valAttr === "true"  || valAttr === "1"))
           || (want === "no"  && (valAttr === "false" || valAttr === "0"))) {
-        if (!r.checked) {
-          r.click();
-        }
+        if (!r.checked) r.click();
         return true;
       }
     }
@@ -167,9 +199,72 @@
   }
 
   function fillTextLike(el, value) {
-    if (el.value && el.value.trim()) return false; // don't overwrite user input
+    if (el.value && el.value.trim()) return false;
     setNativeValue(el, String(value));
     return true;
+  }
+
+  // ── Autocomplete (Google Places / React combobox) ──────────────────────────
+  function simulateClick(el) {
+    for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup", "click"]) {
+      el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, view: window }));
+    }
+  }
+
+  async function waitForOption(maxWaitMs) {
+    const start = Date.now();
+    const selector = [
+      '[role="option"]:not([aria-disabled="true"]):not([aria-selected="true"])',
+      '[role="listbox"] li:not([aria-disabled="true"])',
+      "li[data-option-index]",
+      ".ashby-job-posting-form-field-entry__option",
+      ".pac-item",
+      '[class*="autocomplete-option"]:not([class*="disabled"])',
+      '[class*="MenuItem"]:not([aria-disabled="true"])',
+    ].join(",");
+    while (Date.now() - start < maxWaitMs) {
+      const candidates = Array.from(document.querySelectorAll(selector)).filter(isVisible);
+      if (candidates.length) return candidates[0];
+      await new Promise(r => setTimeout(r, 100));
+    }
+    return null;
+  }
+
+  async function fillAutocomplete(el, value, waitMs = 3000) {
+    el.focus();
+    el.click();
+    // Set the value WITHOUT firing 'blur' — blur closes the dropdown before
+    // it has a chance to render. So we bypass setNativeValue here.
+    const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), "value")?.set;
+    if (setter) setter.call(el, value); else el.value = value;
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    // Nudge typeahead APIs (Google Places) that listen for keyup too.
+    const lastChar = value.slice(-1) || "a";
+    el.dispatchEvent(new KeyboardEvent("keydown", { key: lastChar, bubbles: true }));
+    el.dispatchEvent(new KeyboardEvent("keyup",   { key: lastChar, bubbles: true }));
+
+    const option = await waitForOption(waitMs);
+    if (option) {
+      simulateClick(option);
+      await new Promise(r => setTimeout(r, 220));
+      return true;
+    }
+    return false;
+  }
+
+  async function applyValue(el, value, opts) {
+    if (value === undefined || value === null) return false;
+    const v = String(value);
+    if (el.tagName === "SELECT") return fillSelect(el, v);
+    if (el.type === "radio" || el.type === "checkbox") return fillRadioOrCheckbox(el, v);
+    // Autocomplete-aware path for combobox-like inputs. Defaults on; opts can
+    // disable for fast jsdom tests.
+    if ((opts?.autocomplete ?? true) && isComboboxLike(el)) {
+      const ok = await fillAutocomplete(el, v, opts?.autocompleteWaitMs ?? 3000);
+      if (ok) return true;
+      // Fall through to plain text-set if dropdown didn't surface.
+    }
+    return fillTextLike(el, v);
   }
 
   function matchRule(rules, text) {
@@ -182,9 +277,7 @@
   }
 
   // ── Q&A fuzzy fallback ─────────────────────────────────────────────────────
-  // After the structured rules run, walk remaining fields and try the user's
-  // raw qa_defaults list (label substring → answer).
-  function tryQADefaults(el, qaDefaults) {
+  async function tryQADefaults(el, qaDefaults, opts) {
     if (!qaDefaults || !qaDefaults.length) return false;
     const text = probeText(el).toLowerCase();
     for (const entry of qaDefaults) {
@@ -192,22 +285,89 @@
       const needle = String(entry[0]).toLowerCase().trim();
       if (!needle || needle.length < 3) continue;
       if (text.includes(needle)) {
-        return applyValue(el, entry[1]);
+        return await applyValue(el, entry[1], opts);
       }
     }
     return false;
   }
 
-  function applyValue(el, value) {
-    if (value === undefined || value === null) return false;
-    const v = String(value);
-    if (el.tagName === "SELECT")   return fillSelect(el, v);
-    if (el.type === "radio" || el.type === "checkbox") return fillRadioOrCheckbox(el, v);
-    return fillTextLike(el, v);
+  // ── Button-radio groups (Ashby Yes/No chips, Lever custom radios) ──────────
+  // Ashby renders Yes/No questions as plain <button> elements inside a <div>
+  // — no role="radiogroup", no <fieldset>. We look for visible buttons whose
+  // text is short and option-shaped, group them by parent, and pair them
+  // with the nearest ancestor's question-style label.
+  const NAV_RE = /^(submit|apply|next|continue|save|upload|browse|cancel|back|done|sign|log|reset|clear|close|edit|delete|remove|add)\b/i;
+
+  function findButtonGroupLabel(parent, btns) {
+    let best = "";
+    let cur = parent;
+    for (let depth = 0; depth < 6 && cur; depth++, cur = cur.parentElement) {
+      for (const child of cur.children) {
+        if (child === parent || child.contains(parent)) continue;
+        if (btns.some(b => child.contains(b))) continue;
+        const tag = child.tagName.toLowerCase();
+        const isLabelLike = tag === "label" || tag === "legend"
+                         || /^h[1-6]$/.test(tag)
+                         || /label/i.test(child.className || "");
+        if (!isLabelLike) continue;
+        const t = cleanText(child.innerText || child.textContent || "");
+        if (!t || t.length > 300) continue;
+        if (/\?/.test(t)) return t;
+        if (!best) best = t;
+      }
+      if (best) return best;
+    }
+    return best;
+  }
+
+  function clickMatchingButton(buttons, value) {
+    const want = normalizeYesNo(value);
+    for (const btn of buttons) {
+      const txt = cleanText(btn.innerText || btn.textContent || "").toLowerCase();
+      if (txt === want) { btn.click(); return true; }
+    }
+    for (const btn of buttons) {
+      const txt = cleanText(btn.innerText || btn.textContent || "").toLowerCase();
+      if (!txt) continue;
+      if (txt.includes(want) || want.includes(txt)) { btn.click(); return true; }
+    }
+    return false;
+  }
+
+  function findButtonGroups() {
+    const candidates = Array.from(document.querySelectorAll('button, [role="radio"], [role="option"]'))
+      .filter(isVisible)
+      .filter(b => {
+        // Buttons inside a form's submit row, nav bars, etc. don't qualify.
+        const txt = cleanText(b.innerText || b.textContent || "");
+        if (!txt || txt.length > 30) return false;
+        if (NAV_RE.test(txt)) return false;
+        // Skip type="submit" or "reset" buttons.
+        const t = (b.type || "").toLowerCase();
+        if (t === "submit" || t === "reset") return false;
+        return true;
+      });
+    const byParent = new Map();
+    for (const b of candidates) {
+      const key = b.parentElement;
+      if (!key) continue;
+      if (!byParent.has(key)) byParent.set(key, []);
+      byParent.get(key).push(b);
+    }
+    const groups = [];
+    const seen = new Set();
+    for (const [parent, btns] of byParent) {
+      if (btns.length < 2 || btns.length > 5) continue;
+      if (parent.querySelector('input[type="radio"]')) continue; // handled by Pass 1
+      if (seen.has(parent)) continue;
+      seen.add(parent);
+      groups.push({ parent, btns });
+    }
+    return groups;
   }
 
   // ── Public entry point ─────────────────────────────────────────────────────
-  function run(profile, opts) {
+  async function run(profile, opts) {
     opts = opts || {};
     const rules = RULES(profile);
     const fields = Array.from(document.querySelectorAll("input, select, textarea"))
@@ -216,8 +376,8 @@
     let filled = 0;
     const skipNames = new Set();
 
+    // ── Pass 1: native inputs ────────────────────────────────────────────────
     for (const el of fields) {
-      // Radio groups: only act on the group once (keyed by name).
       if (el.type === "radio" && el.name) {
         if (skipNames.has(el.name)) continue;
         skipNames.add(el.name);
@@ -225,15 +385,29 @@
       const text = probeText(el);
       const rule = matchRule(rules, text);
       if (rule) {
-        if (applyValue(el, rule.value)) filled++;
+        if (await applyValue(el, rule.value, opts)) filled++;
         continue;
       }
-      if (profile.qa_defaults && tryQADefaults(el, profile.qa_defaults)) {
+      if (profile.qa_defaults && await tryQADefaults(el, profile.qa_defaults, opts)) {
         filled++;
       }
     }
 
-    return { filled, total: fields.length };
+    // ── Pass 2: custom button-radio groups (Ashby) ───────────────────────────
+    let buttonGroupTotal = 0;
+    const groups = findButtonGroups();
+    for (const { parent, btns } of groups) {
+      buttonGroupTotal++;
+      const label = findButtonGroupLabel(parent, btns);
+      if (!label) continue;
+      const rule = matchRule(rules, label);
+      if (!rule) continue;
+      const value = rule.value;
+      if (value === undefined || value === null || value === "") continue;
+      if (clickMatchingButton(btns, value)) filled++;
+    }
+
+    return { filled, total: fields.length + buttonGroupTotal };
   }
 
   // ── AI Phase 2 helpers ─────────────────────────────────────────────────────
@@ -255,10 +429,7 @@
         if (skipNames.has(el.name)) continue;
         skipNames.add(el.name);
       }
-      // Skip elements that already have a value (probably filled by run())
       if (el.type === "checkbox" || el.type === "radio") {
-        // Hard to tell if Phase 1 picked this group — be conservative:
-        // include the group only if no member is checked yet.
         const group = el.form && el.name
           ? Array.from(el.form.querySelectorAll(
               `input[type="${el.type}"][name="${CSS.escape(el.name)}"]`))
@@ -294,21 +465,47 @@
         maxlength:   el.maxLength > 0 ? el.maxLength : null,
       });
     }
+    // Also include any button-groups whose label didn't hit a rule. Tag the
+    // group with a data-jt-id on the first button so applyAiFills can re-find.
+    for (const { parent, btns } of findButtonGroups()) {
+      // Skip if Pass 2 in run() already clicked one (Ashby applies a
+      // 'selected' class or aria-pressed)
+      if (btns.some(b => b.getAttribute("aria-pressed") === "true"
+                      || /selected|active/.test(b.className || ""))) continue;
+      const label = findButtonGroupLabel(parent, btns);
+      if (!label || label.length < 3) continue;
+      const id = "jt-" + (++counter);
+      try { btns[0].setAttribute("data-jt-id", id); } catch (_) { continue; }
+      out.push({
+        id, type: "button-group",
+        options: btns.map(b => cleanText(b.innerText || b.textContent || "")).filter(Boolean),
+        label: label.slice(0, 200),
+        name: "", placeholder: "", maxlength: null,
+      });
+    }
     return out;
   }
 
-  function applyAiFills(fills) {
+  async function applyAiFills(fills, opts) {
     if (!Array.isArray(fills)) return { applied: 0, skipped: 0 };
     let applied = 0, skipped = 0;
     for (const f of fills) {
       if (!f || !f.id) { skipped++; continue; }
       if (f.skip || f.value === "" || f.value == null) { skipped++; continue; }
-      const el = document.querySelector(`[data-jt-id="${CSS.escape(f.id)}"]`);
-      if (!el) { skipped++; continue; }
-      const ok = applyValue(el, f.value);
+      const tagged = document.querySelector(`[data-jt-id="${CSS.escape(f.id)}"]`);
+      if (!tagged) { skipped++; continue; }
+      let ok = false;
+      if (f.type === "button-group" || tagged.tagName === "BUTTON") {
+        // The tag is on the first button of the group — re-find siblings.
+        const group = Array.from(tagged.parentElement?.children || [])
+          .filter(c => c.tagName === "BUTTON" && isVisible(c));
+        ok = clickMatchingButton(group, f.value);
+      } else {
+        ok = await applyValue(tagged, f.value, opts);
+      }
       if (ok) {
         applied++;
-        try { el.style.outline = "2px solid #6f42c1"; setTimeout(() => el.style.outline = "", 1500); } catch (_) {}
+        try { tagged.style.outline = "2px solid #6f42c1"; setTimeout(() => tagged.style.outline = "", 1500); } catch (_) {}
       } else {
         skipped++;
       }

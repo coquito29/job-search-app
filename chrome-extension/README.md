@@ -31,6 +31,28 @@ Selects pick an option whose visible text or value matches; radios/checkboxes
 click the matching choice. The user's `qa_defaults` from the app act as a
 fuzzy fallback when no structured rule fires.
 
+## v0.3.0 — button-radio chips + location autocomplete
+
+Two new field shapes are handled by the rule pass:
+
+- **Ashby-style button-radio groups**: Yes/No questions rendered as `<button>`
+  chips (no `<input type="radio">`). Pass 2 detects sibling button groups,
+  finds the question label above them, runs the rule pass against that
+  label, and clicks the matching button.
+- **Google-Places location autocomplete** (Ashby / Greenhouse / Lever):
+  inputs marked `role="combobox"` / `aria-autocomplete="list"` /
+  `aria-haspopup="listbox"` get focused, typed into, polled for ~3s for a
+  dropdown option, then clicked via a full pointer-event sequence so React
+  pickers register the selection. Falls through to plain `setNativeValue`
+  if no dropdown surfaces.
+
+Also expanded rules: "previously **worked** at this company" now matches the
+previously_employed rule alongside "previously employed".
+
+`run()` is now async (returns `Promise<{filled, total}>`). The popup's
+`chrome.scripting.executeScript` already awaits Promise returns, so no
+caller change is required.
+
 ## Phase 2 — AI fill for custom questions (v0.2.0)
 
 When the popup's **Autofill this tab** button runs, after the rule pass it
