@@ -95,9 +95,15 @@
       { value: p.work_experience?.[0]?.company,    patterns: [
           /\b(company|employer)\b/i,
       ] },
+      // Title pattern explicitly qualifies "position" / "role" to avoid
+      // greedy-matching prose like "Why are you interested in this role?"
+      // or "Tell us about the position". Standalone /\brole\b/ used to
+      // fire on those textareas and fill them with "Bartender".
       { value: p.work_experience?.[0]?.title,      patterns: [
-          /\bjob[\s_-]*title\b/i,
-          /\b(position|role)\b/i,
+          /\bjob[\s_-]*(title|role)\b/i,
+          /\b(current|recent|most[\s_-]*recent|present)[\s_-]*(role|position)\b/i,
+          /\bprevious[\s_-]*(role|position|title)\b/i,
+          /\bposition[\s_-]*title\b/i,
       ] },
       { value: p.work_experience?.[0]?.start_date, patterns: [
           /\b(employment|job|work)[\s_-]*(start|begin)[\s_-]*(date|year)?\b/i,
