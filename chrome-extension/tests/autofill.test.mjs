@@ -244,6 +244,26 @@ const BUTTON_RADIO = `
   </div>
 </form>`;
 
+// Bootstrap-style radios: the QUESTION is a sibling-of-ancestor <label
+// class="d-block">, not a parent label or [for] target. The walk-up in
+// probeText catches this. Also exercises the "now"-substring regression
+// fix: the question contains the word "now" which would have false-
+// matched the want="no" plain-substring check before fillRadio was
+// switched to word-boundary regex.
+const BOOTSTRAP_RADIOS = `
+<form>
+  <div class="col-md-6">
+    <label class="d-block">Are you authorized to work in the United States?</label>
+    <div class="form-check"><input type="radio" name="work_auth" id="wa_yes" value="Yes"><label for="wa_yes">Yes</label></div>
+    <div class="form-check"><input type="radio" name="work_auth" id="wa_no"  value="No"><label for="wa_no">No</label></div>
+  </div>
+  <div class="col-md-6">
+    <label class="d-block">Will you now or in the future require sponsorship?</label>
+    <div class="form-check"><input type="radio" name="sponsor" id="sp_yes" value="Yes"><label for="sp_yes">Yes</label></div>
+    <div class="form-check"><input type="radio" name="sponsor" id="sp_no"  value="No"><label for="sp_no">No</label></div>
+  </div>
+</form>`;
+
 // Greenhouse/Lever: location field is a combobox-style autocomplete. The
 // engine should detect the role=combobox + aria-autocomplete attributes
 // and try the autocomplete path; in jsdom there's no real dropdown, so it
@@ -429,6 +449,22 @@ async function runAssertions(name, html, getExpected) {
     return {
       "#loc filled with city":  [$("loc").value, "Egg Harbor Township"],
       "#email_loc filled":      [$("email_loc").value, "georgetupayachijobs@outlook.com"],
+    };
+  });
+
+  // ── Bootstrap-style sibling-label radios + 'no'/'now' substring bug ─────
+  // The question is a <label class="d-block"> SIBLING of the form-check
+  // div, not a parent. probeText must walk up to find it. AND the
+  // sponsorship question contains "now" which would have false-matched
+  // the old `text.includes("no")` check — the radio fix requires word
+  // boundaries.
+  await runAssertions("Bootstrap radios + 'no'/'now' regression", BOOTSTRAP_RADIOS, (w) => {
+    const $ = (id) => w.document.getElementById(id);
+    return {
+      "work_auth = Yes":   [$("wa_yes").checked, true],
+      "work_auth not No":  [$("wa_no").checked, false],
+      "sponsor = No":      [$("sp_no").checked, true],
+      "sponsor not Yes":   [$("sp_yes").checked, false],
     };
   });
 })().catch(e => {

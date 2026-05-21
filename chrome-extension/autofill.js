@@ -125,6 +125,34 @@
     if (el.name)         parts.push(el.name);
     if (el.id)           parts.push(el.id);
     if (el.dataset && el.dataset.qa) parts.push(el.dataset.qa);
+
+    // Walk up looking for label-like siblings of ancestors. Catches the
+    // Bootstrap pattern where the question is a <label class="d-block">
+    // BEFORE the form-check divs holding the actual radio inputs — neither
+    // a parent <label> nor a [for] attribute reach that text. Without this,
+    // radio groups labeled "Are you authorized to work in the US?" never
+    // fill because probeText only sees the per-option "Yes" / "No" text.
+    //
+    // CRITICAL: skip siblings that contain ANY input/select/textarea — their
+    // labels belong to other fields. Without this guard, a Phone Number
+    // field's walk-up would pick up "First Name" from a sibling form-group
+    // and the first_name rule would fire on the phone input.
+    let container = el.parentElement;
+    for (let depth = 0; container && container !== document.body && depth < 5; depth++) {
+      for (const child of container.children) {
+        if (child === el || child.contains(el)) continue;
+        if (child.querySelector && child.querySelector("input, select, textarea")) continue;
+        const tag = child.tagName;
+        const isLabelLike = tag === "LABEL"
+                         || /^H[1-6]$/.test(tag)
+                         || /label/i.test(child.className || "");
+        if (!isLabelLike) continue;
+        const t = (child.textContent || "").trim();
+        if (t && t.length < 300) parts.push(t);
+      }
+      container = container.parentElement;
+    }
+
     return parts.join(" | ");
   }
 
@@ -185,14 +213,47 @@
     const group = el.form
       ? Array.from(el.form.querySelectorAll(`input[type="${el.type}"][name="${CSS.escape(el.name || "")}"]`))
       : [el];
+
+    // Priority order for matching — we want the most authoritative signal
+    // (value attr) to win before falling back to fuzzy text matching. The
+    // text check uses WORD BOUNDARIES because plain .includes("no") false-
+    // matches against the substring inside "Will you now or in the future
+    // require sponsorship?" — "now" contains "no", so Pass-1 of the old
+    // code clicked the wrong radio for any question whose label has "now".
+    const wantTokens = want.replace(/[^a-z0-9]+/g, " ").trim().split(/\s+/).filter(Boolean);
+    const wordBoundaryRe = wantTokens.length
+      ? new RegExp(`\\b(?:${wantTokens.join("|")})\\b`, "i")
+      : null;
+
+    // 1. Exact value-attribute match
     for (const r of group) {
-      const text = probeText(r).toLowerCase();
       const valAttr = String(r.value || "").toLowerCase();
-      if (text.includes(want) || valAttr === want
-          || (want === "yes" && (valAttr === "true"  || valAttr === "1"))
-          || (want === "no"  && (valAttr === "false" || valAttr === "0"))) {
-        if (!r.checked) r.click();
-        return true;
+      if (valAttr === want) { if (!r.checked) r.click(); return true; }
+    }
+    // 2. Yes/No → true/false/1/0 value-attribute aliases
+    if (want === "yes" || want === "no") {
+      for (const r of group) {
+        const va = String(r.value || "").toLowerCase();
+        if ((want === "yes" && (va === "true"  || va === "1")) ||
+            (want === "no"  && (va === "false" || va === "0"))) {
+          if (!r.checked) r.click(); return true;
+        }
+      }
+    }
+    // 3. Word-boundary regex on the radio's own label text. The per-radio
+    // probeText catches "Yes" / "No" labels reliably without leaking the
+    // GROUP'S question label into the match.
+    if (wordBoundaryRe) {
+      for (const r of group) {
+        // Use only the radio's [for] label + parent <label> wrapper — NOT
+        // the full walk-up. The walk-up includes the question label which
+        // can contain misleading substrings (e.g. "Will you NOW or...").
+        const ownLabel = ((r.id && document.querySelector(`label[for="${CSS.escape(r.id)}"]`)?.textContent) || "")
+          + " " + (r.closest("label")?.textContent || "")
+          + " " + (r.value || "");
+        if (wordBoundaryRe.test(ownLabel)) {
+          if (!r.checked) r.click(); return true;
+        }
       }
     }
     return false;

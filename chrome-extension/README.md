@@ -31,6 +31,24 @@ Selects pick an option whose visible text or value matches; radios/checkboxes
 click the matching choice. The user's `qa_defaults` from the app act as a
 fuzzy fallback when no structured rule fires.
 
+## v0.3.1 — sibling-label radio groups + "no"/"now" false-match fix
+
+Dogfood on `/test-form` exposed two more gaps:
+
+- **Bootstrap-style radio groups** (Bootstrap form-check pattern, also used
+  by Workday and some custom forms) put the question label as a sibling of
+  the input row, not as a parent `<label>` or `[for]` target. `probeText`
+  now walks up 5 levels and pulls in label-like siblings of ancestors —
+  but **only siblings that don't contain other inputs**, so a Phone Number
+  field doesn't pick up "First Name" from a neighboring form-group and
+  misfire the first_name rule.
+
+- **fillRadio's `text.includes("no")` was false-matching the substring
+  inside "now"** — "Will you **now** or in the future require sponsorship?"
+  was clicking the Yes radio. Switched to word-boundary regex
+  (`\bno\b`) and prioritized value-attr matching over text matching.
+  Yes/No → true/false/1/0 aliases still work.
+
 ## v0.3.0 — button-radio chips + location autocomplete
 
 Two new field shapes are handled by the rule pass:
