@@ -32,6 +32,9 @@ from db import (
     _row_get, _default_user, _current_user_id, _auth_required,
 )
 
+# CV/resume parsing primitives (pdfminer/docx/txt + AI extraction).
+from cv_parsing import _parse_pdf, _parse_docx, _parse_txt, _parse_cv_ai
+
 # Billing helpers live in their own module so app.py stays focused on
 # search/AI/applications logic. billing.py is import-safe even when the
 # `stripe` SDK or env vars are missing (it degrades to no-op).
@@ -46,16 +49,6 @@ from billing import (
     create_portal_session as _billing_create_portal,
     apply_subscription_event as _billing_apply_event,
 )
-
-try:
-    from pdfminer.high_level import extract_text as pdf_extract_text
-except ImportError:
-    pdf_extract_text = None
-
-try:
-    import docx as _docx
-except ImportError:
-    _docx = None
 
 try:
     import anthropic as _anthropic
@@ -339,73 +332,8 @@ def fetch_apify_jobs(skills, token, limit=300, time_range="7d"):
 # ── Helper functions ──────────────────────────────────────────────────────────
 # (Scoring/ATS/skill helpers extracted to scoring.py — imported at top of file.)
 
-# ── CV parsing helpers ────────────────────────────────────────────────────────
-
-def _parse_pdf(file_bytes):
-    if pdf_extract_text is None:
-        raise RuntimeError("pdfminer.six not installed")
-    return pdf_extract_text(io.BytesIO(file_bytes))
-
-
-def _parse_docx(file_bytes):
-    if _docx is None:
-        raise RuntimeError("python-docx not installed")
-    doc = _docx.Document(io.BytesIO(file_bytes))
-    return "\n".join(p.text for p in doc.paragraphs)
-
-
-def _parse_txt(file_bytes):
-    for enc in ("utf-8", "latin-1", "cp1252"):
-        try:
-            return file_bytes.decode(enc)
-        except UnicodeDecodeError:
-            continue
-    return file_bytes.decode("utf-8", errors="replace")
-
-
-# ── AI CV parsing ────────────────────────────────────────────────────────────
-
-def _parse_cv_ai(text, api_key):
-    """Use Claude Sonnet to extract a rich structured profile from CV text."""
-    client  = _anthropic.Anthropic(api_key=api_key)
-    excerpt = text[:5000]
-    prompt  = f"""Analyse this CV/resume and extract structured information.
-
-CV TEXT:
-{excerpt}
-
-Return ONLY valid JSON (no markdown, no extra text):
-{{
-  "skills": ["skill1", "skill2", ...],
-  "summary": "<2-3 sentence professional summary of this person>",
-  "job_titles": ["<most recent job title>", "<second title>"],
-  "experience_years": <estimated total years of work experience as integer>,
-  "education": "<highest education level, e.g. Bachelor's in Computer Science>",
-  "search_terms": ["<job title to search for 1>", "<job title 2>", "<job title 3>"]
-}}
-
-skills: all technical tools, languages, frameworks, soft skills, domain expertise (max 35, all lowercase).
-search_terms: 3-5 specific job titles this person should search for based on their background."""
-
-    message = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=900,
-        messages=[{"role": "user", "content": prompt}]
-    )
-    raw = message.content[0].text.strip()
-    m   = re.search(r'\{.*\}', raw, re.DOTALL)
-    result = json.loads(m.group() if m else raw)
-
-    return jsonify({
-        "skills":           result.get("skills", []),
-        "summary":          result.get("summary", ""),
-        "skill_count":      len(result.get("skills", [])),
-        "job_titles":       result.get("job_titles", []),
-        "experience_years": result.get("experience_years", 0),
-        "education":        result.get("education", ""),
-        "search_terms":     result.get("search_terms", []),
-        "ai_parsed":        True,
-    })
+# CV parsing primitives (_parse_pdf, _parse_docx, _parse_txt, _parse_cv_ai)
+# live in cv_parsing.py — imported at top of file.
 
 
 # ── Cover letter generation ───────────────────────────────────────────────────
@@ -874,9 +802,9 @@ def parse_cv():
 
     if ai_allowed:
         try:
-            resp = _parse_cv_ai(text, api_key)
+            result = _parse_cv_ai(text, api_key)
             _billing_increment_quota(_db_conn, uid, amount=1)
-            return resp
+            return jsonify(result)
         except Exception:
             pass
 
@@ -2703,409 +2631,18 @@ async function del(){
 </body></html>"""
 
 
-# ── Cover-letter library ──────────────────────────────────────────────────────
-# Reuse the 14+ cover letters George has already written. Faster than starting
-# from scratch — pick the closest one, tweak the opener, ship it.
-
-# Search both: the bundled cover_letters/ subfolder (production deploy) and the
-# repo's parent directory (local dev — George keeps drafts in the project root).
-# First-found wins per filename.
-_APP_DIR = os.path.dirname(os.path.abspath(__file__))
-COVER_LETTER_DIRS = [
-    os.path.join(_APP_DIR, "cover_letters"),
-    os.path.dirname(_APP_DIR),
-]
+# Cover-letter library routes + helpers live in blueprints/cover_letters.py.
+# Registered at the bottom of this file.
 
 
-def _cover_letter_role_from_filename(fn):
-    """cover_letter_technical_support_engineer.txt → 'technical support engineer'"""
-    base = os.path.splitext(fn)[0]
-    if base.startswith("cover_letter_"):
-        base = base[len("cover_letter_"):]
-    return base.replace("_", " ").strip()
-
-
-def _resolve_cover_letter_path(filename):
-    """Find a cover letter by filename across all search dirs. Returns the
-    first existing path or None."""
-    for d in COVER_LETTER_DIRS:
-        path = os.path.join(d, filename)
-        if os.path.isfile(path):
-            return path
-    return None
-
-
-def _list_cover_letters():
-    """Scan all configured dirs for cover_letter_*.txt files, dedupe by stem
-    (so the bundled subfolder shadows the parent), and return metadata."""
-    seen = set()
-    out = []
-    for d in COVER_LETTER_DIRS:
-        if not os.path.isdir(d):
-            continue
-        for fn in sorted(os.listdir(d)):
-            low = fn.lower()
-            if not low.startswith("cover_letter_") or not low.endswith(".txt"):
-                continue
-            stem = os.path.splitext(fn)[0]
-            if stem in seen:
-                continue
-            seen.add(stem)
-            try:
-                with open(os.path.join(d, fn), "r", encoding="utf-8", errors="replace") as f:
-                    body = f.read()
-            except Exception:
-                continue
-            out.append({
-                "filename": fn,
-                "role":     _cover_letter_role_from_filename(fn),
-                "preview":  body.strip()[:240],
-                "length":   len(body),
-            })
-    return out
-
-
-def _suggest_cover_letter_keyword(job, letters):
-    """Fallback: pick the letter whose role tokens best overlap with the job title."""
-    title = (job.get("title") or "").lower()
-    desc  = (job.get("description") or "").lower()[:600]
-    blob  = title + " " + desc
-    best, best_score = None, 0
-    for L in letters:
-        tokens = [t for t in re.split(r"\W+", L["role"]) if len(t) >= 3]
-        score  = sum(2 if t in title else 1 if t in blob else 0 for t in tokens)
-        if score > best_score:
-            best, best_score = L, score
-    return best, best_score
-
-
-# ── CV Library ───────────────────────────────────────────────────────────────
-# Auto-routes the right CV per job: IT job → IT CV, casino job → bartender CV.
-# Files are stored as BLOBs in DB so they survive Render redeploys (no
-# persistent FS on the free tier).
-
-CV_CATEGORIES = ["it", "cybersecurity", "developer", "bartender",
-                 "casino", "hospitality", "general"]
-
-# Keyword sets for categorisation — used both to tag a CV on upload and to
-# tag a job at auto-pick time. Order matters: more specific first.
-_CV_CATEGORY_KEYWORDS = [
-    ("cybersecurity", ["soc analyst", "security analyst", "cybersecurity",
-                       "incident response", "siem", "splunk", "sentinel",
-                       "mitre att&ck", "nist csf", "blue team", "red team"]),
-    ("developer",     ["software developer", "software engineer", "full stack",
-                       "frontend", "backend", "react", "node.js", "python developer",
-                       "javascript developer", "web developer"]),
-    ("it",            ["help desk", "service desk", "it support",
-                       "technical support", "desktop support", "tier 1",
-                       "tier i", "level 1", "level i ", "it technician",
-                       "service desk analyst", "support specialist"]),
-    ("casino",        ["casino", "table games", "shift manager", "pit boss",
-                       "dealer", "gaming"]),
-    ("bartender",     ["bartender", "mixologist", "bar manager"]),
-    ("hospitality",   ["server", "hostess", "host ", "front desk",
-                       "concierge", "hotel", "restaurant", "guest service"]),
-]
-
-
-def _categorize_text(text):
-    """Pure-keyword categoriser. Returns (category, confidence_score).
-    Used both for CVs (entire CV text) and jobs (title + description)."""
-    if not text:
-        return ("general", 0)
-    t = text.lower()
-    best, best_score = "general", 0
-    for cat, keywords in _CV_CATEGORY_KEYWORDS:
-        score = sum(t.count(k) for k in keywords)
-        if score > best_score:
-            best, best_score = cat, score
-    return (best, best_score)
-
-
-def _categorize_cv_ai(text, api_key):
-    """AI categorisation — returns category string from CV_CATEGORIES."""
-    client = _anthropic.Anthropic(api_key=api_key)
-    excerpt = text[:3500]
-    prompt = f"""Classify this resume into ONE of these categories based on the candidate's primary skill set:
-- it          (Help Desk, Service Desk, IT Support, Technical Support, Desktop Support)
-- cybersecurity (SOC Analyst, Security Analyst, Incident Response, Blue/Red Team)
-- developer   (Software Developer, Web Developer, Backend/Frontend Engineer)
-- bartender   (Bartender, Mixologist, Bar Manager)
-- casino      (Casino Dealer, Casino Shift Manager, Pit Boss, Gaming)
-- hospitality (Server, Host, Front Desk, Hotel, Restaurant)
-- general     (mixed / unclear / fallback)
-
-RESUME:
-{excerpt}
-
-Return ONLY one of the category strings above, lowercase, nothing else."""
-    msg = client.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=20,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    out = msg.content[0].text.strip().lower().split()[0] if msg.content else "general"
-    return out if out in CV_CATEGORIES else "general"
-
-
-def _detect_cv_category(text):
-    """Try AI, fall back to keywords."""
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    if api_key and _anthropic:
-        try:
-            return _categorize_cv_ai(text, api_key)
-        except Exception:
-            pass
-    return _categorize_text(text)[0]
-
-
-def _cv_to_dict(row, include_blob=False):
-    """Normalise a cvs row into the JSON shape the frontend consumes."""
-    out = {
-        "id":         _row_get(row, "id"),
-        "filename":   _row_get(row, "filename"),
-        "category":   _row_get(row, "category", "general"),
-        "mime_type":  _row_get(row, "mime_type", ""),
-        "ai_summary": _row_get(row, "ai_summary", "") or "",
-        "is_default": bool(_row_get(row, "is_default", 0)),
-        "created_at": _row_get(row, "created_at", ""),
-    }
-    skills_raw = _row_get(row, "ai_skills")
-    if skills_raw:
-        try:    out["skills"] = json.loads(skills_raw)
-        except Exception: out["skills"] = []
-    else:
-        out["skills"] = []
-    if include_blob:
-        out["file_blob"] = _row_get(row, "file_blob")
-    return out
-
-
-@app.route("/api/cvs", methods=["GET"])
-def cvs_list():
-    uid, err = _auth_required()
-    if err: return err
-    with _db_conn() as conn:
-        cur = conn.execute(
-            "SELECT id, filename, category, mime_type, ai_summary, ai_skills, "
-            "is_default, created_at FROM cvs WHERE user_id = ? ORDER BY is_default DESC, id DESC",
-            (uid,),
-        )
-        rows = cur.fetchall() or []
-    return jsonify({"cvs": [_cv_to_dict(r) for r in rows]})
-
-
-@app.route("/api/cvs", methods=["POST"])
-def cvs_upload():
-    uid, err = _auth_required()
-    if err: return err
-    if "file" not in request.files:
-        return jsonify({"error": "No file uploaded"}), 400
-    f = request.files["file"]
-    filename = (f.filename or "").strip()
-    if not filename:
-        return jsonify({"error": "Empty filename"}), 400
-    file_bytes = f.read()
-    if not file_bytes:
-        return jsonify({"error": "Empty file"}), 400
-    if len(file_bytes) > 10 * 1024 * 1024:
-        return jsonify({"error": "File too large (>10MB)"}), 400
-
-    low = filename.lower()
-    if   low.endswith(".pdf"):  mime, parser = "application/pdf", _parse_pdf
-    elif low.endswith(".docx"): mime, parser = "application/vnd.openxmlformats-officedocument.wordprocessingml.document", _parse_docx
-    elif low.endswith(".txt"):  mime, parser = "text/plain", _parse_txt
-    else:
-        return jsonify({"error": "Unsupported file type. Use PDF, DOCX, or TXT."}), 400
-
-    try:
-        parsed_text = parser(file_bytes)
-    except Exception as e:
-        return jsonify({"error": f"Failed to parse file: {str(e)}"}), 500
-
-    # Frontend can override the auto-detected category
-    override = (request.form.get("category") or "").strip().lower()
-    category = override if override in CV_CATEGORIES else _detect_cv_category(parsed_text)
-
-    # Pull skills + summary so we don't have to re-parse on every search.
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    summary, skills = "", []
-    if api_key and _anthropic:
-        try:
-            r = _parse_cv_ai(parsed_text, api_key).get_json()
-            summary = r.get("summary", "")
-            skills  = r.get("skills", []) or []
-        except Exception:
-            skills  = extract_skills_from_text(parsed_text)
-            summary = " ".join(parsed_text.split())[:240]
-    else:
-        skills  = extract_skills_from_text(parsed_text)
-        summary = " ".join(parsed_text.split())[:240]
-
-    now = datetime.utcnow().isoformat()
-
-    with _db_conn() as conn:
-        # First CV uploaded for this user becomes the default automatically
-        cur = conn.execute("SELECT COUNT(*) AS n FROM cvs WHERE user_id = ?", (uid,))
-        is_default = 1 if (_row_get(cur.fetchone(), "n", 0) == 0) else 0
-
-        cur = conn.execute(
-            "INSERT INTO cvs (user_id, filename, category, mime_type, file_blob, "
-            "parsed_text, ai_summary, ai_skills, is_default, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)" + (" RETURNING id" if USE_POSTGRES else ""),
-            (uid, filename, category, mime, _psycopg2.Binary(file_bytes) if USE_POSTGRES else file_bytes,
-             parsed_text[:200000], summary, json.dumps(skills), is_default, now),
-        )
-        if USE_POSTGRES:
-            new_id = _row_get(cur.fetchone(), "id")
-        else:
-            new_id = cur.lastrowid
-
-    return jsonify({
-        "id":         new_id,
-        "filename":   filename,
-        "category":   category,
-        "summary":    summary,
-        "skills":     skills,
-        "is_default": bool(is_default),
-    })
-
-
-@app.route("/api/cvs/<int:cv_id>", methods=["GET"])
-def cvs_download(cv_id):
-    uid, err = _auth_required()
-    if err: return err
-    with _db_conn() as conn:
-        cur = conn.execute(
-            "SELECT filename, mime_type, file_blob FROM cvs WHERE id = ? AND user_id = ?",
-            (cv_id, uid),
-        )
-        row = cur.fetchone()
-    if not row:
-        return jsonify({"error": "Not found"}), 404
-    blob = _row_get(row, "file_blob")
-    # psycopg2 returns memoryview for BYTEA; sqlite returns bytes
-    if hasattr(blob, "tobytes"): blob = blob.tobytes()
-    return send_file(
-        io.BytesIO(blob),
-        mimetype=_row_get(row, "mime_type", "application/octet-stream"),
-        as_attachment=True,
-        download_name=_row_get(row, "filename", f"cv_{cv_id}"),
-    )
-
-
-@app.route("/api/cvs/<int:cv_id>", methods=["DELETE"])
-def cvs_delete(cv_id):
-    uid, err = _auth_required()
-    if err: return err
-    with _db_conn() as conn:
-        cur = conn.execute(
-            "SELECT is_default FROM cvs WHERE id = ? AND user_id = ?", (cv_id, uid)
-        )
-        row = cur.fetchone()
-        if not row:
-            return jsonify({"error": "Not found"}), 404
-        was_default = bool(_row_get(row, "is_default", 0))
-        conn.execute("DELETE FROM cvs WHERE id = ? AND user_id = ?", (cv_id, uid))
-        # If the deleted one was the default, promote the most recent remaining
-        if was_default:
-            cur = conn.execute(
-                "SELECT id FROM cvs WHERE user_id = ? ORDER BY id DESC LIMIT 1", (uid,)
-            )
-            r2 = cur.fetchone()
-            if r2:
-                conn.execute("UPDATE cvs SET is_default = 1 WHERE id = ?",
-                             (_row_get(r2, "id"),))
-    return jsonify({"deleted": cv_id})
-
-
-@app.route("/api/cvs/<int:cv_id>/default", methods=["POST"])
-def cvs_set_default(cv_id):
-    uid, err = _auth_required()
-    if err: return err
-    with _db_conn() as conn:
-        cur = conn.execute("SELECT id FROM cvs WHERE id = ? AND user_id = ?",
-                           (cv_id, uid))
-        if not cur.fetchone():
-            return jsonify({"error": "Not found"}), 404
-        conn.execute("UPDATE cvs SET is_default = 0 WHERE user_id = ?", (uid,))
-        conn.execute("UPDATE cvs SET is_default = 1 WHERE id = ? AND user_id = ?",
-                     (cv_id, uid))
-    return jsonify({"id": cv_id, "is_default": True})
-
-
-@app.route("/api/cv-pick", methods=["POST"])
-def cv_pick():
-    """Given a job (title, description, url), return the best-matching CV.
-    Tie-break order: exact category match → default CV → most recent."""
-    uid, err = _auth_required()
-    if err: return err
-    data = request.get_json(force=True) or {}
-    job  = data.get("job") or {}
-    blob = (job.get("title", "") or "") + " " + (job.get("description", "") or "")
-    job_cat, score = _categorize_text(blob)
-
-    with _db_conn() as conn:
-        cur = conn.execute(
-            "SELECT id, filename, category, ai_summary, is_default "
-            "FROM cvs WHERE user_id = ? ORDER BY is_default DESC, id DESC",
-            (uid,),
-        )
-        rows = cur.fetchall() or []
-
-    if not rows:
-        return jsonify({"error": "No CVs uploaded yet",
-                        "job_category": job_cat}), 404
-
-    cvs = [_cv_to_dict(r) for r in rows]
-    # 1) Exact category match
-    match = next((c for c in cvs if c["category"] == job_cat), None)
-    reason = f"Job classified as '{job_cat}' — matched by category."
-    if not match:
-        # 2) Fall back to default
-        match = next((c for c in cvs if c["is_default"]), None)
-        reason = f"No CV tagged '{job_cat}'. Using default CV."
-    if not match:
-        # 3) Fall back to most recent
-        match = cvs[0]
-        reason = f"No CV tagged '{job_cat}' and no default set. Using most recent."
-
-    return jsonify({
-        "cv":            match,
-        "job_category":  job_cat,
-        "match_score":   score,
-        "reason":        reason,
-        "all_cvs":       cvs,
-    })
+# CV library routes + categorization helpers live in blueprints/cvs.py.
+# _select_best_cv_row is exported from there for the autofill route below.
 
 
 # ── AI field mapping (Chrome extension Phase 2) ──────────────────────────────
-
-def _select_best_cv_row(uid, job_text):
-    """Internal version of /api/cv-pick. Returns the best-match CV row as a
-    dict with parsed_text loaded, or None if the user has no CVs yet.
-    Tie-break order matches /api/cv-pick: category → default → most recent."""
-    job_cat, _ = _categorize_text(job_text or "")
-    with _db_conn() as conn:
-        cur = conn.execute(
-            "SELECT id, filename, category, parsed_text, is_default "
-            "FROM cvs WHERE user_id = ? ORDER BY is_default DESC, id DESC",
-            (uid,),
-        )
-        rows = cur.fetchall() or []
-    if not rows:
-        return None
-    cvs = [{
-        "id":          _row_get(r, "id"),
-        "filename":    _row_get(r, "filename"),
-        "category":    _row_get(r, "category"),
-        "parsed_text": _row_get(r, "parsed_text") or "",
-        "is_default":  bool(_row_get(r, "is_default")),
-    } for r in rows]
-    match = next((c for c in cvs if c["category"] == job_cat), None)
-    if not match: match = next((c for c in cvs if c["is_default"]), None)
-    if not match: match = cvs[0]
-    return match
+# _select_best_cv_row lives in blueprints/cvs.py — imported below where the
+# autofill route needs it.
+from blueprints.cvs import _select_best_cv_row
 
 
 def _autofill_cors_response(rv):
@@ -3262,125 +2799,7 @@ def autofill():
     }), 200))
 
 
-@app.route("/api/cover-letters", methods=["GET"])
-def cover_letters_list():
-    return jsonify({"letters": _list_cover_letters()})
-
-
-@app.route("/api/cover-letters/<path:filename>", methods=["GET"])
-def cover_letter_get(filename):
-    # Path-traversal guard: only allow filenames that look like our convention
-    if "/" in filename or "\\" in filename or ".." in filename:
-        return jsonify({"error": "Invalid filename"}), 400
-    if not filename.lower().startswith("cover_letter_") or not filename.lower().endswith(".txt"):
-        return jsonify({"error": "Not a cover letter"}), 400
-    path = _resolve_cover_letter_path(filename)
-    if path is None:
-        return jsonify({"error": "Not found"}), 404
-    try:
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
-            return jsonify({"filename": filename, "body": f.read()})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route("/api/cover-letters/suggest", methods=["POST"])
-def cover_letter_suggest():
-    """Given a job, suggest which existing letter to reuse + 2-3 customization
-    lines tailored to this specific posting. Uses Claude when available, falls
-    back to keyword overlap so it works without an API key."""
-    data = request.get_json(force=True) or {}
-    job  = data.get("job") or {}
-    letters = _list_cover_letters()
-    if not letters:
-        return jsonify({"error": "No cover letters found",
-                        "search_dirs": COVER_LETTER_DIRS}), 404
-
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    if api_key and _anthropic:
-        try:
-            client = _anthropic.Anthropic(api_key=api_key)
-            roles  = [{"filename": L["filename"], "role": L["role"]} for L in letters]
-            desc_excerpt = re.sub(r"<[^>]+>", "", job.get("description", "") or "")[:1500]
-            prompt = f"""You are helping a job seeker reuse one of their existing cover letters.
-
-EXISTING COVER LETTERS (filename → role):
-{json.dumps(roles, indent=2)}
-
-JOB POSTING:
-Title: {job.get("title", "")}
-Company: {job.get("company_name", "")}
-Description excerpt:
-{desc_excerpt}
-
-Choose the SINGLE best-matching existing letter to reuse for this job, then
-suggest 2-3 short customization edits the candidate should make before sending.
-Each edit should be specific to THIS posting (mention the company name, a
-specific tool/responsibility from the job description, etc.) — not generic.
-
-Return ONLY valid JSON (no markdown fence, no extra text):
-{{
-  "filename": "<one of the filenames above>",
-  "reason": "<one sentence on why this letter is the best fit>",
-  "edits": [
-    "<specific edit 1 — what to change/add and why>",
-    "<specific edit 2>",
-    "<specific edit 3 (optional)>"
-  ]
-}}"""
-            msg = client.messages.create(
-                model="claude-sonnet-4-6",
-                max_tokens=600,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            raw = msg.content[0].text.strip()
-            m   = re.search(r"\{.*\}", raw, re.DOTALL)
-            result = json.loads(m.group() if m else raw)
-
-            # Validate filename is one we actually have
-            picked = next((L for L in letters if L["filename"] == result.get("filename")), None)
-            if picked is None:
-                # AI hallucinated a filename — fall through to keyword match
-                raise ValueError("AI returned unknown filename")
-
-            picked_path = _resolve_cover_letter_path(picked["filename"])
-            if picked_path is None:
-                raise ValueError("Picked cover letter file disappeared")
-            with open(picked_path, "r", encoding="utf-8", errors="replace") as f:
-                body = f.read()
-
-            return jsonify({
-                "filename": picked["filename"],
-                "role":     picked["role"],
-                "reason":   result.get("reason", ""),
-                "edits":    result.get("edits", []),
-                "body":     body,
-                "ai":       True,
-            })
-        except Exception:
-            pass  # fall through to keyword match
-
-    # Keyword fallback
-    best, score = _suggest_cover_letter_keyword(job, letters)
-    if best is None:
-        return jsonify({"error": "Could not pick a letter"}), 404
-    best_path = _resolve_cover_letter_path(best["filename"])
-    if best_path is None:
-        return jsonify({"error": "Cover letter file missing"}), 500
-    with open(best_path, "r", encoding="utf-8", errors="replace") as f:
-        body = f.read()
-    return jsonify({
-        "filename": best["filename"],
-        "role":     best["role"],
-        "reason":   f"Best keyword overlap with job title (score {score}). Set ANTHROPIC_API_KEY for AI-powered suggestions.",
-        "edits": [
-            f"Replace the company name with “{job.get('company_name', '[Company]')}” throughout.",
-            f"Update the role title to “{job.get('title', '[Role]')}” in the opening line.",
-            "Add one sentence that references a specific tool or responsibility from the job description.",
-        ],
-        "body": body,
-        "ai":   False,
-    })
+# Cover-letter routes live in blueprints/cover_letters.py.
 
 
 # ── Daily checklist (job-search routine page) ─────────────────────────────────
@@ -4653,8 +4072,12 @@ def _get_local_ip():
 # Routes are migrating out of this file one functional area at a time. Register
 # each blueprint here once it's extracted. See blueprints/__init__.py for the
 # pattern.
-from blueprints.applications import bp as applications_bp
+from blueprints.applications   import bp as applications_bp
+from blueprints.cover_letters  import bp as cover_letters_bp
+from blueprints.cvs            import bp as cvs_bp
 app.register_blueprint(applications_bp)
+app.register_blueprint(cover_letters_bp)
+app.register_blueprint(cvs_bp)
 
 
 if __name__ == "__main__":
