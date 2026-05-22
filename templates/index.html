@@ -4067,6 +4067,9 @@ function renderCvLibrary() {
         <select class="cv-cat-edit" onchange="changeCvCategory(${c.id}, this.value)">${opts}</select>
         ${c.is_default ? '<span class="cv-default-pill">Default</span>'
                        : `<button class="btn btn-sm btn-outline-primary" style="font-size:.65rem;padding:1px 6px;" onclick="setCvDefault(${c.id})" title="Make default">Default</button>`}
+        <a class="btn btn-sm btn-outline-secondary" style="font-size:.65rem;padding:1px 6px;" href="/api/cvs/${c.id}" target="_blank" rel="noopener" title="Download">
+          <i class="bi bi-download"></i>
+        </a>
         <button class="btn btn-sm btn-outline-danger" style="font-size:.65rem;padding:1px 6px;" onclick="deleteCv(${c.id})" title="Delete">
           <i class="bi bi-trash"></i>
         </button>
