@@ -3926,13 +3926,24 @@ def _select_best_cv_row(uid, job_text):
 
 
 def _autofill_cors_response(rv):
-    """Add the CORS headers the Chrome extension needs to a Flask response
-    or a (body, status) tuple."""
+    """Add CORS headers for the autofill cross-origin POST.
+
+    Credentialed CORS (the bookmarklet sends `credentials:'include'` so the
+    Render session cookie flows) requires the response to name a SPECIFIC
+    origin in Access-Control-Allow-Origin — '*' is rejected by browsers when
+    Allow-Credentials is true. Echo the request's Origin header so any ATS
+    host (jobs.lever.co, boards.greenhouse.io, etc.) is accepted. Vary:
+    Origin keeps shared caches from leaking one tenant's response to
+    another. Same-origin fetches (no Origin header) fall back to '*'.
+    """
     resp = app.make_response(rv) if isinstance(rv, tuple) else rv
-    resp.headers["Access-Control-Allow-Origin"]      = "*"
+    origin = request.headers.get("Origin", "")
+    resp.headers["Access-Control-Allow-Origin"]      = origin or "*"
+    resp.headers["Vary"]                             = "Origin"
     resp.headers["Access-Control-Allow-Credentials"] = "true"
     resp.headers["Access-Control-Allow-Methods"]     = "POST, OPTIONS"
     resp.headers["Access-Control-Allow-Headers"]     = "Content-Type"
+    resp.headers["Access-Control-Max-Age"]           = "600"
     return resp
 
 
@@ -5215,10 +5226,13 @@ def bookmarklet_run_js():
     if (t) t.remove();
     t = document.createElement('div');
     t.id = '__jt_bookmarklet_toast';
+    const bg = kind === 'err' ? '#b91c1c'
+             : kind === 'warn' ? '#b45309'
+             : '#198754';
     t.style.cssText = 'position:fixed;bottom:16px;right:16px;z-index:2147483647;'
       + 'padding:12px 16px;border-radius:8px;color:#fff;font:600 13px/1.4 system-ui,sans-serif;'
       + 'box-shadow:0 6px 20px rgba(0,0,0,.25);max-width:340px;'
-      + 'background:' + (kind === 'err' ? '#b91c1c' : '#198754');
+      + 'background:' + bg;
     t.textContent = text;
     document.documentElement.appendChild(t);
     setTimeout(() => t.remove(), 12000);
@@ -5231,7 +5245,8 @@ def bookmarklet_run_js():
     const r1 = await window.__jobTrackerAutofill.run(profile);
     // Phase 2 AI — fetches /api/autofill cross-origin with cookies.
     const unfilled = window.__jobTrackerAutofill.collectUnfilledFields(profile);
-    let aiCount = 0;
+    let aiCount  = 0;
+    let aiStatus = '';   // '', 'skipped', 'network', 'config', 'server'
     if (unfilled.length) {
       try {
         const ar = await fetch('https://job-search-app-9pnx.onrender.com/api/autofill', {
@@ -5248,19 +5263,30 @@ def bookmarklet_run_js():
         });
         if (ar.ok) {
           const body = await ar.json();
-          if (Array.isArray(body.fills)) {
+          if (Array.isArray(body.fills) && body.fills.length) {
             const apply = await window.__jobTrackerAutofill.applyAiFills(body.fills);
             aiCount = apply.applied;
+          } else {
+            aiStatus = 'skipped';
           }
+        } else if (ar.status === 503) {
+          aiStatus = 'config';
+        } else {
+          aiStatus = 'server';
         }
-      } catch (e) { /* AI is opportunistic — fail silently */ }
+      } catch (e) {
+        aiStatus = 'network';
+      }
     }
     const ruleCount = r1.filled - aiCount;
-    toast(
-      'Auto-filled ' + ruleCount + ' field' + (ruleCount === 1 ? '' : 's')
-      + (aiCount ? ' + ' + aiCount + ' AI' : '')
-      + ' — review before submitting'
-    );
+    let msg = 'Auto-filled ' + ruleCount + ' field' + (ruleCount === 1 ? '' : 's');
+    if (aiCount)               msg += ' + ' + aiCount + ' AI';
+    else if (aiStatus === 'network') msg += ' — AI skipped (network/CORS)';
+    else if (aiStatus === 'config')  msg += ' — AI skipped (no API key)';
+    else if (aiStatus === 'server')  msg += ' — AI skipped (server error)';
+    else if (aiStatus === 'skipped' && unfilled.length) msg += ' — AI returned no fills';
+    msg += ' — review before submitting';
+    toast(msg, aiStatus && aiStatus !== '' && !aiCount ? 'warn' : 'ok');
   } catch (e) {
     toast('Autofill error: ' + (e.message || e), 'err');
   }
@@ -5328,10 +5354,13 @@ def bookmarklet_inline():
     if (t) t.remove();
     t = document.createElement('div');
     t.id = '__jt_bookmarklet_toast';
+    const bg = kind === 'err' ? '#b91c1c'
+             : kind === 'warn' ? '#b45309'
+             : '#198754';
     t.style.cssText = 'position:fixed;bottom:16px;right:16px;z-index:2147483647;'
       + 'padding:12px 16px;border-radius:8px;color:#fff;font:600 13px/1.4 system-ui,sans-serif;'
       + 'box-shadow:0 6px 20px rgba(0,0,0,.25);max-width:340px;'
-      + 'background:' + (kind === 'err' ? '#b91c1c' : '#198754');
+      + 'background:' + bg;
     t.textContent = text;
     document.documentElement.appendChild(t);
     setTimeout(() => t.remove(), 12000);
