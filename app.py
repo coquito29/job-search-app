@@ -2093,6 +2093,180 @@ def create_application():
     return jsonify({"id": new_id, "ok": True})
 
 
+# ── ATS provenance helpers (used by /api/applications/autolog) ───────────────
+_ATS_BY_HOSTNAME = (
+    ("lever.co",            "lever"),
+    ("greenhouse.io",       "greenhouse"),
+    ("workable.com",        "workable"),
+    ("ashbyhq.com",         "ashby"),
+    ("smartrecruiters.com", "smartrecruiters"),
+    ("myworkdayjobs.com",   "workday"),
+    ("workday.com",         "workday"),
+    ("bamboohr.com",        "bamboohr"),
+    ("recruitee.com",       "recruitee"),
+    ("breezy.hr",           "breezy"),
+    ("applytojob.com",      "jazzhr"),
+    ("jobvite.com",         "jobvite"),
+    ("rippling.com",        "rippling"),
+    ("polymer.co",          "polymer"),
+    ("icims.com",           "icims"),
+    ("oraclecloud.com",     "oracle"),
+    ("paycomonline.net",    "paycom"),
+    ("paylocity.com",       "paylocity"),
+    ("ultipro.com",         "ukg"),
+    ("dayforcehcm.com",     "dayforce"),
+    ("brassring.com",       "brassring"),
+    ("taleo.net",           "taleo"),
+    ("successfactors.com",  "successfactors"),
+    ("adp.com",             "adp"),
+)
+
+def _infer_ats_from_hostname(hostname):
+    h = (hostname or "").lower()
+    for needle, name in _ATS_BY_HOSTNAME:
+        if needle in h:
+            return name
+    return None
+
+def _slug_to_title(slug):
+    """'solar-landscape' / 'solar_landscape' → 'Solar Landscape'. Single-word
+    lowercase slugs like 'solarlandscape' stay as 'Solarlandscape' — best
+    effort, not perfect (Lever and Greenhouse normalize slug casing
+    differently)."""
+    if not slug: return None
+    return slug.replace("-", " ").replace("_", " ").strip().title()
+
+def _infer_company_from_url(url, hostname, page_title):
+    """ATS URL patterns put the company in a predictable path segment or
+    subdomain. Falls back to parsing 'Title at Company' / 'Company - Title'
+    out of the page <title> when the URL pattern doesn't match."""
+    if not url:
+        return None
+    try:
+        # Path-based patterns (Lever, Greenhouse, Workable, Ashby, SmartRecruiters)
+        for pat in (
+            r"jobs\.lever\.co/([^/?#]+)",
+            r"boards\.greenhouse\.io/([^/?#]+)",
+            r"jobs\.workable\.com/([^/?#]+)",
+            r"jobs\.ashbyhq\.com/([^/?#]+)",
+            r"jobs\.smartrecruiters\.com/([^/?#]+)",
+        ):
+            m = re.search(pat, url, re.IGNORECASE)
+            if m: return _slug_to_title(m.group(1))
+        # Subdomain-based patterns (Workable tenant, Workday tenant, BambooHR)
+        for pat in (
+            r"https?://([^.]+)\.workable\.com",
+            r"https?://([^.]+)\.myworkdayjobs\.com",
+            r"https?://([^.]+)\.bamboohr\.com",
+            r"https?://([^.]+)\.recruitee\.com",
+            r"https?://([^.]+)\.breezy\.hr",
+        ):
+            m = re.match(pat, url, re.IGNORECASE)
+            if m: return _slug_to_title(m.group(1))
+    except Exception:
+        pass
+    # Last-resort: parse page title
+    t = (page_title or "").strip()
+    if t:
+        if " at " in t:
+            parts = t.split(" at ")
+            if len(parts) >= 2 and parts[-1].strip():
+                return parts[-1].strip()
+        for sep in (" - ", " | ", " · "):
+            if sep in t:
+                left, _, right = t.partition(sep)
+                # Heuristic: Lever titles pages "Company - Job title"; assume
+                # the longer side is the title and the shorter is the company.
+                if left and right:
+                    return left.strip() if len(left) <= len(right) else right.strip()
+    return None
+
+def _infer_title_from_signals(h1, page_title, company):
+    """Prefer H1 (cleanest); otherwise strip company from page title."""
+    if h1 and h1.strip():
+        return h1.strip()[:120]
+    t = (page_title or "").strip()
+    if not t:
+        return None
+    if company and company in t:
+        t = t.replace(company, "").strip(" -|·:")
+    return t[:120] if t else None
+
+
+@app.route("/api/applications/autolog", methods=["POST", "OPTIONS"])
+def autolog_application():
+    """Engine-triggered "I clicked Submit on a real ATS form" auto-logger.
+
+    Called fire-and-forget from autofill.js via keepalive: true so the POST
+    survives the page navigating to the ATS thank-you screen. Idempotent
+    per (user_id, url) so re-clicking the same form doesn't double-log.
+
+    Request:  {url, page_title?, h1?, hostname?, source?}
+    Response: {id, deduped, company, title, ats, ok: true}
+    """
+    if request.method == "OPTIONS":
+        return _autofill_cors_response(("", 204))
+    uid, err = _auth_required()
+    if err:
+        return _autofill_cors_response(err)
+
+    data = request.get_json(force=True, silent=True) or {}
+    url = (data.get("url") or "").strip()
+    if not url:
+        return _autofill_cors_response(
+            (jsonify({"error": "url required"}), 400))
+
+    # Dedupe — if we already have this URL for this user, just return
+    # the existing row (don't overwrite a status the user may have moved
+    # to "Interviewing" or similar).
+    with _db_conn() as conn:
+        existing = conn.execute(
+            "SELECT id, company, title, status, ats FROM applications "
+            "WHERE user_id = ? AND url = ? LIMIT 1",
+            (uid, url),
+        ).fetchone()
+    if existing:
+        return _autofill_cors_response(jsonify({
+            "id":       _row_get(existing, "id"),
+            "deduped":  True,
+            "company":  _row_get(existing, "company"),
+            "title":    _row_get(existing, "title"),
+            "status":   _row_get(existing, "status"),
+            "ats":      _row_get(existing, "ats"),
+            "ok":       True,
+        }))
+
+    page_title = (data.get("page_title") or "").strip()
+    h1         = (data.get("h1") or "").strip()
+    hostname   = (data.get("hostname") or "").strip().lower()
+    source     = (data.get("source") or "autofill").strip() or "autofill"
+
+    ats     = _infer_ats_from_hostname(hostname) or _infer_ats_from_hostname(url)
+    company = _infer_company_from_url(url, hostname, page_title) or "(unknown company)"
+    title   = _infer_title_from_signals(h1, page_title, company) or "(unknown role)"
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    with _db_conn() as conn:
+        cur = conn.execute(
+            """INSERT INTO applications
+               (user_id, company, title, url, ats, location, salary, source, status, notes, applied_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?, NULL, ?, ?)
+               RETURNING id""",
+            (uid, company, title, url, ats, source, "Applied", now, now),
+        )
+        row = cur.fetchone()
+        new_id = _row_get(row, "id") if row is not None else None
+
+    return _autofill_cors_response(jsonify({
+        "id":       new_id,
+        "deduped":  False,
+        "company":  company,
+        "title":    title,
+        "ats":      ats,
+        "ok":       True,
+    }))
+
+
 @app.route("/api/applications/<int:app_id>", methods=["PATCH"])
 def update_application(app_id):
     uid, err = _auth_required()
@@ -5242,7 +5416,9 @@ def bookmarklet_run_js():
   }
   const profile = window.__jt_bookmarklet_profile;
   try {
-    const r1 = await window.__jobTrackerAutofill.run(profile);
+    const r1 = await window.__jobTrackerAutofill.run(profile, {
+      autologUrl: 'https://job-search-app-9pnx.onrender.com/api/applications/autolog',
+    });
     // Phase 2 AI — fetches /api/autofill cross-origin with cookies.
     const unfilled = window.__jobTrackerAutofill.collectUnfilledFields(profile);
     let aiCount  = 0;
@@ -5367,7 +5543,9 @@ def bookmarklet_inline():
   }
   if (!window.__jobTrackerAutofill) { toast('Autofill engine failed to load', 'err'); return; }
   try {
-    const r = await window.__jobTrackerAutofill.run(window.__jt_bookmarklet_profile);
+    const r = await window.__jobTrackerAutofill.run(window.__jt_bookmarklet_profile, {
+      autologUrl: 'https://job-search-app-9pnx.onrender.com/api/applications/autolog',
+    });
     toast('Auto-filled ' + r.filled + ' field' + (r.filled === 1 ? '' : 's')
       + ' — review before submitting');
   } catch (e) {

@@ -757,7 +757,7 @@
     // Visual cue that helps the user find the Submit button after a long
     // scroll-through review. We NEVER click the button automatically; the
     // value of this extension is filling fast so the user can review.
-    try { highlightSubmitButton(); } catch (_) {}
+    try { highlightSubmitButton(opts); } catch (_) {}
 
     return { filled, total: fields.length + buttonGroupTotal };
   }
@@ -813,7 +813,7 @@
     }
   }
 
-  function highlightSubmitButton() {
+  function highlightSubmitButton(opts) {
     // Find candidate submit buttons. Prioritize type=submit, then text.
     const SUBMIT_TEXT = /^(submit|submit\s+application|send\s+application|apply\s+now|finish\s+&?\s*submit|review\s+&?\s*submit)$/i;
     let btn = null;
@@ -844,6 +844,33 @@
     }
     // Clear the outline after 5s so the form looks normal again
     setTimeout(() => { try { btn.style.cssText = prev; } catch (_) {} }, 5000);
+
+    // Auto-log on Submit click — fire-and-forget POST to the tracker so the
+    // job appears under "Applied" without the user touching the app. The
+    // listener uses capture: true so it runs BEFORE the form's default
+    // submit handler, and keepalive: true so the POST survives the page
+    // navigation away from the ATS. The server dedupes by (user_id, url)
+    // so a re-click on the same form doesn't double-log.
+    if (opts && opts.autologUrl && !btn.__jt_autolog_armed) {
+      btn.__jt_autolog_armed = true;
+      btn.addEventListener("click", () => {
+        try {
+          fetch(opts.autologUrl, {
+            method: "POST",
+            credentials: "include",
+            keepalive: true,
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              url:        location.href,
+              page_title: (document.title || "").slice(0, 240),
+              h1:         (document.querySelector("h1")?.innerText || "").slice(0, 240),
+              hostname:   location.hostname,
+              source:     "autofill",
+            }),
+          }).catch(() => {});
+        } catch (_) {}
+      }, { capture: true, once: true });
+    }
   }
 
   // ── AI Phase 2 helpers ─────────────────────────────────────────────────────
