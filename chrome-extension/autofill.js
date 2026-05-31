@@ -108,8 +108,21 @@
           /\bis[\s_-]*this[\s_-]*your[\s_-]*current[\s_-]*(job|role|position)\b/i,
           /\bcurrent[\s_-]*position\?\b/i,
       ] },
+      // Company pattern is qualified to avoid greedy-matching prose like
+      // "How would you decide whether to support MacOS or Windows for a
+      // large company?" or "Tell us about a company you respect". Bare
+      // /\b(company|employer)\b/ used to fire on those textareas and fill
+      // them with the most recent employer (e.g. "Harrah's Casino"), then
+      // Phase 2 AI saw the field as "filled" and skipped it.
+      //
+      // probeText() joins label / name / id / placeholder etc. with " | "
+      // — pattern 3 below uses (?:^|\|) so it only matches when an ENTIRE
+      // segment is "Company"/"Employer"/etc., not when the word appears
+      // mid-sentence in a question label.
       { value: p.work_experience?.[0]?.company,    patterns: [
-          /\b(company|employer)\b/i,
+          /\b(current|present|most[\s_-]*recent|recent|previous|former|past|prior)[\s_-]*(company|employer|organization|org)\b/i,
+          /\b(company|employer|organization)[\s_-]*name\b/i,
+          /(?:^|\|)\s*(company|employer|organization|org)\s*\*?\s*(?:\||$)/i,
       ] },
       // Title pattern explicitly qualifies "position" / "role" to avoid
       // greedy-matching prose like "Why are you interested in this role?"
