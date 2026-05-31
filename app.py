@@ -976,23 +976,135 @@ def fmt_date(posted):
     except: return str(posted)
 
 
-def extract_skills_from_text(text):
-    """Extract known skills from CV/resume text, with fallback word frequency."""
+#: Map near-synonyms to a single canonical form so the saved skill list
+#: doesn't show 'network' AND 'networking', or 'help desk' AND 'helpdesk'.
+SKILL_SYNONYMS = {
+    "networking":       "network",
+    "helpdesk":         "help desk",
+    "customer support": "customer service",
+    "node":             "node.js",
+    "nodejs":           "node.js",
+    "ts":               "typescript",
+    "ms office":        "microsoft office",
+    "m365":             "office 365",
+    "powerbi":          "power bi",
+    "voice over ip":    "voip",
+    "voice-over-ip":    "voip",
+}
+
+#: Short or ambiguous skill tokens that false-positive on common English
+#: words ('go' on 'go above', 'r' on 'a R&D role', 'ruby' as a name).
+#: These ONLY count when one of the listed anchor phrases is in the
+#: text — no "X plain mentions is enough" fallback, because the prose
+#: false-positive rate dominates the real signal. To list 'go' as a
+#: skill the CV needs to say 'golang' or 'go programming' explicitly.
+#:
+#: Less ambiguous but still risky tokens ('java', 'php', 'c#', 'c++')
+#: have anchors AND a fallback of ≥2 hits — they rarely false-positive
+#: in normal prose so two standalone mentions is decent signal.
+_STRICT_ANCHOR_SKILLS = {
+    "go":   ("golang", "go programming", "go (programming"),
+    "r":    ("r programming", "rstudio", "r and python", "r for data"),
+    "ruby": ("ruby on rails", "rubyonrails", ".rb ", " .rb", "ruby developer"),
+}
+_LENIENT_ANCHOR_SKILLS = {
+    "java": ("java se", "java ee", "java 8", "java 11", "java 17",
+             "spring boot", "core java", "java developer"),
+    "php":  (" .php", "php developer", "laravel", "symfony", "wordpress"),
+    "c#":   ("c# developer", "dotnet", ".net"),
+    "c++":  ("c++ developer", "modern c++"),
+}
+
+def _canonical_skill(skill_lower):
+    return SKILL_SYNONYMS.get(skill_lower, skill_lower)
+
+def extract_skills_from_text(text, max_skills=25):
+    """Extract known skills from CV/resume text.
+
+    Improvements over the v1 substring-match implementation:
+
+    * Real word boundaries (`\\b`) — 'java' no longer matches 'javascript'.
+    * Longest-first scan — multi-word skills like 'help desk',
+      'active directory', 'microsoft office' match before any of their
+      single-word components. Matched character spans are masked out so
+      a shorter skill can't re-match what a longer one already claimed.
+    * Synonym collapse via SKILL_SYNONYMS so 'network' and 'networking'
+      contribute to one canonical entry.
+    * Ambiguous short tokens (`go`, `ruby`, `java`, `php`, `r`, `c#`,
+      `c++`) require either an explicit context anchor (e.g. 'golang',
+      '.rb', 'java developer') or 2+ standalone mentions before they
+      count. Without this 'go' fires on every 'going' / 'ago' in prose.
+    * Hard cap at `max_skills` — defaults to 25 instead of unbounded.
+
+    Returns a list of canonical lowercase skill names in roughly
+    relevance order: explicit-anchor matches first, then frequency-
+    ranked plain matches.
+    """
+    if not text:
+        return []
     text_lower = text.lower()
-    found = []
-    for skill in KNOWN_SKILLS:
-        if skill.lower() in text_lower and skill not in found:
-            found.append(skill)
-    # Fallback: if very few skills found, also grab frequent capitalized words
-    if len(found) < 3:
-        words = re.findall(r'\b[A-Za-z][a-z]{2,}\b', text)
-        freq = {}
-        for w in words:
-            freq[w.lower()] = freq.get(w.lower(), 0) + 1
-        extras = [w for w, c in sorted(freq.items(), key=lambda x: -x[1])
-                  if c >= 2 and w not in found and len(w) > 3][:10]
-        found.extend(extras)
-    return found
+    # Iterate longest-first so multi-word skills win over their tokens.
+    sorted_skills = sorted(KNOWN_SKILLS, key=lambda s: (-len(s), s))
+    # Mask is a mutable copy of text_lower where matched spans get
+    # replaced with spaces — keeps offsets stable for later regexes.
+    mask_chars = list(text_lower)
+
+    found = {}      # canonical name -> {"hits": int, "anchored": bool}
+
+    def _record(canonical, hits, anchored):
+        rec = found.setdefault(canonical, {"hits": 0, "anchored": False})
+        rec["hits"]    += hits
+        rec["anchored"] = rec["anchored"] or anchored
+
+    for skill in sorted_skills:
+        skill_l = skill.lower()
+        # Build a word-boundary-anchored regex. Escape regex metacharacters
+        # but allow flexible internal whitespace so 'help desk' matches
+        # 'help  desk' and 'help-desk'.
+        escaped = re.escape(skill_l).replace(r"\ ", r"[\s\-]+")
+        try:
+            pat = re.compile(rf"(?:(?<=^)|(?<=\W)){escaped}(?=\W|$)", re.IGNORECASE)
+        except re.error:
+            continue
+        # Search against the current MASKED text so a shorter skill can't
+        # claim characters a longer one already grabbed.
+        masked = "".join(mask_chars)
+        spans = [m.span() for m in pat.finditer(masked)]
+        if not spans:
+            continue
+        # Check ambiguity rules. Strict-anchor skills (go, r, ruby) are
+        # so noisy in prose that we require an anchor phrase or skip.
+        # Lenient-anchor skills (java, php, c#, c++) also accept ≥2
+        # plain hits since standalone occurrences are unlikely outside
+        # programming contexts.
+        anchored = False
+        strict_anchors = _STRICT_ANCHOR_SKILLS.get(skill_l)
+        if strict_anchors is not None:
+            anchored = any(a in text_lower for a in strict_anchors)
+            if not anchored:
+                continue
+        else:
+            lenient_anchors = _LENIENT_ANCHOR_SKILLS.get(skill_l)
+            if lenient_anchors is not None:
+                anchored = any(a in text_lower for a in lenient_anchors)
+                if not anchored and len(spans) < 2:
+                    continue
+        # Mask out the matched spans before the next iteration.
+        for start, end in spans:
+            for i in range(start, end):
+                mask_chars[i] = " "
+        canonical = _canonical_skill(skill_l)
+        _record(canonical, hits=len(spans), anchored=anchored)
+
+    if not found:
+        return []
+
+    # Rank: anchored matches first, then by hit count, then alphabetically.
+    ranked = sorted(
+        found.items(),
+        key=lambda kv: (-int(kv[1]["anchored"]), -kv[1]["hits"], kv[0]),
+    )
+    return [name for name, _ in ranked[:max_skills]]
 
 
 # ── CV parsing helpers ────────────────────────────────────────────────────────
@@ -1495,6 +1607,64 @@ def profile_save():
                 (uid, summary, json.dumps(skills), json.dumps(settings), now),
             )
     return jsonify({"ok": True, "updated_at": now})
+
+
+@app.route("/api/profile/skills/refresh", methods=["POST"])
+def profile_skills_refresh():
+    """Re-run skill extraction against the user's default CV's parsed_text
+    using the current extractor (with all bug fixes), then replace the
+    saved skills list. Returns the new list. Useful after the extractor
+    has been improved — the saved list otherwise retains old false
+    positives indefinitely."""
+    uid, err = _auth_required()
+    if err: return err
+
+    # Pull parsed_text for the default CV (or most recent if no default set).
+    with _db_conn() as conn:
+        row = conn.execute(
+            "SELECT id, filename, parsed_text FROM cvs "
+            "WHERE user_id = ? AND is_default = 1 LIMIT 1",
+            (uid,),
+        ).fetchone()
+        if not row:
+            row = conn.execute(
+                "SELECT id, filename, parsed_text FROM cvs "
+                "WHERE user_id = ? ORDER BY id DESC LIMIT 1",
+                (uid,),
+            ).fetchone()
+    if not row:
+        return jsonify({"error": "no CV in library to re-extract from"}), 400
+    parsed = _row_get(row, "parsed_text") or ""
+    if not parsed.strip():
+        return jsonify({"error": "default CV has no parsed text — re-upload it"}), 400
+
+    new_skills = extract_skills_from_text(parsed)
+
+    # Persist back to the user's profile, preserving summary + settings.
+    now = datetime.utcnow().isoformat()
+    with _db_conn() as conn:
+        existing = conn.execute(
+            "SELECT id FROM profiles WHERE user_id = ?", (uid,)
+        ).fetchone()
+        if existing:
+            conn.execute(
+                "UPDATE profiles SET skills = ?, updated_at = ? WHERE user_id = ?",
+                (json.dumps(new_skills), now, uid),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO profiles (user_id, summary, skills, settings, updated_at) "
+                "VALUES (?, '', ?, '{}', ?)",
+                (uid, json.dumps(new_skills), now),
+            )
+
+    return jsonify({
+        "ok":       True,
+        "skills":   new_skills,
+        "count":    len(new_skills),
+        "from_cv":  _row_get(row, "filename"),
+        "from_cv_id": _row_get(row, "id"),
+    })
 
 
 @app.route("/api/parse-cv", methods=["POST"])

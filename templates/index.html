@@ -1611,15 +1611,22 @@
 
   <!-- Skills chips -->
   <div class="mt-3">
-    <div class="d-flex align-items-center justify-content-between mb-1">
+    <div class="d-flex align-items-center justify-content-between mb-1 flex-wrap gap-1">
       <label class="form-label mb-0 fw-semibold" style="font-size:.85rem;">
         Your Skills
         <span id="skillCount" class="badge bg-primary ms-1">0</span>
       </label>
-      <button class="btn btn-sm btn-outline-danger" onclick="clearAllSkills()"
-              id="clearSkillsBtn" style="font-size:.7rem; display:none;">
-        Clear all
-      </button>
+      <div class="d-flex gap-1">
+        <button class="btn btn-sm btn-outline-primary" onclick="refreshSkillsFromCv()"
+                id="refreshSkillsBtn" style="font-size:.7rem;"
+                title="Re-extract skills from your default CV using the latest extractor">
+          <i class="bi bi-arrow-clockwise"></i> Re-extract from CV
+        </button>
+        <button class="btn btn-sm btn-outline-danger" onclick="clearAllSkills()"
+                id="clearSkillsBtn" style="font-size:.7rem; display:none;">
+          Clear all
+        </button>
+      </div>
     </div>
     <div class="skills-container" id="skillsContainer">
       <span class="skills-empty" id="skillsEmpty">Upload your CV or add skills manually</span>
@@ -3120,6 +3127,47 @@ function clearAllSkills() {
   saveSkillsToStorage();
   renderSkills();
   updateStepIndicators();
+}
+
+// Re-extract skills from the default CV using the server-side extractor.
+// Replaces the current saved skills list — useful after the extractor has
+// been improved (and the saved list has lingering false positives like
+// 'java' from 'javascript' or 'go' from 'going').
+async function refreshSkillsFromCv() {
+  const btn = document.getElementById('refreshSkillsBtn');
+  const prevHtml = btn ? btn.innerHTML : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Re-extracting…';
+  }
+  try {
+    const r = await fetch('/api/profile/skills/refresh', {
+      method: 'POST', credentials: 'same-origin',
+    });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      showToast(body.error || 'Re-extract failed', 'danger');
+      return;
+    }
+    const before = skills.length;
+    skills = Array.isArray(body.skills) ? body.skills : [];
+    saveSkillsToStorage();
+    renderSkills();
+    updateStepIndicators();
+    const delta = skills.length - before;
+    const sign  = delta >= 0 ? '+' : '';
+    showToast(
+      `Re-extracted from ${body.from_cv || 'CV'} — ${skills.length} skills (${sign}${delta})`,
+      'success'
+    );
+  } catch (e) {
+    showToast('Network error: ' + (e.message || e), 'danger');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = prevHtml;
+    }
+  }
 }
 
 function saveSkillsToStorage() {
