@@ -146,9 +146,21 @@ class _UniformConn:
         return False
 
 
+class _DBUnavailable(Exception):
+    """Raised when the database can't be reached; caught by the error handler."""
+
+
+@app.errorhandler(_DBUnavailable)
+def _handle_db_unavailable(e):
+    return jsonify({"error": "Database unavailable", "detail": str(e)}), 503
+
+
 def _db_conn():
     if USE_POSTGRES:
-        raw = _psycopg2.connect(DATABASE_URL, cursor_factory=_RealDictCursor)
+        try:
+            raw = _psycopg2.connect(DATABASE_URL, cursor_factory=_RealDictCursor)
+        except Exception as exc:
+            raise _DBUnavailable(str(exc)) from exc
         return _UniformConn(raw, is_pg=True)
     raw = sqlite3.connect(APPLICATIONS_DB)
     raw.row_factory = sqlite3.Row
@@ -1329,6 +1341,26 @@ def status():
 # ── Auth (single-user passcode) ──────────────────────────────────────────────
 # Designed so swapping in real multi-user auth later just replaces these four
 # routes. Every other endpoint already calls _auth_required() / _current_user_id().
+
+@app.route("/api/health", methods=["GET"])
+def health():
+    """Liveness + DB reachability check. Returns 200 when healthy, 503 when DB is down."""
+    try:
+        with _db_conn() as conn:
+            conn.execute("SELECT 1")
+        db_ok = True
+        db_error = None
+    except Exception as exc:
+        db_ok = False
+        db_error = str(exc)
+    status = 200 if db_ok else 503
+    return jsonify({
+        "ok":       db_ok,
+        "db":       "postgres" if USE_POSTGRES else "sqlite",
+        "db_error": db_error,
+        "ai":       bool(os.environ.get("ANTHROPIC_API_KEY")),
+    }), status
+
 
 @app.route("/api/auth/status", methods=["GET"])
 def auth_status():
