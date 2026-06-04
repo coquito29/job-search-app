@@ -158,7 +158,8 @@ def _handle_db_unavailable(e):
 def _db_conn():
     if USE_POSTGRES:
         try:
-            raw = _psycopg2.connect(DATABASE_URL, cursor_factory=_RealDictCursor)
+            raw = _psycopg2.connect(DATABASE_URL, cursor_factory=_RealDictCursor,
+                                    connect_timeout=8)
         except Exception as exc:
             raise _DBUnavailable(str(exc)) from exc
         return _UniformConn(raw, is_pg=True)
@@ -292,8 +293,13 @@ def _init_applications_db():
                 pass
 
 
-_init_applications_db()
-print(f"[db] Applications tracker backend: {'Postgres' if USE_POSTGRES else 'SQLite (' + APPLICATIONS_DB + ')'}")
+_DB_INIT_ERROR = None
+try:
+    _init_applications_db()
+    print(f"[db] Applications tracker backend: {'Postgres' if USE_POSTGRES else 'SQLite (' + APPLICATIONS_DB + ')'}")
+except Exception as _e:
+    _DB_INIT_ERROR = str(_e)
+    print(f"[db] WARNING: DB init failed — app will start but all DB routes return 503. Error: {_DB_INIT_ERROR}")
 
 
 def _row_get(row, key, default=None):
@@ -1345,6 +1351,13 @@ def status():
 @app.route("/api/health", methods=["GET"])
 def health():
     """Liveness + DB reachability check. Returns 200 when healthy, 503 when DB is down."""
+    if _DB_INIT_ERROR:
+        return jsonify({
+            "ok":       False,
+            "db":       "postgres" if USE_POSTGRES else "sqlite",
+            "db_error": f"init failed: {_DB_INIT_ERROR}",
+            "ai":       bool(os.environ.get("ANTHROPIC_API_KEY")),
+        }), 503
     try:
         with _db_conn() as conn:
             conn.execute("SELECT 1")
