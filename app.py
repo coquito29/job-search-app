@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any
 
 import requests as http_req
-from flask import Flask, request, jsonify, render_template, send_file, session
+from flask import Flask, request, jsonify, render_template, send_file, session, redirect
 from werkzeug.security import generate_password_hash, check_password_hash
 
 # Billing helpers live in their own module so app.py stays focused on
@@ -51,6 +51,14 @@ try:
 except ImportError:
     _psycopg2 = None
     _RealDictCursor = None
+
+# ── Outlook OAuth2 constants ─────────────────────────────────────────────────
+# Set OUTLOOK_CLIENT_ID + OUTLOOK_CLIENT_SECRET on Render after creating an
+# Azure app registration (portal.azure.com → App registrations → New).
+# Scopes: "IMAP.AccessAsUser.All offline_access" (delegated, personal accounts).
+_MSFT_AUTH_URL   = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
+_MSFT_TOKEN_URL  = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+_MSFT_IMAP_SCOPE = "https://outlook.office.com/IMAP.AccessAsUser.All offline_access"
 
 app = Flask(__name__)
 # Signed session cookie. Set FLASK_SECRET_KEY in Render env vars so sessions
@@ -241,6 +249,20 @@ def _init_applications_db():
                 source_counts  TEXT,
                 total_fetched  INTEGER NOT NULL DEFAULT 0,
                 emailed_to     TEXT
+            )
+        """)
+        # OAuth2 token store: access + refresh tokens per user/provider.
+        # Currently only provider='outlook'. expires_at is a float Unix timestamp.
+        conn.execute(f"""
+            CREATE TABLE IF NOT EXISTS oauth_tokens (
+                {id_col},
+                user_id       INTEGER NOT NULL,
+                provider      TEXT NOT NULL,
+                access_token  TEXT NOT NULL,
+                refresh_token TEXT NOT NULL,
+                expires_at    TEXT NOT NULL,
+                email         TEXT NOT NULL DEFAULT '',
+                created_at    TEXT NOT NULL DEFAULT ''
             )
         """)
 
@@ -1438,6 +1460,187 @@ def auth_change():
                      (generate_password_hash(new_pc), uid))
     session.permanent = True
     session["uid"] = uid
+    return jsonify({"ok": True})
+
+
+# ── Outlook OAuth2 ───────────────────────────────────────────────────────────
+
+def _get_outlook_token(uid):
+    """Return {access_token, email} for the user, refreshing if the token is
+    within 60s of expiry. Returns None if not connected or refresh fails."""
+    import time, base64 as _b64
+    client_id     = os.environ.get("OUTLOOK_CLIENT_ID",     "").strip()
+    client_secret = os.environ.get("OUTLOOK_CLIENT_SECRET", "").strip()
+    if not client_id or not client_secret:
+        return None
+    with _db_conn() as conn:
+        row = conn.execute(
+            "SELECT access_token, refresh_token, expires_at, email "
+            "FROM oauth_tokens WHERE user_id = ? AND provider = ?",
+            (uid, "outlook")
+        ).fetchone()
+    if not row:
+        return None
+    expires_at   = float(_row_get(row, "expires_at", 0) or 0)
+    access_token = _row_get(row, "access_token", "")
+    email        = _row_get(row, "email", "")
+    if time.time() < expires_at - 60 and access_token:
+        return {"access_token": access_token, "email": email}
+    # Refresh
+    refresh_token = _row_get(row, "refresh_token", "")
+    if not refresh_token:
+        return None
+    try:
+        resp = http_req.post(_MSFT_TOKEN_URL, data={
+            "client_id":     client_id,
+            "client_secret": client_secret,
+            "grant_type":    "refresh_token",
+            "refresh_token": refresh_token,
+            "scope":         _MSFT_IMAP_SCOPE,
+        }, timeout=10)
+    except Exception:
+        return None
+    if not resp.ok:
+        return None
+    t             = resp.json()
+    new_access    = t.get("access_token", "")
+    new_refresh   = t.get("refresh_token", refresh_token)
+    new_expiry    = str(time.time() + int(t.get("expires_in", 3600)))
+    with _db_conn() as conn:
+        conn.execute(
+            "UPDATE oauth_tokens SET access_token=?, refresh_token=?, expires_at=? "
+            "WHERE user_id=? AND provider=?",
+            (new_access, new_refresh, new_expiry, uid, "outlook")
+        )
+    return {"access_token": new_access, "email": email}
+
+
+def _xoauth2_string(user, access_token):
+    import base64
+    s = f"user={user}\x01auth=Bearer {access_token}\x01\x01"
+    return base64.b64encode(s.encode()).decode()
+
+
+@app.route("/api/outlook/auth/start", methods=["GET"])
+def outlook_auth_start():
+    uid, err = _auth_required()
+    if err: return err
+    client_id = os.environ.get("OUTLOOK_CLIENT_ID", "").strip()
+    if not client_id:
+        return jsonify({"error": "OUTLOOK_CLIENT_ID not configured on server"}), 500
+    state = secrets.token_urlsafe(16)
+    session["outlook_oauth_state"] = state
+    session.permanent = True
+    from urllib.parse import urlencode
+    params = {
+        "client_id":     client_id,
+        "response_type": "code",
+        "redirect_uri":  _base_url() + "/api/outlook/auth/callback",
+        "response_mode": "query",
+        "scope":         _MSFT_IMAP_SCOPE,
+        "state":         state,
+        "prompt":        "select_account",
+    }
+    return redirect(_MSFT_AUTH_URL + "?" + urlencode(params))
+
+
+@app.route("/api/outlook/auth/callback", methods=["GET"])
+def outlook_auth_callback():
+    import time
+    uid, err = _auth_required()
+    if err:
+        return redirect("/?outlook_error=auth_required")
+    state = request.args.get("state", "")
+    if state != session.get("outlook_oauth_state", "!!"):
+        return redirect("/?outlook_error=state_mismatch")
+    code = request.args.get("code", "")
+    if not code:
+        errdesc = request.args.get("error_description", request.args.get("error", "cancelled"))
+        return redirect(f"/?outlook_error={errdesc[:80]}")
+    client_id     = os.environ.get("OUTLOOK_CLIENT_ID",     "").strip()
+    client_secret = os.environ.get("OUTLOOK_CLIENT_SECRET", "").strip()
+    try:
+        resp = http_req.post(_MSFT_TOKEN_URL, data={
+            "client_id":     client_id,
+            "client_secret": client_secret,
+            "grant_type":    "authorization_code",
+            "code":          code,
+            "redirect_uri":  _base_url() + "/api/outlook/auth/callback",
+            "scope":         _MSFT_IMAP_SCOPE,
+        }, timeout=10)
+    except Exception as exc:
+        return redirect(f"/?outlook_error=token_request_failed")
+    if not resp.ok:
+        return redirect("/?outlook_error=token_exchange_failed")
+    t             = resp.json()
+    access_token  = t.get("access_token", "")
+    refresh_token = t.get("refresh_token", "")
+    expires_at    = str(time.time() + int(t.get("expires_in", 3600)))
+    # Extract email from id_token JWT claims (no verification needed here)
+    email = ""
+    id_tok = t.get("id_token", "")
+    if id_tok:
+        import base64 as _b64
+        parts = id_tok.split(".")
+        if len(parts) >= 2:
+            pad = 4 - len(parts[1]) % 4
+            try:
+                claims = json.loads(_b64.urlsafe_b64decode(parts[1] + "=" * pad))
+                email = (claims.get("preferred_username")
+                         or claims.get("email")
+                         or claims.get("upn") or "")
+            except Exception:
+                pass
+    if not email:
+        email = os.environ.get("OUTLOOK_USER", "")
+    with _db_conn() as conn:
+        existing = conn.execute(
+            "SELECT id FROM oauth_tokens WHERE user_id=? AND provider=?",
+            (uid, "outlook")
+        ).fetchone()
+        now = datetime.utcnow().isoformat()
+        if existing:
+            conn.execute(
+                "UPDATE oauth_tokens SET access_token=?, refresh_token=?, "
+                "expires_at=?, email=? WHERE user_id=? AND provider=?",
+                (access_token, refresh_token, expires_at, email, uid, "outlook")
+            )
+        else:
+            conn.execute(
+                "INSERT INTO oauth_tokens "
+                "(user_id, provider, access_token, refresh_token, expires_at, email, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (uid, "outlook", access_token, refresh_token, expires_at, email, now)
+            )
+    session.pop("outlook_oauth_state", None)
+    return redirect("/?outlook_connected=1")
+
+
+@app.route("/api/outlook/auth/status", methods=["GET"])
+def outlook_auth_status():
+    uid, err = _auth_required()
+    if err: return err
+    configured = bool(os.environ.get("OUTLOOK_CLIENT_ID")) and \
+                 bool(os.environ.get("OUTLOOK_CLIENT_SECRET"))
+    with _db_conn() as conn:
+        row = conn.execute(
+            "SELECT email FROM oauth_tokens WHERE user_id=? AND provider=?",
+            (uid, "outlook")
+        ).fetchone()
+    if row:
+        return jsonify({"connected": True,
+                        "email": _row_get(row, "email", ""),
+                        "configured": configured})
+    return jsonify({"connected": False, "configured": configured})
+
+
+@app.route("/api/outlook/auth/disconnect", methods=["POST"])
+def outlook_auth_disconnect():
+    uid, err = _auth_required()
+    if err: return err
+    with _db_conn() as conn:
+        conn.execute("DELETE FROM oauth_tokens WHERE user_id=? AND provider=?",
+                     (uid, "outlook"))
     return jsonify({"ok": True})
 
 
@@ -2871,16 +3074,23 @@ def gmail_scan():
     dry_run  = bool(body_json.get("dry_run"))
     verbose  = bool(body_json.get("verbose"))
 
-    # Provider selection. "gmail" reads imap.gmail.com using GMAIL_USER /
-    # GMAIL_APP_PASSWORD. "outlook" reads outlook.office365.com using
-    # OUTLOOK_USER / OUTLOOK_APP_PASSWORD — works for personal outlook.com
-    # accounts that have 2FA + an app password generated. Default = gmail
-    # for back-compat with the existing daily-digest cron.
+    # Provider selection. "gmail" uses IMAP + app password. "outlook" uses
+    # OAuth2/XOAUTH2 — the user must connect via Settings → Connect Outlook
+    # first (basic-auth IMAP no longer works for personal Outlook accounts).
     provider = (body_json.get("provider") or "gmail").lower().strip()
+    use_xoauth2   = False
+    imap_token    = ""
     if provider == "outlook":
-        imap_host    = os.environ.get("OUTLOOK_IMAP_HOST", "outlook.office365.com")
-        imap_user    = os.environ.get("OUTLOOK_USER", "")
-        imap_pass    = os.environ.get("OUTLOOK_APP_PASSWORD", "")
+        tok = _get_outlook_token(uid)
+        if not tok:
+            return jsonify({
+                "error": "Outlook not connected. Tap 'Connect Outlook' in the tracker to authorise."
+            }), 412
+        imap_host    = "outlook.office365.com"
+        imap_user    = tok["email"]
+        imap_pass    = ""
+        imap_token   = tok["access_token"]
+        use_xoauth2  = True
         provider_lbl = "Outlook"
     elif provider == "gmail":
         imap_host    = "imap.gmail.com"
@@ -2890,9 +3100,9 @@ def gmail_scan():
     else:
         return jsonify({"error": f"Unknown provider {provider!r} — use 'gmail' or 'outlook'"}), 400
 
-    if not imap_user or not imap_pass:
-        var_a = "OUTLOOK_USER" if provider == "outlook" else "GMAIL_USER"
-        var_b = "OUTLOOK_APP_PASSWORD" if provider == "outlook" else "GMAIL_APP_PASSWORD"
+    if not use_xoauth2 and (not imap_user or not imap_pass):
+        var_a = "GMAIL_USER"
+        var_b = "GMAIL_APP_PASSWORD"
         return jsonify({"error": f"{var_a} / {var_b} not set on server"}), 500
     # Allow overriding the per-scan cap. 300 default keeps the request under
     # the gunicorn 300s timeout for typical inboxes (each IMAP fetch is ~0.3s).
@@ -3015,7 +3225,14 @@ def gmail_scan():
     folder = body_json.get("folder") or "INBOX"
     try:
         mail = imaplib.IMAP4_SSL(imap_host, 993)
-        mail.login(imap_user, imap_pass)
+        if use_xoauth2:
+            xoauth2_str = _xoauth2_string(imap_user, imap_token)
+            auth_typ, auth_data = mail.authenticate("XOAUTH2", lambda _: xoauth2_str)
+            if auth_typ != "OK":
+                return jsonify({"error": f"Outlook XOAUTH2 auth failed: {auth_data} — "
+                                         "token may be expired; try disconnecting and reconnecting."}), 500
+        else:
+            mail.login(imap_user, imap_pass)
         # Folder names with spaces / brackets need quoting for IMAP SELECT.
         sel_typ, sel_data = mail.select(f'"{folder}"')
         if sel_typ != "OK":

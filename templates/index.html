@@ -1824,6 +1824,17 @@
         <i class="bi bi-arrow-clockwise me-1"></i>Refresh & find
       </button>
     </div>
+
+    <!-- Outlook OAuth2 connection status row -->
+    <div id="outlookConnectRow" style="display:none;font-size:.75rem;padding:6px 0 6px;border-bottom:1px dashed var(--border-soft);margin-bottom:8px;">
+      <div class="d-flex align-items-center gap-2">
+        <i class="bi bi-microsoft" style="color:#0078d4;font-size:.95rem;"></i>
+        <span id="outlookStatusText" style="flex:1;color:var(--ink-muted);">Checking…</span>
+        <button id="outlookConnectBtn" class="btn btn-xs btn-outline-primary" style="font-size:.7rem;padding:2px 8px;line-height:1.4;" onclick="connectOutlook()">Connect</button>
+        <button id="outlookDisconnectBtn" class="btn btn-xs btn-outline-danger" style="display:none;font-size:.7rem;padding:2px 8px;line-height:1.4;" onclick="disconnectOutlook()">Disconnect</button>
+      </div>
+    </div>
+
     <div id="followUpList" style="font-size:.85rem; color:#6c757d;">
       Tap "Refresh & find" — I'll scan Gmail for new replies, then list apps that need a nudge.
     </div>
@@ -2545,6 +2556,7 @@ async function bootAuthAndData() {
       refreshCvLibrary(),
       loadAppliedIndex(),
       loadServerProfile(),
+      checkOutlookStatus(),
     ]).catch(() => {});
     // Manual cached results win over the daily-digest snapshot — only fall
     // back to the server's stored daily run if we don't have anything local.
@@ -2552,6 +2564,19 @@ async function bootAuthAndData() {
     if (!restored) await loadDailyResultsIfAny();
     if (typeof renderCvLibrary === 'function') renderCvLibrary();
     if (jobs && jobs.length) renderJobCards();
+
+    // Handle OAuth redirect params from Outlook callback
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('outlook_connected') === '1') {
+      showToast('Outlook connected! Email scan is now active.', 'success');
+      history.replaceState(null, '', window.location.pathname);
+    } else if (urlParams.get('outlook_error')) {
+      const msg = urlParams.get('outlook_error');
+      if (msg !== 'cancelled') {
+        showToast(`Outlook connect failed: ${msg}`, 'danger');
+      }
+      history.replaceState(null, '', window.location.pathname);
+    }
   }
 }
 
@@ -4014,6 +4039,51 @@ function ensureFollowUpModal() {
   return followUpDraftModal;
 }
 
+// ── Outlook OAuth2 UI ────────────────────────────────────────────────────────
+let _outlookConnected = false;
+
+async function checkOutlookStatus() {
+  try {
+    const r = await fetch('/api/outlook/auth/status', { credentials: 'same-origin' });
+    if (!r.ok) return;
+    const d = await r.json();
+    _outlookConnected = d.connected;
+    const row    = document.getElementById('outlookConnectRow');
+    const txt    = document.getElementById('outlookStatusText');
+    const conBtn = document.getElementById('outlookConnectBtn');
+    const disBtn = document.getElementById('outlookDisconnectBtn');
+    if (!d.configured) {
+      row.style.display = 'none'; // hide entirely if Azure app not set up
+      return;
+    }
+    row.style.display = '';
+    if (d.connected) {
+      txt.textContent = `Outlook connected${d.email ? ': ' + d.email : ''}`;
+      txt.style.color = 'var(--success-500, #198754)';
+      conBtn.style.display = 'none';
+      disBtn.style.display = '';
+    } else {
+      txt.textContent = 'Outlook not connected — scan only uses Gmail';
+      txt.style.color = 'var(--ink-muted, #6c757d)';
+      conBtn.style.display = '';
+      disBtn.style.display = 'none';
+    }
+  } catch (_) {}
+}
+
+function connectOutlook() {
+  window.location.href = '/api/outlook/auth/start';
+}
+
+async function disconnectOutlook() {
+  if (!confirm('Disconnect Outlook? The app will stop scanning it for replies.')) return;
+  try {
+    await fetch('/api/outlook/auth/disconnect', { method: 'POST', credentials: 'same-origin' });
+  } catch (_) {}
+  _outlookConnected = false;
+  checkOutlookStatus();
+}
+
 async function refreshFollowUps() {
   const btn = document.getElementById('followUpRefreshBtn');
   const list = document.getElementById('followUpList');
@@ -4021,11 +4091,10 @@ async function refreshFollowUps() {
   btn.disabled = true;
   list.innerHTML = '<div style="font-size:.8rem;color:#6c757d;"><i class="spinner-border spinner-border-sm me-2"></i>Scanning email…</div>';
 
-  // Scan both providers — Gmail (personal) and Outlook (job applications).
-  // Each scan is best-effort: a missing/misconfigured provider 500s but
-  // doesn't kill the flow.
+  // Scan Gmail always; Outlook only when connected via OAuth2.
+  const providers = _outlookConnected ? ['gmail', 'outlook'] : ['gmail'];
   const scans = [];
-  for (const provider of ['gmail', 'outlook']) {
+  for (const provider of providers) {
     btn.innerHTML = `<i class="spinner-border spinner-border-sm me-1"></i>${provider}…`;
     try {
       const r = await fetch('/api/gmail/scan', {
@@ -4073,14 +4142,6 @@ function renderFollowUpList(scans) {
     const parts = scans.map(s => {
       if (!s.ok) {
         const err = (s.error || 'unavailable').toString();
-        // Microsoft killed basic-auth IMAP for personal Outlook in 2025;
-        // OUTLOOK_USER/_APP_PASSWORD on Render won't work without OAuth2.
-        // Surface this as a soft "skipped" tag instead of an alarming red error.
-        const isOutlookAuth =
-          s.provider === 'outlook' && /LOGIN failed|OUTLOOK_USER|OUTLOOK_APP/i.test(err);
-        if (isOutlookAuth) {
-          return `<span title="Outlook now requires OAuth2 — basic IMAP no longer works. Glance at Outlook manually before sending." style="color:#6c757d;">outlook: skipped</span>`;
-        }
         return `<span title="${escHtml(err.slice(0, 200))}" style="color:#b45309;">${s.provider}: ${escHtml(err.slice(0, 60))}</span>`;
       }
       return `${s.provider}: ${s.matched || 0} matched, ${s.updated || 0} updated`;

@@ -279,6 +279,25 @@
     if (setter) setter.call(el, value); else el.value = value;
     el.dispatchEvent(new Event("input",  { bubbles: true }));
     el.dispatchEvent(new Event("change", { bubbles: true }));
+    // React 17+ uses a root-delegated listener that requires a real InputEvent
+    // with inputType so its synthetic event system recognises the change.
+    try {
+      el.dispatchEvent(new InputEvent("input", {
+        bubbles: true, cancelable: true, inputType: "insertText", data: String(value),
+      }));
+    } catch (_) {}
+  }
+
+  // ── Shadow DOM helpers ────────────────────────────────────────────────────
+  // querySelectorAllDeep pierces open shadow roots so we find form fields
+  // inside web-component wrappers (Workable, some iCIMS widgets).
+  function querySelectorAllDeep(selector, root) {
+    root = root || document;
+    const results = Array.from(root.querySelectorAll(selector));
+    for (const host of root.querySelectorAll("*")) {
+      if (host.shadowRoot) results.push(...querySelectorAllDeep(selector, host.shadowRoot));
+    }
+    return results;
   }
 
   function fillSelect(el, value) {
@@ -294,6 +313,29 @@
     el.value = opt.value;
     el.dispatchEvent(new Event("change", { bubbles: true }));
     el.dispatchEvent(new Event("input",  { bubbles: true }));
+    return true;
+  }
+
+  // ── Select2 / custom-select bridge (iCIMS, older ATS widgets) ────────────
+  // iCIMS and some other ATSes hide the real <select> and wrap it with a
+  // Select2 jQuery plugin. fillSelect on the hidden element sets the value
+  // but Select2 won't update its display unless we trigger its events.
+  // This function handles both: native select + Select2 notification.
+  function fillSelect2(el, value) {
+    if (el.tagName !== "SELECT") return false;
+    // First try the standard fill; if it fails, bail early.
+    if (!fillSelect(el, value)) return false;
+    // Notify Select2 to sync its display widget.
+    if (window.jQuery) {
+      try {
+        const $el = window.jQuery(el);
+        if ($el.data("select2") || el.classList.contains("select2-hidden-accessible")) {
+          $el.trigger("change.select2").trigger("change");
+        }
+      } catch (_) {}
+    }
+    // React-Select sets a `__reactFiber` key on the container's input.
+    // Dispatching the synthetic InputEvent from setNativeValue already covers it.
     return true;
   }
 
@@ -442,7 +484,7 @@
   async function applyValue(el, value, opts) {
     if (value === undefined || value === null) return false;
     const v = String(value);
-    if (el.tagName === "SELECT") return fillSelect(el, v);
+    if (el.tagName === "SELECT") return fillSelect2(el, v);
     if (el.type === "radio" || el.type === "checkbox") return fillRadioOrCheckbox(el, v);
     // Native date/month inputs — convert YYYY-MM to whatever format the
     // input accepts. Browsers reject malformed values silently otherwise.
@@ -688,8 +730,7 @@
     try { await expandRepeatingSections(profile); } catch (_) {}
 
     const rules = RULES(profile);
-    const fields = Array.from(document.querySelectorAll("input, select, textarea"))
-      .filter(isFillable);
+    const fields = querySelectorAllDeep("input, select, textarea").filter(isFillable);
 
     let filled = 0;
     const skipNames = new Set();
@@ -885,8 +926,7 @@
     const skipNames = new Set();
     const out = [];
     let counter = 0;
-    const fields = Array.from(document.querySelectorAll("input, select, textarea"))
-      .filter(isFillable);
+    const fields = querySelectorAllDeep("input, select, textarea").filter(isFillable);
     for (const el of fields) {
       if (el.type === "radio" && el.name) {
         if (skipNames.has(el.name)) continue;
