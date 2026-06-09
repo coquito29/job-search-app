@@ -372,7 +372,7 @@ def _auth_required():
         return None, (jsonify({"error": "Locked. Log in with your passcode."}), 401)
     return uid, None
 
-TOP_JOBS_LIMIT = 50
+TOP_JOBS_LIMIT = 100
 FETCH_LIMIT = 100  # per Apify search — ~$1.20/search at $0.012/job (opt-in from UI)
 DEFAULT_TIMERANGE = "7d"
 NO_GO_TERMS = ["cold calling", "commission only", "door to door"]
@@ -622,19 +622,31 @@ def fetch_jsearch(skills, rapidapi_key, limit=50):
 
 # Role titles George is actually targeting — used for Apify titleSearch
 # (kept separate from the broader skills list used for match scoring / descriptionSearch)
+# Superset of the saved Apify task's titleSearch plus broader entry-level
+# variants. We override the task's titleSearch with this on every run so the
+# title gate is as wide as George's actual targets — the titleExclusionSearch
+# (Senior/Lead/…) below still strips anything too senior that slips through.
 TARGET_TITLES = [
     "help desk", "helpdesk", "it support", "technical support",
     "desktop support", "application support", "service desk",
-    "end user support", "junior developer", "jr developer",
-    "web developer", "software developer", "qa", "test engineer",
-    "soc analyst", "security analyst", "cybersecurity analyst",
+    "end user support", "it technician", "help desk technician",
+    "technical support engineer", "technical support specialist",
+    "support specialist", "support engineer", "customer support",
+    "it specialist", "it analyst", "noc technician", "network technician",
+    "junior developer", "jr developer", "junior web developer",
+    "junior software developer", "associate developer", "web developer",
+    "software developer", "qa engineer", "qa analyst", "test engineer",
+    "junior cybersecurity analyst", "soc analyst", "security analyst",
+    "information security analyst", "cybersecurity analyst",
 ]
 
 # Post-filter: drop listings with any of these words in the title (too senior for entry IT)
+# NOTE: dropped "ii " — it was nuking legit entry roles like "Tier II Support"
+# and "IT Support Level II". III/IV stay since those skew genuinely senior.
 SENIOR_TITLE_BLOCKLIST = (
     "senior", " sr.", " sr ", "lead ", "principal", "staff ",
     "manager", "director", "architect", " vp ", " vp,", "head of",
-    "chief ", "ii ", "iii ", "iv ",
+    "chief ", "iii ", "iv ",
 )
 
 
@@ -655,6 +667,14 @@ def fetch_apify_jobs(skills, token, limit=300, time_range="7d"):
         "timeRange": time_range,
         "limit": int(max(10, min(limit, 5000))),
     }
+    # Drive the saved task's search filters from the live skill/title lists
+    # instead of the values frozen into the task. Without this, changing skills
+    # in the UI never reached Apify — the task's baked descriptionSearch/
+    # titleSearch won every run. Top-level keys here replace the task's; keys we
+    # omit (experience/work-arrangement/exclusion filters) keep the task default.
+    if skills:
+        run_override["descriptionSearch"] = [s for s in skills[:25] if s]
+    run_override["titleSearch"] = TARGET_TITLES
     if APIFY_TASK_ID:
         url = (f"https://api.apify.com/v2/actor-tasks/{APIFY_TASK_ID}"
                "/run-sync-get-dataset-items")
@@ -669,8 +689,8 @@ def fetch_apify_jobs(skills, token, limit=300, time_range="7d"):
             "removeAgency": True,
             "aiEmploymentTypeFilter": ["FULL_TIME", "CONTRACTOR", "INTERN"],
             "aiExperienceLevelFilter": ["Entry Level", "Associate", "Internship"],
-            "titleSearch": TARGET_TITLES,
-            "descriptionSearch": skills[:20],
+            # titleSearch / descriptionSearch already set above from the live lists
+            "titleExclusionSearch": [t.strip() for t in SENIOR_TITLE_BLOCKLIST],
         })
     r = http_req.post(url, params={"token": token}, json=run_override, timeout=180)
     r.raise_for_status()
@@ -1998,17 +2018,12 @@ def search_jobs():
             except Exception:
                 source_results[src] = []
 
-    # Location keywords that signal an in-person / on-site job
-    ONSITE_SIGNALS = [
-        ", al", ", ak", ", az", ", ar", ", ca", ", co", ", ct", ", de", ", fl",
-        ", ga", ", hi", ", id", ", il", ", in", ", ia", ", ks", ", ky", ", la",
-        ", me", ", md", ", ma", ", mi", ", mn", ", ms", ", mo", ", mt", ", ne",
-        ", nv", ", nh", ", nj", ", nm", ", ny", ", nc", ", nd", ", oh", ", ok",
-        ", or", ", pa", ", ri", ", sc", ", sd", ", tn", ", tx", ", ut", ", vt",
-        ", va", ", wa", ", wv", ", wi", ", wy",
-    ]
-
-    # Merge, deduplicate by URL, remove sign-in-wall domains, keep remote only
+    # Merge, deduplicate by URL, remove sign-in-wall / aggregator domains.
+    # Remote filtering happens in ONE place downstream (is_remote_job, below) —
+    # every source already pre-filters for remote (Apify task = Remote OK/Solely,
+    # Adzuna requires remote signals, JSearch uses remote_jobs_only), so the old
+    # inline US-state-abbreviation block here just double-filtered and dropped
+    # legitimate remote listings that happened to carry a city in their location.
     seen_urls = set()
     all_jobs = []
     for src, jobs_list in source_results.items():
@@ -2020,30 +2035,6 @@ def search_jobs():
                 continue  # skip Indeed, LinkedIn, Glassdoor etc.
             if _url_host_matches(url, _aggregator_denylist()):
                 continue  # skip jobleads, lensa, bebee etc. (Cloudflare-blocked)
-            # Remote-only filter: skip jobs with clear in-person location signals
-            loc_lower = (job.get("location") or "").lower().strip()
-            title_lower = (job.get("title") or "").lower()
-            # Allow if location is empty, "remote", "worldwide", "anywhere" etc.
-            is_remote = (
-                not loc_lower
-                or "remote" in loc_lower
-                or "flexible" in loc_lower
-                or "worldwide" in loc_lower
-                or "anywhere" in loc_lower
-                or "work from home" in loc_lower
-                or loc_lower in ("us", "usa", "united states", "global", "international")
-            )
-            # Also allow if title mentions remote
-            if not is_remote and "remote" in title_lower:
-                is_remote = True
-            # Block if location ends with a US state abbreviation (e.g. "Austin, TX")
-            if not is_remote and any(loc_lower.endswith(sig) for sig in ONSITE_SIGNALS):
-                continue
-            if not is_remote:
-                # One last check — if description mentions "remote" prominently keep it
-                desc_lower = (job.get("description") or "").lower()[:500]
-                if "remote" not in desc_lower and "work from home" not in desc_lower:
-                    continue
             seen_urls.add(url)
             all_jobs.append(job)
 
