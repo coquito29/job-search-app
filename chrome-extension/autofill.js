@@ -171,6 +171,10 @@
   // ── Text utilities ─────────────────────────────────────────────────────────
   function cleanText(s) {
     return (s || "")
+      // Strip SVG fallback noise ("SVGs not supported by this browser.") that
+      // Workable/others inject as text inside custom radio/checkbox icons. It
+      // pollutes both labels and option text otherwise.
+      .replace(/SVGs?\s+not\s+supported[^.]*\.?/gi, " ")
       .replace(/\s+/g, " ")
       .replace(/\s*\*\s*$/, "")                   // trailing required-asterisk
       .replace(/\s*\(required\)\s*$/i, "")
@@ -227,6 +231,7 @@
     // labels belong to other fields. Without this guard, a Phone Number
     // field's walk-up would pick up "First Name" from a sibling form-group
     // and the first_name rule would fire on the phone input.
+    const isRadioOrCheck = el.type === "radio" || el.type === "checkbox";
     let container = el.parentElement;
     for (let depth = 0; container && container !== document.body && depth < 5; depth++) {
       for (const child of container.children) {
@@ -234,16 +239,29 @@
         if (child.querySelector && child.querySelector("input, select, textarea")) continue;
         const tag = child.tagName;
         const isLabelLike = tag === "LABEL"
+                         || tag === "LEGEND"
                          || /^H[1-6]$/.test(tag)
-                         || /label/i.test(child.className || "");
+                         || /label|question|prompt/i.test(child.className || "")
+                         // Radio/checkbox question text is frequently a bare
+                         // <span>/<p> sibling of a legend-less <fieldset>
+                         // (Workable screening-question pattern). Restrict to
+                         // radios/checkboxes so text inputs don't pull in noise.
+                         || (isRadioOrCheck && (tag === "SPAN" || tag === "P"));
         if (!isLabelLike) continue;
-        const t = (child.textContent || "").trim();
+        const t = (child.textContent || "")
+          .replace(/SVGs?\s+not\s+supported[^.]*\.?/gi, " ")
+          .replace(/\s+/g, " ").trim();
         if (t && t.length < 300) parts.push(t);
       }
       container = container.parentElement;
     }
 
-    return parts.join(" | ");
+    // Strip SVG fallback noise uniformly (parent-label pushes above don't run
+    // through cleanText) so it never reaches rules or the Phase 2 AI label.
+    return parts.join(" | ")
+      .replace(/SVGs?\s+not\s+supported[^.]*\.?/gi, " ")
+      .replace(/\s{2,}/g, " ")
+      .trim();
   }
 
   function isFillable(el) {
@@ -957,7 +975,15 @@
       } else if (type === "radio" && el.name && el.form) {
         options = Array.from(el.form.querySelectorAll(
           `input[type="radio"][name="${CSS.escape(el.name)}"]`))
-          .map(r => probeText(r).split("|").pop().trim() || r.value)
+          .map(r => {
+            // Prefer the radio's own visible label (e.g. "Yes"/"No") over the
+            // value attribute — some ATSes (Workable) use random hash IDs as
+            // option values, which the AI can't reason about or match back.
+            const ownLabel = (r.closest("label")?.textContent
+              || (r.id && document.querySelector(`label[for="${CSS.escape(r.id)}"]`)?.textContent)
+              || "");
+            return cleanText(ownLabel) || r.value;
+          })
           .filter(Boolean);
       }
       out.push({
