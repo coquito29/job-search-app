@@ -11,6 +11,10 @@ applications.db
 .vscode/
 .idea/
 
+# Local agent config + runtime logs (never commit)
+.claude/
+*.log
+
 # Local secrets / env files (never commit)
 .env
 *.env
