@@ -847,10 +847,23 @@
     /* ── No results ──────────────────────────────────────── */
     .empty-state {
       text-align: center;
-      padding: 40px 20px;
-      color: #adb5bd;
+      padding: 44px 20px;
+      color: var(--ink-faint);
     }
-    .empty-state i { font-size: 3rem; margin-bottom: 12px; display: block; }
+    .empty-state i {
+      font-size: 1.8rem;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 60px;
+      height: 60px;
+      margin-bottom: 14px;
+      color: var(--ink-faint);
+      background: var(--surface-soft);
+      border: 1px solid var(--border-soft);
+      border-radius: var(--r-pill);
+    }
+    .empty-state p { margin: 0; font-size: .9rem; line-height: 1.55; }
 
     /* ── Match score bar ────────────────────────────────────── */
     .match-bar-wrap {
@@ -1183,10 +1196,11 @@
       background: var(--surface-card);
       border: 1px solid var(--border-soft);
       border-radius: var(--r-md);
-      padding: 12px 10px 11px;
+      padding: 13px 11px 12px;
       text-align: left;
       position: relative;
       overflow: hidden;
+      box-shadow: var(--shadow-xs);
       transition: transform .12s var(--ease-out), box-shadow .15s var(--ease-out);
     }
     .stat-tile::before {
@@ -1195,11 +1209,11 @@
       top: 0; left: 0; right: 0;
       height: 3px;
       background: linear-gradient(90deg, var(--brand-500), var(--brand-300));
-      opacity: .7;
+      opacity: .8;
     }
     .stat-tile:hover {
-      transform: translateY(-1px);
-      box-shadow: var(--shadow-sm);
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-md);
     }
     .stat-num {
       font-size: 1.55rem;
@@ -1224,6 +1238,12 @@
       text-transform: uppercase;
       letter-spacing: .8px;
       margin: 18px 0 8px;
+    }
+    .stats-empty {
+      font-size: .78rem;
+      color: var(--ink-faint);
+      font-style: italic;
+      padding: 2px 0;
     }
     .stat-bar-row {
       display: flex;
@@ -4391,7 +4411,7 @@ function renderStats(d) {
   document.getElementById('statsStatusBars').innerHTML = Object.entries(d.by_status || {})
     .filter(([, n]) => n > 0)
     .map(([s, n]) => renderBar(s, n, totalStatus, statusColors[s] || '#6c757d'))
-    .join('') || '<div style="font-size:.78rem; color:#6c757d;">No applications yet.</div>';
+    .join('') || '<div class="stats-empty">No applications yet.</div>';
 
   // ATS class breakdown
   const atsColors = { fast: '#198754', walled: '#f59e0b', blocked: '#dc3545', unknown: '#6c757d' };
@@ -4399,7 +4419,7 @@ function renderStats(d) {
   document.getElementById('statsAtsBars').innerHTML = Object.entries(d.by_ats_class || {})
     .filter(([, n]) => n > 0)
     .map(([k, n]) => renderBar(k, n, totalAts, atsColors[k] || '#6c757d'))
-    .join('') || '<div style="font-size:.78rem; color:#6c757d;">No data.</div>';
+    .join('') || '<div class="stats-empty">No data.</div>';
 
   // Source breakdown
   const sourceColors = { Apify: '#dc2626', Adzuna: '#059669', JSearch: '#b45309' };
@@ -4407,13 +4427,13 @@ function renderStats(d) {
   document.getElementById('statsSourceBars').innerHTML = Object.entries(d.by_source || {})
     .filter(([, n]) => n > 0)
     .map(([k, n]) => renderBar(k, n, totalSrc, sourceColors[k] || '#6c757d'))
-    .join('') || '<div style="font-size:.78rem; color:#6c757d;">No data.</div>';
+    .join('') || '<div class="stats-empty">No data.</div>';
 
   // Top companies
   const tc = d.top_companies || [];
   document.getElementById('statsTopCompanies').innerHTML = tc.length
     ? tc.map(c => `<div style="padding:3px 0;"><strong>${escHtml(c.name)}</strong> — ${c.count} apps</div>`).join('')
-    : '<span style="color:#6c757d;">All companies are 1-app deep.</span>';
+    : '<span class="stats-empty">All companies are 1-app deep.</span>';
 
   // Top ATSes
   const ta = d.top_ats_names || [];
