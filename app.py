@@ -1935,6 +1935,135 @@ def profile_skills_refresh():
     })
 
 
+@app.route("/api/profile/skills/ai-suggest", methods=["POST"])
+def profile_skills_ai_suggest():
+    """Use Claude to pick an *optimised* search-skill list from the user's CV.
+
+    The keyword extractor (skills/refresh) only returns terms it literally
+    finds in the CV. This instead asks the model to choose the industry-standard
+    keywords that (a) the candidate genuinely has and (b) actually appear in job
+    descriptions — including closely-adjacent terms — so the Apify
+    descriptionSearch casts a wider, smarter net and surfaces more jobs.
+    Optional body: {"target_role": "...", "merge": true}.
+    """
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key or not _anthropic:
+        return jsonify({"error": "AI not available — set ANTHROPIC_API_KEY"}), 503
+
+    uid, err = _auth_required()
+    if err: return err
+
+    data        = request.get_json(silent=True) or {}
+    target_role = (data.get("target_role") or "").strip()[:120]
+    merge       = bool(data.get("merge"))
+
+    # Pull parsed text for the default CV (or most recent), same as skills/refresh.
+    with _db_conn() as conn:
+        row = conn.execute(
+            "SELECT id, filename, parsed_text FROM cvs "
+            "WHERE user_id = ? AND is_default = 1 LIMIT 1", (uid,),
+        ).fetchone()
+        if not row:
+            row = conn.execute(
+                "SELECT id, filename, parsed_text FROM cvs "
+                "WHERE user_id = ? ORDER BY id DESC LIMIT 1", (uid,),
+            ).fetchone()
+    if not row:
+        return jsonify({"error": "no CV in library to suggest from"}), 400
+    cv_text = (_row_get(row, "parsed_text") or "").strip()
+    if not cv_text:
+        return jsonify({"error": "default CV has no parsed text — re-upload it"}), 400
+
+    role_line = f"\nTARGET ROLE THE CANDIDATE WANTS: {target_role}" if target_role else ""
+    prompt = f"""You build the keyword list that drives a remote-job search engine.
+The list is matched against job-posting *descriptions*, so every term must be a
+concrete, industry-standard keyword a recruiter would actually write in a posting.
+
+From the CV below, choose 12-18 search keywords that:
+- the candidate genuinely has or can credibly claim, AND
+- commonly appear in job descriptions for their field, AND
+- include a few closely-adjacent / transferable terms to widen the net (more jobs)
+  WITHOUT drifting into roles the candidate can't do.
+Prefer specific tools/technologies/certs over generic soft skills. NEVER include
+vague words like "communication", "teamwork", "fast learner", "detail-oriented".{role_line}
+
+CV:
+{cv_text[:4000]}
+
+Return ONLY valid JSON, no markdown:
+{{"skills": ["keyword1", "keyword2", ...], "rationale": "<one sentence on the strategy>"}}"""
+
+    try:
+        client  = _anthropic.Anthropic(api_key=api_key)
+        message = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=500,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = message.content[0].text.strip()
+        m    = re.search(r'\{.*\}', text, re.DOTALL)
+        parsed = json.loads(m.group() if m else text)
+    except Exception as e:
+        return jsonify({"error": f"AI suggestion failed: {e}"}), 500
+
+    # Clean + de-dupe the model output; cap length defensively.
+    ai_skills, seen = [], set()
+    for s in (parsed.get("skills") or []):
+        s = re.sub(r"\s+", " ", str(s)).strip()
+        if s and 1 < len(s) <= 50 and s.lower() not in seen:
+            seen.add(s.lower())
+            ai_skills.append(s)
+    ai_skills = ai_skills[:20]
+    if not ai_skills:
+        return jsonify({"error": "AI returned no usable skills — try again"}), 502
+
+    # Optionally merge with the existing saved skills instead of replacing.
+    final_skills = ai_skills
+    if merge:
+        with _db_conn() as conn:
+            prow = conn.execute(
+                "SELECT skills FROM profiles WHERE user_id = ?", (uid,)
+            ).fetchone()
+        try:
+            current = json.loads(_row_get(prow, "skills") or "[]") if prow else []
+        except Exception:
+            current = []
+        merged = list(current)
+        have = {c.lower() for c in current if isinstance(c, str)}
+        for s in ai_skills:
+            if s.lower() not in have:
+                merged.append(s); have.add(s.lower())
+        final_skills = merged[:30]
+
+    # Persist back to the profile (same write path as skills/refresh).
+    now = datetime.utcnow().isoformat()
+    with _db_conn() as conn:
+        existing = conn.execute(
+            "SELECT id FROM profiles WHERE user_id = ?", (uid,)
+        ).fetchone()
+        if existing:
+            conn.execute(
+                "UPDATE profiles SET skills = ?, updated_at = ? WHERE user_id = ?",
+                (json.dumps(final_skills), now, uid),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO profiles (user_id, summary, skills, settings, updated_at) "
+                "VALUES (?, '', ?, '{}', ?)",
+                (uid, json.dumps(final_skills), now),
+            )
+
+    return jsonify({
+        "ok":        True,
+        "skills":    final_skills,
+        "ai_skills": ai_skills,
+        "count":     len(final_skills),
+        "rationale": str(parsed.get("rationale") or "")[:300],
+        "from_cv":   _row_get(row, "filename"),
+        "merged":    merge,
+    })
+
+
 @app.route("/api/parse-cv", methods=["POST"])
 def parse_cv():
     if "file" not in request.files:

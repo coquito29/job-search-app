@@ -1622,6 +1622,11 @@
                 title="Re-extract skills from your default CV using the latest extractor">
           <i class="bi bi-arrow-clockwise"></i> Re-extract from CV
         </button>
+        <button class="btn btn-sm btn-primary" onclick="aiSuggestSkills()"
+                id="aiSuggestBtn" style="font-size:.7rem;"
+                title="Let AI pick the best search keywords from your CV to surface more matching jobs">
+          <i class="bi bi-stars"></i> AI suggest
+        </button>
         <button class="btn btn-sm btn-outline-danger" onclick="clearAllSkills()"
                 id="clearSkillsBtn" style="font-size:.7rem; display:none;">
           Clear all
@@ -1770,11 +1775,11 @@
     <!-- ATS triage chips — narrow to fast-apply ATSes for high-velocity batches -->
     <div class="d-flex align-items-center gap-2 mt-2 flex-wrap" style="font-size:.78rem;">
       <span style="color:#6c757d;font-weight:600;"><i class="bi bi-funnel me-1"></i>ATS:</span>
-      <button class="btn btn-sm btn-outline-success ats-filter-btn" data-cls="fast"
+      <button class="btn btn-sm btn-outline-success ats-filter-btn active" data-cls="fast"
               onclick="setAtsFilter('fast')">Fast only</button>
       <button class="btn btn-sm btn-outline-warning ats-filter-btn" data-cls="fast_walled"
               onclick="setAtsFilter('fast_walled')">Fast + Walled</button>
-      <button class="btn btn-sm btn-outline-secondary ats-filter-btn active" data-cls="all"
+      <button class="btn btn-sm btn-outline-secondary ats-filter-btn" data-cls="all"
               onclick="setAtsFilter('all')">All</button>
       <span id="atsFilterCount" style="color:#6c757d;margin-left:auto;"></span>
     </div>
@@ -2148,7 +2153,9 @@ let skills         = [];
 let jobs           = [];           // currently rendered jobs (after freshness filter)
 let allJobs        = [];           // unfiltered server response — source of truth for re-filtering
 let freshnessDays  = 7;            // 0 = all, otherwise max days_old to show. Default 7 hides month-old posts.
-let atsFilter      = 'all';        // 'all' | 'fast' | 'fast_walled'
+let atsFilter      = 'fast';       // 'all' | 'fast' | 'fast_walled' — default 'fast'
+                                   // to steer away from walled ATSes (Workday/
+                                   // iCIMS) where past apps had a low hit rate.
 let currentJob     = null;
 let currentCLJob   = null;
 let jobStatuses    = {};
@@ -3195,6 +3202,43 @@ async function refreshSkillsFromCv() {
   }
 }
 
+async function aiSuggestSkills() {
+  const btn = document.getElementById('aiSuggestBtn');
+  const prevHtml = btn ? btn.innerHTML : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Thinking…';
+  }
+  try {
+    const r = await fetch('/api/profile/skills/ai-suggest', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ merge: true }),  // widen the list -> more jobs
+    });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      if (r.status === 401 && typeof showLockScreen === 'function') { showLockScreen('login'); return; }
+      showToast(body.error || 'AI suggest failed', 'danger');
+      return;
+    }
+    const before = skills.length;
+    skills = Array.isArray(body.skills) ? body.skills : skills;
+    saveSkillsToStorage();
+    renderSkills();
+    updateStepIndicators();
+    const delta = skills.length - before;
+    const added = delta > 0 ? `+${delta} new ` : '';
+    showToast(`AI picked ${(body.ai_skills || []).length} keywords ${added}— ${body.rationale || 'optimised for more jobs'}`, 'success');
+  } catch (e) {
+    showToast('Network error: ' + (e.message || e), 'danger');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = prevHtml;
+    }
+  }
+}
+
 function saveSkillsToStorage() {
   localStorage.setItem('job_search_skills', JSON.stringify(skills));
 }
@@ -3533,7 +3577,14 @@ function updateFilterCounts() {
     if (atsFilter === 'all') {
       ac.textContent = '';
     } else {
-      ac.textContent = `${jobs.length} match`;
+      // Surface how many roles the ATS filter is hiding, so a short list
+      // reads as "filtered" rather than "search found nothing". Counts are
+      // taken from the freshness-filtered pool so the two filters compose.
+      const pool   = applyFreshnessFilter(allJobs);
+      const hidden = pool.length - jobs.length;
+      ac.textContent = hidden > 0
+        ? `${jobs.length} fast-apply · ${hidden} walled/other hidden — tap “All” to show`
+        : `${jobs.length} match`;
     }
   }
 }
