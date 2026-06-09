@@ -1030,10 +1030,23 @@
     /* ── Tracker section ─────────────────────────────────── */
     .tracker-empty {
       text-align: center;
-      padding: 40px 20px;
+      padding: 44px 20px;
       color: var(--ink-faint);
     }
-    .tracker-empty i { font-size: 3rem; margin-bottom: 12px; display: block; opacity: .7; }
+    .tracker-empty i {
+      font-size: 1.8rem;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 60px;
+      height: 60px;
+      margin-bottom: 14px;
+      color: var(--ink-faint);
+      background: var(--surface-soft);
+      border: 1px solid var(--border-soft);
+      border-radius: var(--r-pill);
+    }
+    .tracker-empty p { margin: 0; font-size: .9rem; line-height: 1.55; }
     .tracker-card {
       background: var(--surface-card);
       border-radius: var(--r-lg);
@@ -4439,7 +4452,7 @@ function renderStats(d) {
   const ta = d.top_ats_names || [];
   document.getElementById('statsTopAtses').innerHTML = ta.length
     ? ta.map(a => `<div style="padding:3px 0;">${escHtml(a.name)} — ${a.count} apps</div>`).join('')
-    : '<span style="color:#6c757d;">No ATS data.</span>';
+    : '<span class="stats-empty">No ATS data.</span>';
 
   // Activity calendar (last 30 days, oldest left → newest right)
   const dates = Object.entries(d.activity_30d || {}).sort();
