@@ -451,6 +451,81 @@
     return true;
   }
 
+  // ── Workday-style 3-field date splits (Month / Day / Year) ─────────────────
+  // Workday and a few other ATSes render a single date as three separate
+  // inputs/selects. The profile stores dates as "YYYY-MM" (day unknown → 01).
+  // This pass detects a Month + Year (+ optional Day) cluster, matches the
+  // cluster's text against the SAME date RULES the single-input path uses, and
+  // fills each sub-field.
+  //
+  // Deliberately conservative: it fills ONLY when a date rule matches the
+  // cluster label, so unrelated M/D/Y triplets (date of birth, card expiry,
+  // "today's date") are never touched. This keeps it safe on non-Workday
+  // forms, which is important because Workday walls its forms behind an
+  // account so this path ships without a live dogfood.
+  const MONTH_NAMES = ["January","February","March","April","May","June",
+                       "July","August","September","October","November","December"];
+
+  function dateSubKind(el) {
+    const ph = (el.placeholder || "").trim().toLowerCase();
+    if (ph === "mm") return "month";
+    if (ph === "dd") return "day";
+    if (ph === "yyyy" || ph === "yy") return "year";
+    const probe = (probeText(el) + " " + (el.getAttribute("aria-label") || "")).toLowerCase();
+    if (/\bmonth\b/.test(probe)) return "month";
+    if (/\bday\b/.test(probe))   return "day";
+    if (/\byear\b/.test(probe))  return "year";
+    return null;
+  }
+
+  function fillSplitDateField(el, value) {
+    if (!el || (el.value && el.value.trim())) return false;
+    if (el.tagName === "SELECT") {
+      return fillSelect(el, value) || fillSelect(el, String(parseInt(value, 10)));
+    }
+    setNativeValue(el, value);
+    return true;
+  }
+
+  function fillSplitDates(rules) {
+    let filled = 0;
+    const all = querySelectorAllDeep("input, select").filter(isFillable);
+    const months = all.filter(e => dateSubKind(e) === "month");
+    const usedYears = new Set();
+    for (const monthEl of months) {
+      // Walk up to the tightest scope that ALSO contains a Year field — that
+      // scope is the date widget. Stop as soon as a year is found so we don't
+      // grab a neighbouring date question's fields.
+      let scope = monthEl.parentElement, yearEl = null, dayEl = null;
+      for (let d = 0; d < 4 && scope; d++, scope = scope.parentElement) {
+        const cands = [...scope.querySelectorAll("input, select")];
+        if (!yearEl) yearEl = cands.find(c => dateSubKind(c) === "year" && !usedYears.has(c));
+        if (!dayEl)  dayEl  = cands.find(c => dateSubKind(c) === "day");
+        if (yearEl) break;
+      }
+      if (!yearEl || !scope) continue;
+      usedYears.add(yearEl);
+      // Match the cluster's text against the date rules — only fill on a hit.
+      const label = (scope.textContent || "").replace(/\s+/g, " ").slice(0, 200);
+      const rule = matchRule(rules, label);
+      if (!rule) continue;
+      const m = String(rule.value).match(/^(\d{4})-(\d{2})(?:-(\d{2}))?$/);
+      if (!m) continue;
+      const [, yyyy, mm, dd] = m;
+      // Month selects usually carry names ("September"); try name then numbers.
+      if (monthEl.tagName === "SELECT") {
+        if (fillSelect(monthEl, MONTH_NAMES[parseInt(mm, 10) - 1])
+            || fillSelect(monthEl, mm)
+            || fillSelect(monthEl, String(parseInt(mm, 10)))) filled++;
+      } else if (fillSplitDateField(monthEl, mm)) {
+        filled++;
+      }
+      if (dayEl  && fillSplitDateField(dayEl, dd || "01")) filled++;
+      if (fillSplitDateField(yearEl, yyyy)) filled++;
+    }
+    return filled;
+  }
+
   // ── Autocomplete (Google Places / React combobox) ──────────────────────────
   function simulateClick(el) {
     for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup", "click"]) {
@@ -507,6 +582,13 @@
     // Native date/month inputs — convert YYYY-MM to whatever format the
     // input accepts. Browsers reject malformed values silently otherwise.
     if (el.type === "date" || el.type === "month") return fillDate(el, v);
+    // Numeric inputs reject non-numeric text. The user keeps salary as
+    // "Negotiable" (text), which must never be jammed into a numeric
+    // Minimum/Maximum-salary box — skip and leave it for them to fill.
+    if ((el.type === "number" || (el.getAttribute && el.getAttribute("inputmode") === "numeric"))
+        && !/^-?\d[\d,]*\.?\d*$/.test(v.trim())) {
+      return false;
+    }
     // Autocomplete-aware path for combobox-like inputs. Defaults on; opts can
     // disable for fast jsdom tests.
     if ((opts?.autocomplete ?? true) && isComboboxLike(el)) {
@@ -790,6 +872,11 @@
         filled++;
       }
     }
+
+    // ── Pass 1b: Workday-style 3-field date splits (Month/Day/Year) ──────────
+    // Runs after the single-input rules so it only handles genuine split
+    // clusters that Pass 1 left untouched.
+    try { filled += fillSplitDates(rules); } catch (_) {}
 
     // ── Pass 2: custom button-radio groups (Ashby) ───────────────────────────
     let buttonGroupTotal = 0;
