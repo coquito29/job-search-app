@@ -38,6 +38,14 @@ button:hover   { background: #f3f4f6; }
 button.primary:hover { background: #0b5ed7; }
 .profile-line { margin: 0 0 4px; }
 .muted { color: #6b7280; font-size: 12px; margin: 0 0 10px; }
+.toggle-line {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13px; color: #1f2937; margin: 0 0 10px; cursor: pointer;
+}
+.toggle-line input {
+  display: inline-block; width: auto; margin: 0;
+  accent-color: #0d6efd;
+}
 .msg {
   margin-top: 12px; padding: 8px 10px; border-radius: 6px;
   background: #fef3c7; color: #92400e; font-size: 12px;

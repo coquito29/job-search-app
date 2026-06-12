@@ -87,7 +87,15 @@ async function init() {
   } else {
     renderSignedOut(appUrl);
   }
+  // Auto-fill toggle — default ON when the key has never been set.
+  const { autoFillEnabled } = await new Promise(res =>
+    chrome.storage.local.get("autoFillEnabled", res));
+  $("auto-fill-toggle").checked = autoFillEnabled !== false;
 }
+
+$("auto-fill-toggle").addEventListener("change", (e) => {
+  chrome.storage.local.set({ autoFillEnabled: e.target.checked });
+});
 
 $("signin").addEventListener("click", async () => {
   clearMsg();
@@ -135,7 +143,7 @@ $("signout").addEventListener("click", async () => {
   clearMsg();
   const { appUrl } = await getStored();
   if (appUrl) await logout(appUrl);
-  await setStored({ profile: null, lastSync: null });
+  await setStored({ profile: null, lastSync: null, cvCache: null });
   renderSignedOut(appUrl);
   msg("Signed out.", "ok");
 });
