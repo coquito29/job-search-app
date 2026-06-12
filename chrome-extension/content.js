@@ -153,11 +153,17 @@
     setTimeout(() => runFullAutofill("auto"), 900);
   }
 
-  // Only act once a real form is on the page — some ATSes render the job
-  // listing first and the form behind an "Apply" click.
+  // Only act once a real application form is on the page — some ATSes render
+  // the job listing first and the form behind an "Apply" click. Ashby renders
+  // its form WITHOUT a <form> tag (inputs in bare divs), so don't require one;
+  // instead look for an application-shaped field set: a resume file input, an
+  // email input, or several free-text fields. A lone search box won't trigger.
   const ensureReady = () => {
-    const hasForm = document.querySelector("form input, form select, form textarea");
-    if (!hasForm) return;
+    const hasFile  = document.querySelector('input[type="file"]');
+    const hasEmail = document.querySelector('input[type="email"], input[autocomplete="email"]');
+    const textish  = document.querySelectorAll(
+      'input[type="text"], input:not([type]), textarea').length;
+    if (!hasFile && !hasEmail && textish < 3) return;
     injectLauncher();
     maybeAutoRun();
   };
