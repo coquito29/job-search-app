@@ -1414,6 +1414,9 @@ def health():
         "db":       "postgres" if USE_POSTGRES else "sqlite",
         "db_error": db_error,
         "ai":       bool(os.environ.get("ANTHROPIC_API_KEY")),
+        # Render sets RENDER_GIT_COMMIT on every deploy — lets us verify
+        # which code is live without guessing at deploy timing.
+        "commit":   os.environ.get("RENDER_GIT_COMMIT", "")[:7],
     }), status
 
 
