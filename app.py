@@ -2342,7 +2342,8 @@ Return ONLY valid JSON (no markdown, no explanation):
 @app.route("/api/digest", methods=["POST", "GET"])
 def daily_digest():
     """
-    Run a job search with the configured skills and email the top 10 results.
+    Run a job search with the user's profile skills (fallback: built-in list),
+    drop anything already applied to, and email the top 30 results.
     Can be triggered via GET (GitHub Actions cron) or POST (manual/test).
     Requires GMAIL_USER + GMAIL_APP_PASSWORD env vars on Render.
     """
@@ -2361,8 +2362,9 @@ def daily_digest():
     if not gmail_user or not gmail_pass:
         return jsonify({"error": "GMAIL_USER / GMAIL_APP_PASSWORD not set"}), 500
 
-    # Skills tuned to George's FULL profile — entry IT + dev background (Cholo Tech)
-    # Pulls in help-desk, app-support, jr-dev, QA, and SOC-I roles
+    # Fallback skills — entry IT + dev background (Cholo Tech). Only used when
+    # no profile skills are saved; otherwise the digest searches with the same
+    # list the user curates in the app (incl. AI-suggested keywords).
     skills = [
         # Core IT support (primary target)
         "help desk", "helpdesk", "it support", "technical support",
@@ -2382,13 +2384,30 @@ def daily_digest():
         "access control", "network", "compliance",
         "bilingual", "spanish"
     ]
+    # Single-user for now → user_id=1 (same convention as daily_searches below).
+    # Union, not replace: profile skills lead (Adzuna/JSearch only use the first
+    # few terms) and the built-in list keeps the net wide even when the saved
+    # profile is thin. descriptionSearch is OR-matched, so more terms = more jobs.
+    try:
+        with _db_conn() as conn:
+            prow = conn.execute(
+                "SELECT skills FROM profiles WHERE user_id = 1"
+            ).fetchone()
+        saved = json.loads(_row_get(prow, "skills") or "[]") if prow else []
+        if isinstance(saved, list):
+            saved = [s for s in saved if isinstance(s, str) and s.strip()]
+            if saved:
+                have = {s.lower() for s in saved}
+                skills = saved + [s for s in skills if s.lower() not in have]
+    except Exception as e:
+        print(f"[digest] profile skills load failed, using fallback list: {e}")
 
     # --- Run all sources in parallel (same logic as /api/search) ---
     # Paid/keyed APIs only — free sources removed
     fetch_tasks = {}
     if apify_token:
-        # Cost-capped: $0.012/job * 50 = $0.60/day for the daily digest
-        fetch_tasks["apify"] = lambda: fetch_apify_jobs(skills, apify_token, limit=50, time_range="1d")
+        # Cost-capped: $0.012/job * 100 = $1.20/day for the daily digest
+        fetch_tasks["apify"] = lambda: fetch_apify_jobs(skills, apify_token, limit=100, time_range="1d")
     if adzuna_id and adzuna_key:
         fetch_tasks["adzuna"] = lambda: fetch_adzuna(skills, adzuna_id, adzuna_key, limit=50)
     if rapidapi_key:
@@ -2437,7 +2456,36 @@ def daily_digest():
         job["salary_clean"] = _clean_salary(job.get("salary", ""))
         job["date_fmt"]     = fmt_date(job.get("posted"))
     remote_jobs.sort(key=lambda j: j["match_pct"], reverse=True)
-    top10 = remote_jobs[:10]
+
+    # Drop jobs already in the applications tracker (by URL or company|title
+    # fingerprint) — every digest slot should be a job you can still apply to.
+    try:
+        with _db_conn() as conn:
+            rows = conn.execute(
+                "SELECT url, company, title FROM applications WHERE user_id = 1"
+            ).fetchall()
+        applied_urls = {(_row_get(r, "url") or "").strip() for r in rows}
+        applied_urls.discard("")
+        applied_fps = set()
+        for r in rows:
+            c = re.sub(r'\s+', ' ', (_row_get(r, "company") or "").lower().strip())[:30]
+            t = re.sub(r'\s+', ' ', (_row_get(r, "title") or "").lower().strip())[:60]
+            if c and t:
+                applied_fps.add(f"{t}|{c}")
+        def _already_applied(j):
+            if (j.get("url") or "").strip() in applied_urls:
+                return True
+            t = re.sub(r'\s+', ' ', (j.get("title") or "").lower().strip())[:60]
+            c = re.sub(r'\s+', ' ', (j.get("company_name") or "").lower().strip())[:30]
+            return bool(t and c and f"{t}|{c}" in applied_fps)
+        before = len(remote_jobs)
+        remote_jobs = [j for j in remote_jobs if not _already_applied(j)]
+        skipped_applied = before - len(remote_jobs)
+    except Exception as e:
+        print(f"[digest] applied-filter failed (sending unfiltered): {e}")
+        skipped_applied = 0
+
+    top_jobs = remote_jobs[:30]
 
     # Persist to daily_searches BEFORE sending email — so even if SMTP fails,
     # the frontend still has fresh "Today's Matches" to show.
@@ -2450,20 +2498,20 @@ def daily_digest():
             conn.execute(
                 "INSERT INTO daily_searches (user_id, run_at, jobs, source_counts, "
                 "total_fetched, emailed_to) VALUES (?, ?, ?, ?, ?, ?)",
-                (1, now_iso, json.dumps(top10), json.dumps(source_counts),
+                (1, now_iso, json.dumps(top_jobs), json.dumps(source_counts),
                  len(all_jobs), digest_to),
             )
     except Exception as e:
         # Non-fatal — email still goes out, frontend just won't see this run.
         print(f"[digest] daily_searches write failed: {e}")
 
-    if not top10:
+    if not top_jobs:
         return jsonify({"sent": False, "reason": "No jobs found today"}), 200
 
     # --- Build HTML email ---
     today = datetime.utcnow().strftime("%B %d, %Y")
     rows_html = ""
-    for i, job in enumerate(top10, 1):
+    for i, job in enumerate(top_jobs, 1):
         title   = job.get("title", "No title")
         company = job.get("company_name", "Unknown")
         url     = job.get("url", "#")
@@ -2487,7 +2535,7 @@ def daily_digest():
     <html><body style="font-family:Arial,sans-serif;max-width:680px;margin:auto;color:#333">
       <div style="background:#0d6efd;padding:24px 32px;border-radius:8px 8px 0 0">
         <h1 style="color:#fff;margin:0;font-size:22px">🔍 Your Daily Job Digest</h1>
-        <p style="color:#cce5ff;margin:6px 0 0">{today} — Top {len(top10)} remote jobs matched to your profile</p>
+        <p style="color:#cce5ff;margin:6px 0 0">{today} — Top {len(top_jobs)} remote jobs matched to your profile</p>
       </div>
       <div style="border:1px solid #dee2e6;border-top:none;border-radius:0 0 8px 8px;padding:0 16px 16px">
         <table style="width:100%;border-collapse:collapse">
@@ -2508,7 +2556,7 @@ def daily_digest():
 
     # --- Send via Gmail SMTP ---
     msg = MIMEMultipart("alternative")
-    msg["Subject"] = f"🔍 Daily Job Digest — {today} ({len(top10)} top matches)"
+    msg["Subject"] = f"🔍 Daily Job Digest — {today} ({len(top_jobs)} top matches)"
     msg["From"]    = gmail_user
     msg["To"]      = digest_to
     msg.attach(MIMEText(html_body, "html"))
@@ -2523,7 +2571,8 @@ def daily_digest():
     except Exception as e:
         return jsonify({"sent": False, "error": str(e)}), 500
 
-    return jsonify({"sent": True, "jobs_emailed": len(top10), "to": digest_to})
+    return jsonify({"sent": True, "jobs_emailed": len(top_jobs),
+                    "skipped_already_applied": skipped_applied, "to": digest_to})
 
 
 @app.route("/api/daily-results", methods=["GET"])
