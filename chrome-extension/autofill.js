@@ -253,7 +253,12 @@
           .replace(/\s+/g, " ").trim();
         if (t && t.length < 300) parts.push(t);
       }
-      container = container.parentElement;
+      // Pierce shadow boundaries on the way up: when the walk tops out inside
+      // a shadow root, continue from the host element. Without this, fields
+      // inside web components (SmartRecruiters spl-*) never see the question
+      // text that lives outside their shadow root.
+      container = container.parentElement
+        || (container.getRootNode && container.getRootNode().host) || null;
     }
 
     // Strip SVG fallback noise uniformly (parent-label pushes above don't run
@@ -914,18 +919,27 @@
     // Find file inputs labelled resume / CV / curriculum vitae / upload.
     // Don't use isFillable here — it excludes type="file" specifically
     // because the rule-based passes can't touch file inputs. Pass 4 CAN.
-    const fileInputs = Array.from(document.querySelectorAll('input[type="file"]'))
+    // Deep query: SmartRecruiters wraps its dropzones in shadow-DOM web
+    // components (spl-dropzone), invisible to a plain querySelectorAll.
+    const fileInputs = querySelectorAllDeep('input[type="file"]')
       .filter(el => !el.disabled && !el.readOnly);
     if (!fileInputs.length) return 0;
 
     const RESUME_RE = /\b(resume|cv|curriculum[\s_-]*vitae|upload[\s_-]*(your[\s_-]*)?(resume|cv|file))\b|\battach[\s_-]*(your[\s_-]*)?(resume|cv|file)\b/i;
+    // Never auto-attach the CV to slots meant for something else.
+    const NOT_RESUME_RE = /\b(cover[\s_-]*letter|portfolio|transcript|photo|avatar|head[\s_-]*shot|certificate|reference)\b/i;
     let resumeInput = null;
+    const candidates = [];
     for (const el of fileInputs) {
       const haystack = `${el.name || ""} ${el.id || ""} ${probeText(el)} ${el.accept || ""}`;
+      if (NOT_RESUME_RE.test(haystack)) continue;
       if (RESUME_RE.test(haystack)) { resumeInput = el; break; }
+      candidates.push(el);
     }
-    // Fall back to the first file input if exactly one and labels are ambiguous
-    if (!resumeInput && fileInputs.length === 1) resumeInput = fileInputs[0];
+    // Labels ambiguous (e.g. SmartRecruiters ids every slot "file-input"):
+    // take the first non-excluded input — the resume slot leads application
+    // forms in practice, and the user reviews before submitting anyway.
+    if (!resumeInput && candidates.length) resumeInput = candidates[0];
     if (!resumeInput) return 0;
     // Skip if a file is already attached
     if (resumeInput.files && resumeInput.files.length > 0) return 0;
