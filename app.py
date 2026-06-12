@@ -2147,7 +2147,10 @@ def search_jobs():
             src = future_to_src[future]
             try:
                 source_results[src] = future.result()
-            except Exception:
+            except Exception as exc:
+                # Never silent — a 400 from one source looks identical to
+                # "no jobs today" otherwise (the digest hid this for weeks).
+                print(f"[fetch] {src} failed: {exc}")
                 source_results[src] = []
 
     # Merge, deduplicate by URL, remove sign-in-wall / aggregator domains.
@@ -2409,8 +2412,12 @@ def daily_digest():
     # Paid/keyed APIs only — free sources removed
     fetch_tasks = {}
     if apify_token:
-        # Cost-capped: $0.012/job * 100 = $1.20/day for the daily digest
-        fetch_tasks["apify"] = lambda: fetch_apify_jobs(skills, apify_token, limit=100, time_range="1d")
+        # Cost-capped: $0.012/job * 100 = $1.20/day for the daily digest.
+        # 7d window (the actor rejects "1d" — valid values are 1h/24h/7d/6m;
+        # the old "1d" made this fetch 400 and silently return nothing). The
+        # week-wide pool always fills the budget; previously-emailed jobs are
+        # excluded below so each digest surfaces fresh picks.
+        fetch_tasks["apify"] = lambda: fetch_apify_jobs(skills, apify_token, limit=100, time_range="7d")
     if adzuna_id and adzuna_key:
         fetch_tasks["adzuna"] = lambda: fetch_adzuna(skills, adzuna_id, adzuna_key, limit=50)
     if rapidapi_key:
@@ -2423,7 +2430,10 @@ def daily_digest():
             src = future_to_src[future]
             try:
                 source_results[src] = future.result()
-            except Exception:
+            except Exception as exc:
+                # Never silent — a 400 from one source looks identical to
+                # "no jobs today" otherwise (the digest hid this for weeks).
+                print(f"[fetch] {src} failed: {exc}")
                 source_results[src] = []
 
     # Deduplicate, score, sort
@@ -2462,13 +2472,27 @@ def daily_digest():
 
     # Drop jobs already in the applications tracker (by URL or company|title
     # fingerprint) — every digest slot should be a job you can still apply to.
+    # Also drop jobs emailed in recent digests: the 7d search window re-fetches
+    # the same pool daily, so without this each digest would repeat yesterday's.
     try:
         with _db_conn() as conn:
             rows = conn.execute(
                 "SELECT url, company, title FROM applications WHERE user_id = 1"
             ).fetchall()
+            recent = conn.execute(
+                "SELECT jobs FROM daily_searches WHERE user_id = 1 "
+                "ORDER BY run_at DESC LIMIT 14"
+            ).fetchall()
         applied_urls = {(_row_get(r, "url") or "").strip() for r in rows}
         applied_urls.discard("")
+        for r in recent:
+            try:
+                for j in json.loads(_row_get(r, "jobs") or "[]"):
+                    u = (j.get("url") or "").strip()
+                    if u:
+                        applied_urls.add(u)
+            except Exception:
+                continue
         applied_fps = set()
         for r in rows:
             c = re.sub(r'\s+', ' ', (_row_get(r, "company") or "").lower().strip())[:30]
