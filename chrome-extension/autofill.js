@@ -1130,7 +1130,16 @@
       if (!tagged) { skipped++; continue; }
       if (typeof f.confidence === "number" && f.confidence < MIN_AI_CONFIDENCE) {
         skipped++;
-        try { tagged.style.outline = "2px solid #f59e0b"; setTimeout(() => tagged.style.outline = "", 6000); } catch (_) {}
+        // Radios/checkboxes/buttons are too small for an outline to be seen —
+        // flag the whole question container so the skipped field is findable.
+        const hl = (tagged.type === "radio" || tagged.type === "checkbox" || tagged.tagName === "BUTTON")
+          ? (tagged.closest("fieldset,[role='radiogroup'],div,label") || tagged)
+          : tagged;
+        try {
+          hl.style.outline = "3px solid #f59e0b";
+          hl.style.outlineOffset = "2px";
+          setTimeout(() => { hl.style.outline = ""; hl.style.outlineOffset = ""; }, 15000);
+        } catch (_) {}
         continue;
       }
       let ok = false;
