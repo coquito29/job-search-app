@@ -2141,6 +2141,7 @@ def search_jobs():
 
     # Run all sources in parallel
     source_results = {src: [] for src in fetch_tasks}
+    source_errors  = {}
     with ThreadPoolExecutor(max_workers=6) as executor:
         future_to_src = {executor.submit(fn): src for src, fn in fetch_tasks.items()}
         for future in as_completed(future_to_src):
@@ -2150,7 +2151,14 @@ def search_jobs():
             except Exception as exc:
                 # Never silent — a 400 from one source looks identical to
                 # "no jobs today" otherwise (the digest hid this for weeks).
+                # Surface it in the response too: Render logs rot, the user
+                # sees "0 jobs" and blames the filters.
                 print(f"[fetch] {src} failed: {exc}")
+                detail = str(exc)
+                body = getattr(getattr(exc, "response", None), "text", "")
+                if body:
+                    detail += f" | {body[:200]}"
+                source_errors[src] = detail[:300]
                 source_results[src] = []
 
     # Merge, deduplicate by URL, remove sign-in-wall / aggregator domains.
@@ -2222,6 +2230,7 @@ def search_jobs():
         "total_remote": total_remote,
         "total_shown": len(top),
         "source_counts": source_counts,
+        "source_errors": source_errors,
     })
 
 
