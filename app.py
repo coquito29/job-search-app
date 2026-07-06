@@ -592,11 +592,19 @@ def fetch_apify_jobs(skills, token, limit=300, time_range="7d"):
     # Drive the saved task's search filters from the live skill/title lists
     # instead of the values frozen into the task. Without this, changing skills
     # in the UI never reached Apify — the task's baked descriptionSearch/
-    # titleSearch won every run. Top-level keys here replace the task's; keys we
-    # omit (experience/work-arrangement/exclusion filters) keep the task default.
+    # titleSearch won every run. Top-level keys here replace the task's; keys
+    # we omit (work-arrangement/exclusion filters) keep the task default.
     if skills:
         run_override["descriptionSearch"] = [s for s in skills[:25] if s]
     run_override["titleSearch"] = TARGET_TITLES
+    # Widen the task's baked filters (verified against the actor's input
+    # schema 2026-07-06 — enums: 0-2/2-5/5-10/10+):
+    # - experience: the task's ["0-2"] alone drops 2-5yr roles George now
+    #   qualifies for (4 yrs at Cholo Tech since July 2022).
+    # - employment: the task omitted CONTRACTOR — contract help-desk roles
+    #   are a big slice of entry IT. Senior-title blocklist still applies.
+    run_override["aiExperienceLevelFilter"] = ["0-2", "2-5"]
+    run_override["aiEmploymentTypeFilter"]  = ["FULL_TIME", "PART_TIME", "CONTRACTOR", "INTERN"]
     if APIFY_TASK_ID:
         url = (f"https://api.apify.com/v2/actor-tasks/{APIFY_TASK_ID}"
                "/run-sync-get-dataset-items")
@@ -609,8 +617,7 @@ def fetch_apify_jobs(skills, token, limit=300, time_range="7d"):
             "aiWorkArrangementFilter": ["Remote OK", "Remote Solely"],
             "remote only (legacy)": True,
             "removeAgency": True,
-            "aiEmploymentTypeFilter": ["FULL_TIME", "CONTRACTOR", "INTERN"],
-            "aiExperienceLevelFilter": ["Entry Level", "Associate", "Internship"],
+            # employment/experience filters already set above (schema-valid enums)
             # titleSearch / descriptionSearch already set above from the live lists
             "titleExclusionSearch": [t.strip() for t in SENIOR_TITLE_BLOCKLIST],
         })
