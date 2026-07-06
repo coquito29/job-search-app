@@ -64,7 +64,9 @@
       // to the city, not the street.
       { value: addr.city,          patterns: [/\bcity\b/i, /\btown\b/i, /\blocality\b/i] },
       { value: addr.state,         patterns: [/\bstate\b/i, /\bprovince\b/i, /\bregion\b/i] },
-      { value: addr.zip,           patterns: [/\bzip\b/i, /\bpostal[\s_-]*code\b/i, /\bpostcode\b/i] },
+      // Bare "postal" (JazzHR placeholder style) must resolve to zip — but not
+      // "postal address", which is a full-address label.
+      { value: addr.zip,           patterns: [/\bzip\b/i, /\bpostal[\s_-]*code\b/i, /\bpostcode\b/i, /\bpostal\b(?![\s_-]*address)/i] },
       { value: addr.country,       patterns: [/\bcountry\b/i] },
       { value: addr.street,        patterns: [/\b(street|address)[\s_-]*(line)?[\s_-]*1?\b/i, /\bstreet[\s_-]*address\b/i, /^address$/i] },
 
