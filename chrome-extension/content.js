@@ -13,6 +13,21 @@
 
   const ranUrls = new Set();   // URLs auto-run already happened on (SPA-aware)
   let runInFlight = false;
+  let obs = null;              // MutationObserver — disconnected when orphaned
+
+  // After the extension is reloaded/updated in chrome://extensions, content
+  // scripts already running in open tabs are orphaned: chrome.runtime.id
+  // becomes undefined and any chrome.* API call throws "Extension context
+  // invalidated". Detect that and shut down quietly instead of erroring.
+  function extensionAlive() {
+    try { return !!(chrome.runtime && chrome.runtime.id); } catch (_) { return false; }
+  }
+
+  function shutdownIfOrphaned() {
+    if (extensionAlive()) return false;
+    if (obs) { try { obs.disconnect(); } catch (_) {} obs = null; }
+    return true;
+  }
 
   function notify(text, kind) {
     const root = document.createElement("div");
@@ -29,13 +44,17 @@
   }
 
   function getStored(keys) {
-    return new Promise(res => chrome.storage.local.get(keys, res));
+    if (shutdownIfOrphaned()) return Promise.resolve({});
+    return new Promise(res => {
+      try { chrome.storage.local.get(keys, res); } catch (_) { res({}); }
+    });
   }
 
   function sendMessage(msg) {
-    return new Promise(res =>
-      chrome.runtime.sendMessage(msg, r => res(r || null))
-    );
+    if (shutdownIfOrphaned()) return Promise.resolve(null);
+    return new Promise(res => {
+      try { chrome.runtime.sendMessage(msg, r => res(r || null)); } catch (_) { res(null); }
+    });
   }
 
   // Full pipeline: CV globals → Phase 1 rules → Phase 2 AI. Mirrors what the
@@ -144,6 +163,7 @@
   // Auto-run once per URL when a real form is present. Waits a beat after
   // detection so React/Vue finish rendering the full form first.
   async function maybeAutoRun() {
+    if (shutdownIfOrphaned()) return;
     const url = location.href.split("#")[0];
     if (ranUrls.has(url)) return;
     const { autoFillEnabled, profile } = await getStored(["autoFillEnabled", "profile"]);
@@ -169,6 +189,6 @@
   };
 
   ensureReady();
-  const obs = new MutationObserver(() => ensureReady());
+  obs = new MutationObserver(() => ensureReady());
   obs.observe(document.documentElement, { childList: true, subtree: true });
 })();
