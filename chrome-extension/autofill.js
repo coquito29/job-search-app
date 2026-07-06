@@ -1116,6 +1116,10 @@
     return out;
   }
 
+  // Below this confidence the AI is guessing (personality/preference questions,
+  // ambiguous labels) — leave the field blank and flag it for a manual answer.
+  const MIN_AI_CONFIDENCE = 0.6;
+
   async function applyAiFills(fills, opts) {
     if (!Array.isArray(fills)) return { applied: 0, skipped: 0 };
     let applied = 0, skipped = 0;
@@ -1124,6 +1128,11 @@
       if (f.skip || f.value === "" || f.value == null) { skipped++; continue; }
       const tagged = document.querySelector(`[data-jt-id="${CSS.escape(f.id)}"]`);
       if (!tagged) { skipped++; continue; }
+      if (typeof f.confidence === "number" && f.confidence < MIN_AI_CONFIDENCE) {
+        skipped++;
+        try { tagged.style.outline = "2px solid #f59e0b"; setTimeout(() => tagged.style.outline = "", 6000); } catch (_) {}
+        continue;
+      }
       let ok = false;
       if (f.type === "button-group" || tagged.tagName === "BUTTON") {
         // The tag is on the first button of the group — re-find siblings.

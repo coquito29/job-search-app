@@ -4765,7 +4765,10 @@ def _build_autofill_prompt(fields, page_context, cv_text):
         f"URL: {page_context.get('url','')}"
     )
     cv_block = cv_text or "(no CV available — answer from general profile only)"
+    today = datetime.now().strftime("%B %d, %Y")
     return f"""You are filling out a job application form on behalf of George Tupayachi.
+
+TODAY'S DATE: {today} — use this for any duration or "years of experience" math against resume dates.
 
 GEORGE'S RESUME (use these for grounded answers — never invent companies or dates):
 {cv_block}
