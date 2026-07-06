@@ -1816,9 +1816,9 @@
     <div class="d-flex align-items-center gap-2 mt-2 flex-wrap" style="font-size:.78rem;">
       <span style="color:#6c757d;font-weight:600;"><i class="bi bi-funnel me-1"></i>ATS:</span>
       <button class="btn btn-sm btn-outline-success ats-filter-btn active" data-cls="fast"
-              onclick="setAtsFilter('fast')">Fast only</button>
+              onclick="setAtsFilter('fast')">Easy apply</button>
       <button class="btn btn-sm btn-outline-warning ats-filter-btn" data-cls="fast_walled"
-              onclick="setAtsFilter('fast_walled')">Fast + Walled</button>
+              onclick="setAtsFilter('fast_walled')">+ Walled</button>
       <button class="btn btn-sm btn-outline-secondary ats-filter-btn" data-cls="all"
               onclick="setAtsFilter('all')">All</button>
       <span id="atsFilterCount" style="color:#6c757d;margin-left:auto;"></span>
@@ -3607,12 +3607,17 @@ function openExternalSearch(board) {
 // ════════════════════════════════════════════════════════════════════════
 function applyFreshnessFilter(list) {
   if (!freshnessDays || freshnessDays <= 0) return list.slice();
-  return list.filter(j => (j.days_old != null && j.days_old <= freshnessDays));
+  // null days_old passes: sources are already date-windowed at the API, and
+  // hiding undated jobs starved the list when Adzuna/JSearch carry the load.
+  return list.filter(j => (j.days_old == null || j.days_old <= freshnessDays));
 }
 
 function applyAtsFilter(list) {
-  if (atsFilter === 'fast')         return list.filter(j => j.ats_class === 'fast');
-  if (atsFilter === 'fast_walled')  return list.filter(j => j.ats_class === 'fast' || j.ats_class === 'walled');
+  // 'fast' means "skip the account-wall / blocked ATSes", not "only the ones
+  // we could classify" — Adzuna/JSearch serve redirect URLs that classify as
+  // 'unknown', and excluding those hid every job when Apify credit ran out.
+  if (atsFilter === 'fast')         return list.filter(j => j.ats_class === 'fast' || j.ats_class === 'unknown' || !j.ats_class);
+  if (atsFilter === 'fast_walled')  return list.filter(j => j.ats_class !== 'blocked');
   return list.slice();
 }
 
@@ -3657,8 +3662,9 @@ function updateFilterCounts() {
       // taken from the freshness-filtered pool so the two filters compose.
       const pool   = applyFreshnessFilter(allJobs);
       const hidden = pool.length - jobs.length;
+      const hiddenKinds = atsFilter === 'fast' ? 'walled/blocked' : 'blocked';
       ac.textContent = hidden > 0
-        ? `${jobs.length} fast-apply · ${hidden} walled/other hidden — tap “All” to show`
+        ? `${jobs.length} shown · ${hidden} ${hiddenKinds} hidden — tap “All” to show`
         : `${jobs.length} match`;
     }
   }
