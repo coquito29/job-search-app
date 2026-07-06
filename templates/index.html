@@ -3390,6 +3390,16 @@ async function searchJobs() {
 // ════════════════════════════════════════════════════════════════════════
 //  Results rendering
 // ════════════════════════════════════════════════════════════════════════
+function friendlySourceError(src, msg) {
+  if (/max-items-must-be-greater-than-zero|usage.*exceed|exceed.*usage|quota|payment required|402/i.test(msg))
+    return `${src}: monthly credit used up — searches resume when the billing cycle resets, or raise the limit on the provider dashboard.`;
+  if (/401|403|invalid token|unauthorized/i.test(msg))
+    return `${src}: API key rejected — re-check the key in the API Keys panel.`;
+  if (/timeout|timed out/i.test(msg))
+    return `${src}: timed out — try again in a minute.`;
+  return `${src} failed: ${msg.slice(0, 160)}`;
+}
+
 function renderResults(data) {
   const section = document.getElementById('resultsSection');
   const summary = document.getElementById('resultsSummary');
@@ -3414,6 +3424,31 @@ function renderResults(data) {
     pill.title = cnt === 0 ? `${src}: no results returned` : `${src}: ${cnt} jobs`;
     pill.textContent = cnt === 0 ? `${src} ✗` : `${src} ${cnt}`;
     bar.appendChild(pill);
+  }
+
+  // Failed sources never appear in source_counts (it's built from returned
+  // jobs) — without this, a dead source is indistinguishable from a thin day.
+  const srcErrors = data.source_errors || {};
+  for (const [src, msg] of Object.entries(srcErrors)) {
+    const pill = document.createElement('span');
+    pill.className = 'source-badge source-badge-error';
+    pill.title = msg;
+    pill.textContent = `${src} ✗`;
+    bar.appendChild(pill);
+  }
+  let errNote = document.getElementById('sourceErrorsNote');
+  if (Object.keys(srcErrors).length) {
+    if (!errNote) {
+      errNote = document.createElement('div');
+      errNote.id = 'sourceErrorsNote';
+      errNote.style.cssText = 'margin-top:6px;font-size:.82rem;line-height:1.4;color:var(--danger-700,#b02a37)';
+      summary.parentElement.appendChild(errNote);
+    }
+    errNote.innerHTML = Object.entries(srcErrors)
+      .map(([s, m]) => `&#9888; ${escHtml(friendlySourceError(s, m))}`).join('<br>');
+    errNote.style.display = 'block';
+  } else if (errNote) {
+    errNote.style.display = 'none';
   }
 
   // Show salary filter bar if any jobs have salary data

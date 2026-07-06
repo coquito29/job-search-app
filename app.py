@@ -2158,6 +2158,9 @@ def search_jobs():
                 body = getattr(getattr(exc, "response", None), "text", "")
                 if body:
                     detail += f" | {body[:200]}"
+                # Requests exceptions embed the full URL incl. ?token= — never
+                # let credentials reach the client.
+                detail = re.sub(r"(token|key|apiKey|api_key)=[^&\s\"']+", r"\1=***", detail)
                 source_errors[src] = detail[:300]
                 source_results[src] = []
 
