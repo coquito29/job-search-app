@@ -1582,44 +1582,6 @@
     <span style="font-size:.75rem;color:#6c757d;"><a href="https://apify.com" target="_blank">apify.com</a> → Settings → Integrations</span>
   </div>
 
-  <!-- JSearch / RapidAPI -->
-  <label class="form-label fw-semibold mb-1" style="font-size:.85rem;">JSearch Key <span style="font-weight:400;color:#6c757d;">(RapidAPI)</span></label>
-  <div class="input-group mb-2">
-    <input type="password" class="form-control" id="jsearchKeyInput"
-           placeholder="xxxxxxxxxxxxxxxxxxxxxxxx..." autocomplete="off" />
-    <button class="btn btn-outline-secondary" type="button" onclick="toggleJsearchKey()">
-      <i class="bi bi-eye" id="jsearchKeyEyeIcon"></i>
-    </button>
-  </div>
-  <div class="d-flex align-items-center gap-3 mb-3">
-    <button class="btn btn-primary btn-sm" onclick="saveJsearchKey()">
-      <i class="bi bi-floppy"></i> Save
-    </button>
-    <span class="token-saved-badge" id="jsearchKeySavedBadge">
-      <i class="bi bi-check-circle-fill"></i> Saved
-    </span>
-    <span style="font-size:.75rem;color:#6c757d;"><a href="https://rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch" target="_blank">rapidapi.com</a> → Subscribe free</span>
-  </div>
-
-  <!-- Adzuna -->
-  <label class="form-label fw-semibold mb-1" style="font-size:.85rem;">Adzuna Keys <span style="font-weight:400;color:#6c757d;">(App ID + App Key)</span></label>
-  <div class="input-group mb-1">
-    <input type="text" class="form-control" id="adzunaIdInput"
-           placeholder="App ID..." autocomplete="off" />
-  </div>
-  <div class="input-group mb-2">
-    <input type="password" class="form-control" id="adzunaKeyInput"
-           placeholder="App Key..." autocomplete="off" />
-  </div>
-  <div class="d-flex align-items-center gap-3 mb-1">
-    <button class="btn btn-primary btn-sm" onclick="saveAdzunaKeys()">
-      <i class="bi bi-floppy"></i> Save
-    </button>
-    <span class="token-saved-badge" id="adzunaKeysSavedBadge">
-      <i class="bi bi-check-circle-fill"></i> Saved
-    </span>
-    <span style="font-size:.75rem;color:#6c757d;"><a href="https://developer.adzuna.com" target="_blank">developer.adzuna.com</a> → Free signup</span>
-  </div>
 </div>
 
 <!-- ══ Section 2: CV Upload ══════════════════════════════════════════════════ -->
@@ -1704,32 +1666,20 @@
     </div>
   </div>
 
-  <!-- Job Sources collapsible -->
+  <!-- Job source: Apify only (Adzuna/JSearch removed 2026-07-06) -->
   <div class="mb-3">
     <div class="sources-label open" id="sourcesLabel" onclick="toggleSources()">
       <i class="bi bi-database-fill-check" style="color:#0d6efd;"></i>
-      Job Sources
-      <span class="badge bg-primary ms-1" id="sourcesCount">3</span>
+      Job Source
+      <span class="badge bg-primary ms-1" id="sourcesCount">1</span>
       <i class="bi bi-chevron-down chevron ms-auto"></i>
     </div>
     <div id="sourcesPanel" class="source-toggles-grid mt-2">
-      <!-- API-key sources — ON by default (high-quality results) -->
       <label class="source-toggle source-toggle-apify checked" id="lbl-apify">
         <input type="checkbox" value="apify" checked onchange="onSourceToggle(this)" />
         <i class="bi bi-check2" id="chk-icon-apify"></i>
         Apify <span style="opacity:.7;font-weight:400;">(your key · ~$1.20/search)</span>
       </label>
-      <label class="source-toggle source-toggle-jsearch checked" id="lbl-jsearch" style="display:none;">
-        <input type="checkbox" value="jsearch" checked onchange="onSourceToggle(this)" />
-        <i class="bi bi-check2" id="chk-icon-jsearch"></i>
-        JSearch <span style="opacity:.7;font-weight:400;">(your key)</span>
-      </label>
-      <label class="source-toggle source-toggle-adzuna checked" id="lbl-adzuna" style="display:none;">
-        <input type="checkbox" value="adzuna" checked onchange="onSourceToggle(this)" />
-        <i class="bi bi-check2" id="chk-icon-adzuna"></i>
-        Adzuna <span style="opacity:.7;font-weight:400;">(your key)</span>
-      </label>
-      <!-- Free sources removed — paid/keyed APIs only for higher-signal results -->
     </div>
   </div>
 
@@ -2489,24 +2439,6 @@ document.addEventListener('DOMContentLoaded', () => {
   jobDetailModal   = new bootstrap.Modal(document.getElementById('jobDetailModal'));
   coverLetterModal = new bootstrap.Modal(document.getElementById('coverLetterModal'));
 
-  // Restore API keys from localStorage
-  const savedJsearchKey = localStorage.getItem('rapidapi_key') || '';
-  if (savedJsearchKey) {
-    document.getElementById('jsearchKeyInput').value = savedJsearchKey;
-    showJsearchKeySaved(true);
-    const lbl = document.getElementById('lbl-jsearch');
-    if (lbl) lbl.style.display = '';
-  }
-  const savedAdzunaId = localStorage.getItem('adzuna_id') || '';
-  const savedAdzunaKey = localStorage.getItem('adzuna_key') || '';
-  if (savedAdzunaId && savedAdzunaKey) {
-    document.getElementById('adzunaIdInput').value = savedAdzunaId;
-    document.getElementById('adzunaKeyInput').value = savedAdzunaKey;
-    showAdzunaKeysSaved(true);
-    const lbl = document.getElementById('lbl-adzuna');
-    if (lbl) lbl.style.display = '';
-  }
-
   // Restore token: prefer localStorage; otherwise rely on the server's env var
   // (the search endpoint falls back to env vars when the client sends none).
   // /api/config returns booleans, not the raw secrets, so the inputs stay
@@ -2524,16 +2456,6 @@ document.addEventListener('DOMContentLoaded', () => {
       // Show "saved" badges from the server's *_set flags too, so a fresh
       // device still indicates that the source is configured upstream.
       if (cfg.apify_token_set)  showTokenSaved(true);
-      if (cfg.rapidapi_key_set) {
-        showJsearchKeySaved(true);
-        const lbl = document.getElementById('lbl-jsearch');
-        if (lbl) lbl.style.display = '';
-      }
-      if (cfg.adzuna_id_set && cfg.adzuna_key_set) {
-        showAdzunaKeysSaved(true);
-        const lbl = document.getElementById('lbl-adzuna');
-        if (lbl) lbl.style.display = '';
-      }
       applySourceConfig(cfg);
     })
     .catch(() => {});
@@ -2662,14 +2584,7 @@ function showAiBadge() {
 }
 
 function applySourceConfig(cfg) {
-  if (cfg.adzuna_enabled) {
-    const lbl = document.getElementById('lbl-adzuna');
-    if (lbl) { lbl.style.display = ''; lbl.classList.add('checked'); }
-  }
-  if (cfg.jsearch_enabled) {
-    const lbl = document.getElementById('lbl-jsearch');
-    if (lbl) { lbl.style.display = ''; lbl.classList.add('checked'); }
-  }
+  // Apify is the only source — nothing to toggle (Adzuna/JSearch removed 2026-07-06)
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -2692,47 +2607,6 @@ function showTokenSaved(show) {
 
 function onTokenInput() {
   showTokenSaved(false);
-}
-
-function saveJsearchKey() {
-  const val = document.getElementById('jsearchKeyInput').value.trim();
-  if (!val) { showToast('Please enter your JSearch RapidAPI key', 'warning'); return; }
-  localStorage.setItem('rapidapi_key', val);
-  showJsearchKeySaved(true);
-  const lbl = document.getElementById('lbl-jsearch');
-  if (lbl) lbl.style.display = '';
-  showToast('JSearch key saved ✓', 'success');
-  updateStepIndicators();
-}
-
-function showJsearchKeySaved(show) {
-  const badge = document.getElementById('jsearchKeySavedBadge');
-  if (badge) { if (show) badge.classList.add('visible'); else badge.classList.remove('visible'); }
-}
-
-function toggleJsearchKey() {
-  const inp  = document.getElementById('jsearchKeyInput');
-  const icon = document.getElementById('jsearchKeyEyeIcon');
-  if (inp.type === 'password') { inp.type = 'text';     icon.className = 'bi bi-eye-slash'; }
-  else                         { inp.type = 'password'; icon.className = 'bi bi-eye'; }
-}
-
-function saveAdzunaKeys() {
-  const id  = document.getElementById('adzunaIdInput').value.trim();
-  const key = document.getElementById('adzunaKeyInput').value.trim();
-  if (!id || !key) { showToast('Please enter both Adzuna App ID and App Key', 'warning'); return; }
-  localStorage.setItem('adzuna_id', id);
-  localStorage.setItem('adzuna_key', key);
-  showAdzunaKeysSaved(true);
-  const lbl = document.getElementById('lbl-adzuna');
-  if (lbl) lbl.style.display = '';
-  showToast('Adzuna keys saved ✓', 'success');
-  updateStepIndicators();
-}
-
-function showAdzunaKeysSaved(show) {
-  const badge = document.getElementById('adzunaKeysSavedBadge');
-  if (badge) { if (show) badge.classList.add('visible'); else badge.classList.remove('visible'); }
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -3324,9 +3198,6 @@ function getSelectedSources() {
 // ════════════════════════════════════════════════════════════════════════
 async function searchJobs() {
   const token        = localStorage.getItem('apify_token') || document.getElementById('tokenInput').value.trim();
-  const rapidapi_key = localStorage.getItem('rapidapi_key') || '';
-  const adzuna_id    = localStorage.getItem('adzuna_id') || '';
-  const adzuna_key   = localStorage.getItem('adzuna_key') || '';
   if (skills.length === 0) { showToast('Please add at least one skill', 'warning'); return; }
 
   const selectedSources = getSelectedSources();
@@ -3348,7 +3219,7 @@ async function searchJobs() {
     const resp = await fetch('/api/search', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ token, rapidapi_key, adzuna_id, adzuna_key, skills, time_range: timeRange, sources: selectedSources })
+      body: JSON.stringify({ token, skills, time_range: timeRange, sources: selectedSources })
     });
     const data = await resp.json();
     setLoading(false);

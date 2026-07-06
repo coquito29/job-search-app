@@ -1,6 +1,6 @@
 """
 app.py  —  Remote Job Search Mobile PWA
-Sources: Apify · Adzuna · JSearch  (paid/keyed APIs only — free sources removed for signal quality)
+Sources: Apify only (Adzuna/JSearch removed 2026-07-06 for signal quality)
 AI Cover Letters: Claude Haiku (set ANTHROPIC_API_KEY env var)
 """
 import io, json, os, re, secrets, socket, sqlite3
@@ -518,132 +518,9 @@ class UserProfile:
 # ── Fetch functions ───────────────────────────────────────────────────────────
 # Free sources (Remotive, RemoteOK, Jobicy, Arbeitnow, Himalayas, TheMuse,
 # WeWorkRemotely) were removed — they returned thin/stale results that diluted
-# rankings. Only paid/keyed APIs remain: Apify, Adzuna, JSearch.
-
-
-ADZUNA_TITLE_PHRASES = [
-    "help desk", "technical support", "it support",
-    "service desk", "desktop support", "support specialist",
-]
-
-
-def fetch_adzuna(skills, app_id, app_key, limit=50, time_range="7d"):
-    """Fetch from Adzuna API (free key from developer.adzuna.com) — remote only.
-
-    Fans out one request per target-title phrase. The old single call AND-ed
-    the first three profile skills ("java cybersecurity remote") which
-    returned ~3 jobs; phrase queries return a page each and merge/dedupe.
-    """
-    if not app_id or not app_key:
-        return []
-    days = {"1h": 1, "24h": 1, "7d": 7, "6m": 180}.get(time_range, 7)
-    per_call = max(10, limit // len(ADZUNA_TITLE_PHRASES))
-    jobs, seen_ids, last_exc = [], set(), None
-    for phrase in ADZUNA_TITLE_PHRASES:
-        try:
-            r = http_req.get(
-                "https://api.adzuna.com/v1/api/jobs/us/search/1",
-                params={
-                    "app_id": app_id,
-                    "app_key": app_key,
-                    "results_per_page": per_call,
-                    "what_phrase": phrase,
-                    "what_and": "remote",
-                    "max_days_old": days,
-                    "content-type": "application/json",
-                },
-                timeout=20,
-            )
-            r.raise_for_status()
-            for j in r.json().get("results", []):
-                jid = j.get("redirect_url") or j.get("id")
-                if jid and jid not in seen_ids:
-                    seen_ids.add(jid)
-                    jobs.append(j)
-        except Exception as exc:
-            last_exc = exc
-    if not jobs and last_exc is not None:
-        raise last_exc  # every call failed — surface it, don't fake "no jobs"
-    results = []
-    for j in jobs:
-        url = j.get("redirect_url", "")
-        if not url:
-            continue
-        title = j.get("title", "")
-        desc  = j.get("description", "")
-        # Adzuna returns city locations even for remote jobs — keep only if remote signals exist
-        combined = (title + " " + desc).lower()
-        remote_signals = ("remote" in combined or "work from home" in combined
-                          or "wfh" in combined or "telecommut" in combined)
-        if not remote_signals:
-            continue
-        sal = ""
-        lo = j.get("salary_min")
-        hi = j.get("salary_max")
-        if lo and hi:
-            sal = f"${int(lo)//1000}k-${int(hi)//1000}k"
-        elif lo:
-            sal = f"${int(lo)//1000}k+"
-        results.append({
-            "title": title,
-            "company_name": (j.get("company") or {}).get("display_name", ""),
-            "location": "Remote",
-            "salary": sal,
-            "description": desc,
-            "url": url,
-            "posted": j.get("created", ""),
-            "id": url,
-            "source": "Adzuna",
-        })
-    return results
-
-
-def fetch_jsearch(skills, rapidapi_key, limit=50, time_range="7d"):
-    """Fetch from JSearch via RapidAPI — searches Indeed, LinkedIn, Glassdoor (free key from rapidapi.com).
-
-    Query is an OR of quoted target titles (Google-Jobs syntax) instead of the
-    old AND-joined skill words, plus a date_posted window so we don't get
-    month-old listings back.
-    """
-    if not rapidapi_key:
-        return []
-    query = ('"help desk" OR "technical support" OR "it support" OR '
-             '"service desk" OR "desktop support" remote')
-    date_posted = {"1h": "today", "24h": "today", "7d": "week", "6m": "month"}.get(time_range, "week")
-    r = http_req.get(
-        "https://jsearch.p.rapidapi.com/search",
-        headers={
-            "X-RapidAPI-Key": rapidapi_key,
-            "X-RapidAPI-Host": "jsearch.p.rapidapi.com",
-        },
-        params={"query": query, "page": "1", "num_pages": "3",
-                "date_posted": date_posted, "remote_jobs_only": "true"},
-        timeout=30,
-    )
-    r.raise_for_status()
-    jobs = r.json().get("data", [])
-    results = []
-    for j in jobs[:limit]:
-        url = j.get("job_apply_link", "") or j.get("job_google_link", "")
-        if not url:
-            continue
-        sal = ""
-        lo = j.get("job_min_salary")
-        hi = j.get("job_max_salary")
-        if lo and hi:
-            sal = f"${int(lo)//1000}k-${int(hi)//1000}k"
-        results.append({
-            "title": j.get("job_title", ""),
-            "company_name": j.get("employer_name", ""),
-            "location": j.get("job_city", "") or j.get("job_country", "Remote"),
-            "salary": sal,
-            "description": j.get("job_description", ""),
-            "url": url,
-            "posted": j.get("job_posted_at_datetime_utc", ""),
-            "id": url,
-            "source": "JSearch",
-        })
-    return results
+# rankings. Adzuna + JSearch were removed 2026-07-06 (owner's call: Apify is
+# the only source with real volume/quality; the others padded the list with
+# aggregator redirects). Apify is now the sole source.
 
 
 # Role titles George is actually targeting — used for Apify titleSearch
@@ -1367,17 +1244,9 @@ def config():
     uses its own env vars when the client doesn't supply one (see
     /api/search), so there's no reason to send secrets to the browser."""
     apify_token  = os.environ.get("APIFY_TOKEN", "")
-    rapidapi_key = os.environ.get("RAPIDAPI_KEY", "")
-    adzuna_id    = os.environ.get("ADZUNA_APP_ID", "")
-    adzuna_key   = os.environ.get("ADZUNA_APP_KEY", "")
     return jsonify({
         "ai_enabled":         bool(os.environ.get("ANTHROPIC_API_KEY") and _anthropic),
         "apify_token_set":    bool(apify_token),
-        "rapidapi_key_set":   bool(rapidapi_key),
-        "adzuna_id_set":      bool(adzuna_id),
-        "adzuna_key_set":     bool(adzuna_key),
-        "adzuna_enabled":     bool(adzuna_id and adzuna_key),
-        "jsearch_enabled":    bool(rapidapi_key),
     })
 
 
@@ -1386,9 +1255,6 @@ def status():
     """Visual status page — open this in your browser to check all sources."""
     sources = {
         "Apify":     {"free": False, "ok": bool(os.environ.get("APIFY_TOKEN"))},
-        "Adzuna":    {"free": False, "ok": bool(os.environ.get("ADZUNA_APP_ID") and os.environ.get("ADZUNA_APP_KEY"))},
-        "JSearch":   {"free": False, "ok": bool(os.environ.get("RAPIDAPI_KEY"))},
-        "Reed":      {"free": False, "ok": bool(os.environ.get("REED_API_KEY"))},
     }
 
     ai_ok = bool(os.environ.get("ANTHROPIC_API_KEY") and _anthropic)
@@ -2164,25 +2030,16 @@ def search_jobs():
     # Env-var fallback for every key — the client used to send raw secrets
     # received from /api/config, but /api/config now returns booleans only.
     token        = (data.get("token") or os.environ.get("APIFY_TOKEN", "")).strip()
-    rapidapi_key = (data.get("rapidapi_key") or os.environ.get("RAPIDAPI_KEY", "")).strip()
-    adzuna_id    = (data.get("adzuna_id") or os.environ.get("ADZUNA_APP_ID", "")).strip()
-    adzuna_key   = (data.get("adzuna_key") or os.environ.get("ADZUNA_APP_KEY", "")).strip()
     skills       = data.get("skills") or []
     time_range   = data.get("time_range") or DEFAULT_TIMERANGE
-    # Default: paid/keyed APIs only (free sources return thin / stale results)
-    sources      = data.get("sources") or ["apify", "jsearch", "adzuna"]
 
     if not skills:
         return jsonify({"error": "At least one skill is required"}), 400
 
-    # Build fetch tasks based on selected sources (paid/keyed APIs only)
+    # Apify is the sole source (Adzuna/JSearch removed 2026-07-06)
     fetch_tasks = {}
-    if "apify" in sources and token:
+    if token:
         fetch_tasks["apify"] = lambda: fetch_apify_jobs(skills, token, limit=FETCH_LIMIT, time_range=time_range)
-    if "adzuna" in sources and adzuna_id and adzuna_key:
-        fetch_tasks["adzuna"] = lambda: fetch_adzuna(skills, adzuna_id, adzuna_key, limit=50, time_range=time_range)
-    if "jsearch" in sources and rapidapi_key:
-        fetch_tasks["jsearch"] = lambda: fetch_jsearch(skills, rapidapi_key, limit=50, time_range=time_range)
 
     # Run all sources in parallel
     source_results = {src: [] for src in fetch_tasks}
@@ -2211,8 +2068,7 @@ def search_jobs():
 
     # Merge, deduplicate by URL, remove sign-in-wall / aggregator domains.
     # Remote filtering happens in ONE place downstream (is_remote_job, below) —
-    # every source already pre-filters for remote (Apify task = Remote OK/Solely,
-    # Adzuna requires remote signals, JSearch uses remote_jobs_only), so the old
+    # the Apify task pre-filters for remote (Remote OK/Solely), so the old
     # inline US-state-abbreviation block here just double-filtered and dropped
     # legitimate remote listings that happened to carry a city in their location.
     seen_urls = set()
@@ -2418,9 +2274,6 @@ def daily_digest():
     gmail_pass = os.environ.get("GMAIL_APP_PASSWORD", "")
     digest_to  = os.environ.get("DIGEST_TO", gmail_user)  # recipient; defaults to sender
     apify_token = os.environ.get("APIFY_TOKEN", "")
-    rapidapi_key = os.environ.get("RAPIDAPI_KEY", "")
-    adzuna_id  = os.environ.get("ADZUNA_APP_ID", "")
-    adzuna_key = os.environ.get("ADZUNA_APP_KEY", "")
 
     if not gmail_user or not gmail_pass:
         return jsonify({"error": "GMAIL_USER / GMAIL_APP_PASSWORD not set"}), 500
@@ -2448,9 +2301,9 @@ def daily_digest():
         "bilingual", "spanish"
     ]
     # Single-user for now → user_id=1 (same convention as daily_searches below).
-    # Union, not replace: profile skills lead (Adzuna/JSearch only use the first
-    # few terms) and the built-in list keeps the net wide even when the saved
-    # profile is thin. descriptionSearch is OR-matched, so more terms = more jobs.
+    # Union, not replace: profile skills lead and the built-in list keeps the
+    # net wide even when the saved profile is thin. descriptionSearch is
+    # OR-matched, so more terms = more jobs.
     try:
         with _db_conn() as conn:
             prow = conn.execute(
@@ -2465,11 +2318,9 @@ def daily_digest():
     except Exception as e:
         print(f"[digest] profile skills load failed, using fallback list: {e}")
 
-    # --- Run all sources in parallel (same logic as /api/search) ---
-    # Paid/keyed APIs only — free sources removed
+    # --- Apify is the sole source (Adzuna/JSearch removed 2026-07-06) ---
     fetch_tasks = {}
     if apify_token:
-        # Cost-capped: $0.012/job * 100 = $1.20/day for the daily digest.
         # 7d window (the actor rejects "1d" — valid values are 1h/24h/7d/6m;
         # the old "1d" made this fetch 400 and silently return nothing). The
         # week-wide pool always fills the budget; previously-emailed jobs are
@@ -2477,10 +2328,6 @@ def daily_digest():
         # limit=50 (~$0.60/run ≈ $18/mo) — 100 was $36/mo and blew through the
         # $29 Apify plan by day ~24 every cycle (hit 2026-07-06).
         fetch_tasks["apify"] = lambda: fetch_apify_jobs(skills, apify_token, limit=50, time_range="7d")
-    if adzuna_id and adzuna_key:
-        fetch_tasks["adzuna"] = lambda: fetch_adzuna(skills, adzuna_id, adzuna_key, limit=50, time_range="7d")
-    if rapidapi_key:
-        fetch_tasks["jsearch"] = lambda: fetch_jsearch(skills, rapidapi_key, limit=50, time_range="7d")
 
     source_results = {src: [] for src in fetch_tasks}
     with ThreadPoolExecutor(max_workers=6) as executor:
@@ -6372,7 +6219,7 @@ if __name__ == "__main__":
     print("=" * 56)
     print(f"  Local:    http://localhost:{port}")
     print(f"  Network:  http://{local_ip}:{port}  << open on phone")
-    print("  Sources:  Apify, Adzuna, JSearch  (paid/keyed APIs only)")
+    print("  Sources:  Apify only")
     print(f"  AI (Claude Sonnet): {'Enabled — cover letters, CV parsing, job scoring' if ai_enabled else 'Disabled (set ANTHROPIC_API_KEY)'}")
     print("=" * 56)
     app.run(host="0.0.0.0", port=port, debug=False)
