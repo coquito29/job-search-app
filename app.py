@@ -521,28 +521,49 @@ class UserProfile:
 # rankings. Only paid/keyed APIs remain: Apify, Adzuna, JSearch.
 
 
-def fetch_adzuna(skills, app_id, app_key, limit=50):
-    """Fetch from Adzuna API (free key from developer.adzuna.com) — remote only."""
+ADZUNA_TITLE_PHRASES = [
+    "help desk", "technical support", "it support",
+    "service desk", "desktop support", "support specialist",
+]
+
+
+def fetch_adzuna(skills, app_id, app_key, limit=50, time_range="7d"):
+    """Fetch from Adzuna API (free key from developer.adzuna.com) — remote only.
+
+    Fans out one request per target-title phrase. The old single call AND-ed
+    the first three profile skills ("java cybersecurity remote") which
+    returned ~3 jobs; phrase queries return a page each and merge/dedupe.
+    """
     if not app_id or not app_key:
         return []
-    query = " ".join(skills[:3])
-    try:
-        r = http_req.get(
-            "https://api.adzuna.com/v1/api/jobs/us/search/1",
-            params={
-                "app_id": app_id,
-                "app_key": app_key,
-                "results_per_page": limit,
-                "what": query,
-                "what_and": "remote",
-                "content-type": "application/json",
-            },
-            timeout=20,
-        )
-        r.raise_for_status()
-        jobs = r.json().get("results", [])
-    except Exception:
-        return []
+    days = {"1h": 1, "24h": 1, "7d": 7, "6m": 180}.get(time_range, 7)
+    per_call = max(10, limit // len(ADZUNA_TITLE_PHRASES))
+    jobs, seen_ids, last_exc = [], set(), None
+    for phrase in ADZUNA_TITLE_PHRASES:
+        try:
+            r = http_req.get(
+                "https://api.adzuna.com/v1/api/jobs/us/search/1",
+                params={
+                    "app_id": app_id,
+                    "app_key": app_key,
+                    "results_per_page": per_call,
+                    "what_phrase": phrase,
+                    "what_and": "remote",
+                    "max_days_old": days,
+                    "content-type": "application/json",
+                },
+                timeout=20,
+            )
+            r.raise_for_status()
+            for j in r.json().get("results", []):
+                jid = j.get("redirect_url") or j.get("id")
+                if jid and jid not in seen_ids:
+                    seen_ids.add(jid)
+                    jobs.append(j)
+        except Exception as exc:
+            last_exc = exc
+    if not jobs and last_exc is not None:
+        raise last_exc  # every call failed — surface it, don't fake "no jobs"
     results = []
     for j in jobs:
         url = j.get("redirect_url", "")
@@ -577,25 +598,30 @@ def fetch_adzuna(skills, app_id, app_key, limit=50):
     return results
 
 
-def fetch_jsearch(skills, rapidapi_key, limit=50):
-    """Fetch from JSearch via RapidAPI — searches Indeed, LinkedIn, Glassdoor (free key from rapidapi.com)."""
+def fetch_jsearch(skills, rapidapi_key, limit=50, time_range="7d"):
+    """Fetch from JSearch via RapidAPI — searches Indeed, LinkedIn, Glassdoor (free key from rapidapi.com).
+
+    Query is an OR of quoted target titles (Google-Jobs syntax) instead of the
+    old AND-joined skill words, plus a date_posted window so we don't get
+    month-old listings back.
+    """
     if not rapidapi_key:
         return []
-    query = " ".join(skills[:4]) + " remote"
-    try:
-        r = http_req.get(
-            "https://jsearch.p.rapidapi.com/search",
-            headers={
-                "X-RapidAPI-Key": rapidapi_key,
-                "X-RapidAPI-Host": "jsearch.p.rapidapi.com",
-            },
-            params={"query": query, "page": "1", "num_pages": "3", "remote_jobs_only": "true"},
-            timeout=20,
-        )
-        r.raise_for_status()
-        jobs = r.json().get("data", [])
-    except Exception:
-        return []
+    query = ('"help desk" OR "technical support" OR "it support" OR '
+             '"service desk" OR "desktop support" remote')
+    date_posted = {"1h": "today", "24h": "today", "7d": "week", "6m": "month"}.get(time_range, "week")
+    r = http_req.get(
+        "https://jsearch.p.rapidapi.com/search",
+        headers={
+            "X-RapidAPI-Key": rapidapi_key,
+            "X-RapidAPI-Host": "jsearch.p.rapidapi.com",
+        },
+        params={"query": query, "page": "1", "num_pages": "3",
+                "date_posted": date_posted, "remote_jobs_only": "true"},
+        timeout=30,
+    )
+    r.raise_for_status()
+    jobs = r.json().get("data", [])
     results = []
     for j in jobs[:limit]:
         url = j.get("job_apply_link", "") or j.get("job_google_link", "")
@@ -663,6 +689,25 @@ def fetch_apify_jobs(skills, token, limit=300, time_range="7d"):
     """
     if not token:
         return []
+    # Pre-check the monthly budget: a charged run against an exhausted account
+    # fails with an opaque 400 ("max-items-must-be-greater-than-zero"). Raise
+    # a message that says what actually happened and when it self-heals.
+    try:
+        lr = http_req.get("https://api.apify.com/v2/users/me/limits",
+                          params={"token": token}, timeout=15)
+        if lr.ok:
+            ld   = lr.json().get("data", {})
+            used = float(ld.get("current", {}).get("monthlyUsageUsd") or 0)
+            cap  = float(ld.get("limits", {}).get("maxMonthlyUsageUsd") or 0)
+            if cap and used >= cap * 0.97:
+                reset = (ld.get("monthlyUsageCycle", {}).get("endAt") or "")[:10]
+                raise RuntimeError(
+                    f"monthly credit used up (${used:.2f} of ${cap:.2f}); "
+                    f"resumes after {reset or 'the cycle reset'}")
+    except RuntimeError:
+        raise
+    except Exception:
+        pass  # limits check is best-effort — never block a run on it
     run_override = {
         "timeRange": time_range,
         "limit": int(max(10, min(limit, 5000))),
@@ -2135,9 +2180,9 @@ def search_jobs():
     if "apify" in sources and token:
         fetch_tasks["apify"] = lambda: fetch_apify_jobs(skills, token, limit=FETCH_LIMIT, time_range=time_range)
     if "adzuna" in sources and adzuna_id and adzuna_key:
-        fetch_tasks["adzuna"] = lambda: fetch_adzuna(skills, adzuna_id, adzuna_key, limit=50)
+        fetch_tasks["adzuna"] = lambda: fetch_adzuna(skills, adzuna_id, adzuna_key, limit=50, time_range=time_range)
     if "jsearch" in sources and rapidapi_key:
-        fetch_tasks["jsearch"] = lambda: fetch_jsearch(skills, rapidapi_key, limit=50)
+        fetch_tasks["jsearch"] = lambda: fetch_jsearch(skills, rapidapi_key, limit=50, time_range=time_range)
 
     # Run all sources in parallel
     source_results = {src: [] for src in fetch_tasks}
@@ -2429,11 +2474,13 @@ def daily_digest():
         # the old "1d" made this fetch 400 and silently return nothing). The
         # week-wide pool always fills the budget; previously-emailed jobs are
         # excluded below so each digest surfaces fresh picks.
-        fetch_tasks["apify"] = lambda: fetch_apify_jobs(skills, apify_token, limit=100, time_range="7d")
+        # limit=50 (~$0.60/run ≈ $18/mo) — 100 was $36/mo and blew through the
+        # $29 Apify plan by day ~24 every cycle (hit 2026-07-06).
+        fetch_tasks["apify"] = lambda: fetch_apify_jobs(skills, apify_token, limit=50, time_range="7d")
     if adzuna_id and adzuna_key:
-        fetch_tasks["adzuna"] = lambda: fetch_adzuna(skills, adzuna_id, adzuna_key, limit=50)
+        fetch_tasks["adzuna"] = lambda: fetch_adzuna(skills, adzuna_id, adzuna_key, limit=50, time_range="7d")
     if rapidapi_key:
-        fetch_tasks["jsearch"] = lambda: fetch_jsearch(skills, rapidapi_key, limit=50)
+        fetch_tasks["jsearch"] = lambda: fetch_jsearch(skills, rapidapi_key, limit=50, time_range="7d")
 
     source_results = {src: [] for src in fetch_tasks}
     with ThreadPoolExecutor(max_workers=6) as executor:
