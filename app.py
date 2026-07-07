@@ -534,7 +534,10 @@ TARGET_TITLES = [
     "desktop support", "application support", "service desk",
     "end user support", "it technician", "help desk technician",
     "technical support engineer", "technical support specialist",
-    "support specialist", "support engineer", "customer support",
+    "it support specialist", "support engineer",
+    # "customer support" + bare "support specialist" removed 2026-07-07 —
+    # George doesn't want customer-service roles, and the bare phrase pulled
+    # in "Online/Client Support Specialist" call-center spam.
     "it specialist", "it analyst", "noc technician", "network technician",
     "junior developer", "jr developer", "junior web developer",
     "junior software developer", "associate developer", "web developer",
@@ -851,6 +854,26 @@ def score_job(job, profile):
             block_bonus += -35
             block_labels.append(f"{lang_label} required")
             break   # one language penalty is enough — don't stack
+
+    # Customer-service roles are a no-go (George, 2026-07-07). TITLE-only on
+    # purpose: "provide excellent customer service" is boilerplate in nearly
+    # every help-desk DESCRIPTION, so scanning combo would nuke legit IT jobs.
+    # A technical qualifier in the title exempts it ("Technical Support
+    # Representative", "Customer Support Engineer" stay unpenalized).
+    title_lc = (job.get("title") or "").lower()
+    CS_TITLE_RE = re.compile(
+        r"customer\s+(service|care|success|experience|support)"
+        r"|call\s+cent(er|re)"
+        r"|client\s+(service|care|success|support)"
+        r"|\bcsr\b"
+        r"|(online|remote|virtual)\s+support\s+(specialist|representative|rep|agent)"
+        r"|support\s+(representative|rep\b|agent|advisor)")
+    TECH_TITLE_RE = re.compile(
+        r"\b(it|tech(nical)?|desktop|help\s*desk|helpdesk|service\s+desk|noc|soc"
+        r"|network|application|software|engineer|cyber|security|sys(tem)?s?)\b")
+    if CS_TITLE_RE.search(title_lc) and not TECH_TITLE_RE.search(title_lc):
+        block_bonus += -40
+        block_labels.append("Customer service role")
 
     # Boosts for things directly in George's profile
     fit_bonus = 0
