@@ -582,6 +582,14 @@
   }
 
   async function applyValue(el, value, opts) {
+    const ok = await applyValueCore(el, value, opts);
+    // Mark engine-filled fields so the Learn pass can tell them apart from
+    // answers the user typed by hand (those are the ones worth learning).
+    if (ok) { try { el.setAttribute("data-jt-autofilled", "1"); } catch (_) {} }
+    return ok;
+  }
+
+  async function applyValueCore(el, value, opts) {
     if (value === undefined || value === null) return false;
     const v = String(value);
     if (el.tagName === "SELECT") return fillSelect2(el, v);
@@ -687,15 +695,16 @@
   }
 
   function clickMatchingButton(buttons, value) {
+    const mark = (btn) => { try { btn.setAttribute("data-jt-autofilled", "1"); } catch (_) {} };
     const want = normalizeYesNo(value);
     for (const btn of buttons) {
       const txt = cleanText(btn.innerText || btn.textContent || "").toLowerCase();
-      if (txt === want) { btn.click(); return true; }
+      if (txt === want) { btn.click(); mark(btn); return true; }
     }
     for (const btn of buttons) {
       const txt = cleanText(btn.innerText || btn.textContent || "").toLowerCase();
       if (!txt) continue;
-      if (txt.includes(want) || want.includes(txt)) { btn.click(); return true; }
+      if (txt.includes(want) || want.includes(txt)) { btn.click(); mark(btn); return true; }
     }
     return false;
   }
@@ -1118,6 +1127,74 @@
     return out;
   }
 
+  // ── Learn pass ─────────────────────────────────────────────────────────────
+  // After the user manually answers the fields the engine missed, capture
+  // those (question, answer) pairs so they can be merged into the server-side
+  // qa_defaults — Pass 1's tryQADefaults then fills them automatically on the
+  // next form that asks the same thing, and the AI gets them as grounding for
+  // similar-but-differently-worded questions.
+
+  // probeText joins label/name/id/placeholder with " | ". The human-readable
+  // question is the segment that generalizes across sites (names/ids don't) —
+  // pick the longest segment that looks like words.
+  function bestQuestionSegment(text) {
+    const segs = String(text || "").split("|").map(s => cleanText(s)).filter(Boolean);
+    let best = "";
+    for (const s of segs) {
+      const words = s.split(/\s+/).length;
+      if ((words >= 2 || s.length >= 12) && s.length > best.length) best = s;
+    }
+    return (best || segs[0] || "").slice(0, 160);
+  }
+
+  function collectLearnableAnswers(profile) {
+    const rules = RULES(profile || {});
+    const qa    = (profile && profile.qa_defaults) || [];
+    const seenRadio = new Set();
+    const out = [];
+    const fields = querySelectorAllDeep("input, select, textarea").filter(isFillable);
+    for (const el of fields) {
+      const tag = el.tagName;
+      if (el.type === "password" || el.type === "checkbox" || el.type === "search") continue;
+      let value = "";
+      if (el.type === "radio") {
+        if (!el.name || seenRadio.has(el.name)) continue;
+        seenRadio.add(el.name);
+        const scope = el.form || document;
+        const group = Array.from(scope.querySelectorAll(
+          `input[type="radio"][name="${CSS.escape(el.name)}"]`));
+        if (group.some(g => g.getAttribute("data-jt-autofilled"))) continue;
+        const checked = group.find(g => g.checked);
+        if (!checked) continue;
+        const ownLabel = (checked.closest("label")?.textContent
+          || (checked.id && document.querySelector(`label[for="${CSS.escape(checked.id)}"]`)?.textContent)
+          || "");
+        value = cleanText(ownLabel) || checked.value;
+      } else {
+        if (el.getAttribute("data-jt-autofilled")) continue;
+        if (tag === "SELECT") {
+          const o = el.options && el.options[el.selectedIndex];
+          if (!o || !(o.value || "").trim()) continue;  // placeholder option
+          value = cleanText(o.text || o.value);
+        } else {
+          value = (el.value || "").trim();
+        }
+      }
+      if (!value || value.length > 300) continue;
+      const probe = probeText(el);
+      if (!probe || probe.trim().length < 3) continue;
+      if (matchRule(rules, probe)) continue;  // identity/contact — profile already covers it
+      const lower = probe.toLowerCase();
+      if (qa.some(e => Array.isArray(e) && e[0]
+            && lower.includes(String(e[0]).toLowerCase().trim()))) continue;  // already learned
+      if (BUILT_IN_QA.some(([re]) => re.test(probe))) continue;
+      const question = bestQuestionSegment(probe);
+      if (!question || question.length < 8) continue;
+      out.push([question, value]);
+    }
+    return out;
+  }
+
   // Below this confidence the AI is guessing (personality/preference questions,
   // ambiguous labels) — leave the field blank and flag it for a manual answer.
   const MIN_AI_CONFIDENCE = 0.6;
@@ -1163,5 +1240,5 @@
     return { applied, skipped };
   }
 
-  window.__jobTrackerAutofill = { run, collectUnfilledFields, applyAiFills };
+  window.__jobTrackerAutofill = { run, collectUnfilledFields, applyAiFills, collectLearnableAnswers };
 })();

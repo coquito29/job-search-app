@@ -31,7 +31,34 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       .catch(e => sendResponse({ error: e.message || String(e) }));
     return true;
   }
+  if (msg.type === "learnAnswers") {
+    learnAnswersRequest(msg)
+      .then(r => sendResponse(r))
+      .catch(e => sendResponse({ status: 0, body: { error: e.message || String(e) } }));
+    return true;
+  }
 });
+
+// Relay manually-typed answers to the server's qa_defaults ("Learn answers"
+// button). Same cookie-credentialed pattern as aiFill.
+async function learnAnswersRequest({ appUrl, answers }) {
+  if (!appUrl) return { status: 0, body: { error: "no appUrl configured" } };
+  const url = appUrl.replace(/\/+$/, "") + "/api/qa/learn";
+  let res;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json", "Accept": "application/json" },
+      body: JSON.stringify({ answers: answers || [] }),
+    });
+  } catch (e) {
+    return { status: 0, body: { error: "network: " + (e.message || String(e)) } };
+  }
+  let body = {};
+  try { body = await res.json(); } catch (_) { body = {}; }
+  return { status: res.status, body };
+}
 
 async function aiFillRequest({ appUrl, fields, page_context, cv_id }) {
   if (!appUrl) return { status: 0, body: { error: "no appUrl configured" } };

@@ -1798,6 +1798,71 @@ def profile_save():
     return jsonify({"ok": True, "updated_at": now})
 
 
+@app.route("/api/qa/learn", methods=["POST"])
+def qa_learn():
+    """Learning loop for the Chrome extension's "Learn answers" button.
+
+    Body: {"answers": [[question, answer], ...]} — pairs the user typed by
+    hand on a real application form (the engine already filters out fields it
+    filled itself, identity/contact rules, and existing qa_defaults). Merged
+    into profile.settings.qa_defaults: same question (case-insensitive) gets
+    the new answer, new questions are appended. Pass 1's tryQADefaults then
+    fills them automatically on every future form, and /api/autofill feeds
+    them to the AI as grounding for similarly-worded questions.
+    """
+    uid, err = _auth_required()
+    if err: return err
+    data    = request.get_json(force=True) or {}
+    answers = data.get("answers") or []
+    clean = []
+    for entry in answers[:60]:
+        if not isinstance(entry, (list, tuple)) or len(entry) < 2:
+            continue
+        q = str(entry[0]).strip()[:160]
+        a = str(entry[1]).strip()[:300]
+        if len(q) < 8 or not a:
+            continue
+        clean.append([q, a])
+    now = datetime.utcnow().isoformat()
+    with _db_conn() as conn:
+        row = conn.execute(
+            "SELECT settings FROM profiles WHERE user_id = ?", (uid,)
+        ).fetchone()
+        settings = {}
+        if row and _row_get(row, "settings"):
+            try:
+                settings = json.loads(_row_get(row, "settings")) or {}
+            except Exception:
+                settings = {}
+        qa = [e for e in (settings.get("qa_defaults") or [])
+              if isinstance(e, list) and len(e) >= 2]
+        added = updated = 0
+        for q, a in clean:
+            ql  = q.lower()
+            hit = next((e for e in qa if str(e[0]).lower() == ql), None)
+            if hit:
+                if str(hit[1]) != a:
+                    hit[1] = a
+                    updated += 1
+            else:
+                qa.append([q, a])
+                added += 1
+        settings["qa_defaults"] = qa[-300:]   # cap runaway growth
+        if row:
+            conn.execute(
+                "UPDATE profiles SET settings = ?, updated_at = ? WHERE user_id = ?",
+                (json.dumps(settings), now, uid),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO profiles (user_id, summary, skills, settings, updated_at) "
+                "VALUES (?, '', '[]', ?, ?)",
+                (uid, json.dumps(settings), now),
+            )
+    return jsonify({"ok": True, "added": added, "updated": updated,
+                    "qa_defaults": settings["qa_defaults"]})
+
+
 @app.route("/api/profile/skills/refresh", methods=["POST"])
 def profile_skills_refresh():
     """Re-run skill extraction against the user's default CV's parsed_text
@@ -4662,7 +4727,7 @@ def _autofill_cors_response(rv):
     return resp
 
 
-def _build_autofill_prompt(fields, page_context, cv_text):
+def _build_autofill_prompt(fields, page_context, cv_text, qa_defaults=None):
     fields_json = json.dumps(
         [{"id":          f.get("id"),
           "label":       (f.get("label") or "")[:200],
@@ -4679,9 +4744,20 @@ def _build_autofill_prompt(fields, page_context, cv_text):
     )
     cv_block = cv_text or "(no CV available — answer from general profile only)"
     today = datetime.now().strftime("%B %d, %Y")
+    qa_block = ""
+    if qa_defaults:
+        lines = []
+        for entry in qa_defaults[-25:]:
+            if isinstance(entry, (list, tuple)) and len(entry) >= 2 and entry[0] and entry[1]:
+                lines.append(f"- Q: {str(entry[0])[:160]} → A: {str(entry[1])[:300]}")
+        if lines:
+            qa_block = ("\nGEORGE'S SAVED ANSWERS (learned from his past applications — reuse "
+                        "verbatim when a question matches, adapt when it's similar):\n"
+                        + "\n".join(lines) + "\n")
     return f"""You are filling out a job application form on behalf of George Tupayachi.
 
 TODAY'S DATE: {today} — use this for any duration or "years of experience" math against resume dates.
+{qa_block}
 
 GEORGE'S RESUME (use these for grounded answers — never invent companies or dates):
 {cv_block}
@@ -4766,7 +4842,22 @@ def autofill():
         cv_row = _select_best_cv_row(uid, job_blob)
 
     cv_text = (cv_row.get("parsed_text") or "")[:3500] if cv_row else ""
-    prompt  = _build_autofill_prompt(fields, page_context, cv_text)
+    # Learned answers ("Learn answers" button) ground the AI on how George
+    # actually answers screening questions — reused verbatim on exact matches,
+    # adapted on similar ones.
+    qa_defaults = []
+    try:
+        with _db_conn() as conn:
+            prow = conn.execute(
+                "SELECT settings FROM profiles WHERE user_id = ?", (uid,)
+            ).fetchone()
+        if prow and _row_get(prow, "settings"):
+            qa = (json.loads(_row_get(prow, "settings")) or {}).get("qa_defaults") or []
+            if isinstance(qa, list):
+                qa_defaults = qa
+    except Exception:
+        pass
+    prompt  = _build_autofill_prompt(fields, page_context, cv_text, qa_defaults)
 
     try:
         client  = _anthropic.Anthropic(api_key=api_key)

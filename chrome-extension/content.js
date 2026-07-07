@@ -125,6 +125,39 @@
     }
   }
 
+  // Collect answers the user typed by hand (fields the engine missed) and
+  // send them to the server's qa_defaults — next time a form asks the same
+  // question, Pass 1 fills it automatically, and the AI sees them as
+  // grounding for similar questions.
+  async function learnAnswers() {
+    if (!window.__jobTrackerAutofill?.collectLearnableAnswers) {
+      notify("Autofill engine not loaded.", "err");
+      return;
+    }
+    const { profile, appUrl } = await getStored(["profile", "appUrl"]);
+    if (!profile || !appUrl) {
+      notify("Sign in via the extension popup first.", "err");
+      return;
+    }
+    const pairs = window.__jobTrackerAutofill.collectLearnableAnswers(profile);
+    if (!pairs.length) {
+      notify("Nothing new to learn — everything filled is already covered.", "warn");
+      return;
+    }
+    const reply = await sendMessage({ type: "learnAnswers", appUrl, answers: pairs });
+    if (reply && reply.status === 200 && reply.body && reply.body.ok) {
+      const n = (reply.body.added || 0) + (reply.body.updated || 0);
+      notify(`Learned ${n} answer${n === 1 ? "" : "s"} — they'll fill automatically next time.`);
+      // Refresh the cached profile so this session already knows them.
+      if (Array.isArray(reply.body.qa_defaults)) {
+        profile.qa_defaults = reply.body.qa_defaults;
+        try { chrome.storage.local.set({ profile }); } catch (_) {}
+      }
+    } else {
+      notify("Couldn't save answers: " + (reply?.body?.error || "network error"), "err");
+    }
+  }
+
   function injectLauncher() {
     if (document.getElementById("jt-autofill-launcher")) return;
     if (window !== window.top) return; // one button, top frame only
@@ -142,6 +175,21 @@
     `;
     btn.addEventListener("click", () => runFullAutofill("manual"));
     document.body.appendChild(btn);
+
+    const learn = document.createElement("button");
+    learn.id = "jt-learn-launcher";
+    learn.type = "button";
+    learn.textContent = "Learn answers";
+    learn.title = "Save the answers you typed by hand so they auto-fill next time";
+    learn.style.cssText = `
+      position: fixed; bottom: 20px; right: 112px; z-index: 2147483647;
+      padding: 10px 14px; border-radius: 999px; border: 1px solid #0d6efd;
+      background: #fff; color: #0d6efd; cursor: pointer;
+      font: 600 13px/1 system-ui, -apple-system, sans-serif;
+      box-shadow: 0 4px 14px rgba(0,0,0,.18);
+    `;
+    learn.addEventListener("click", learnAnswers);
+    document.body.appendChild(learn);
   }
 
   // Message from the popup ("Autofill current tab" button) — kept for
