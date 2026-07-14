@@ -2,8 +2,10 @@ name: Daily Job Digest
 
 on:
   schedule:
-    # 9:00 AM Eastern = 14:00 UTC  (adjusts automatically for DST)
-    - cron: "0 14 * * *"
+    # 4:00 AM Eastern (EDT) = 08:00 UTC. GitHub cron is fixed UTC and does
+    # NOT adjust for DST: once EST starts in November this fires at 3:00 AM
+    # Eastern — change to "0 9 * * *" then if 4 AM should hold year-round.
+    - cron: "0 8 * * *"
   workflow_dispatch:   # allows manual trigger from GitHub Actions tab
 
 jobs:
