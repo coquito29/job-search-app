@@ -1,46 +1,70 @@
 {
   "manifest_version": 3,
-  "name": "Job Search App — Auto-fill",
-  "version": "0.5.0",
-  "description": "Auto-fills ATS application forms (Greenhouse, Workable, Workday, iCIMS, Ashby, ADP, etc.) from your Job Search App profile. Rule-based fill for the common fields, plus AI-filled custom free-text questions when the server has ANTHROPIC_API_KEY set. Auto-fires on supported ATS hosts with a toast + Undo. You always review + click Submit yourself.",
-
+  "name": "Job Tracker Autofill",
+  "version": "0.13.0",
+  "description": "Autofill ATS application forms from your job-tracker profile. Rules cover identity / contact / address / EEO / button-radio chips, plus Google-Places location autocomplete, SmartRecruiters oneclick-ui shadow-DOM components, and AI-filled custom free-text questions when the server has ANTHROPIC_API_KEY set.",
+  "permissions": ["storage", "activeTab", "scripting", "notifications"],
+  "host_permissions": ["<all_urls>"],
   "icons": {
     "16":  "icons/icon-16.png",
     "48":  "icons/icon-48.png",
     "128": "icons/icon-128.png"
   },
-
+  "background": {
+    "service_worker": "background.js"
+  },
   "action": {
-    "default_title": "Auto-fill from Job Search App",
     "default_popup": "popup.html",
+    "default_title": "Job Tracker Autofill",
     "default_icon": {
       "16":  "icons/icon-16.png",
       "48":  "icons/icon-48.png",
       "128": "icons/icon-128.png"
     }
   },
-
-  "permissions": [
-    "activeTab",
-    "scripting",
-    "storage"
-  ],
-
-  "host_permissions": [
-    "https://job-search-app-9pnx.onrender.com/*",
-    "http://localhost:5000/*"
-  ],
-
-  "background": {
-    "service_worker": "background.js"
-  },
-
   "content_scripts": [
     {
-      "matches": ["http://*/*", "https://*/*"],
-      "js": ["content.js"],
+      "matches": [
+        "*://*.greenhouse.io/*",
+        "*://boards.greenhouse.io/*",
+        "*://*.lever.co/*",
+        "*://jobs.lever.co/*",
+        "*://*.workable.com/*",
+        "*://jobs.workable.com/*",
+        "*://*.ashbyhq.com/*",
+        "*://jobs.ashbyhq.com/*",
+        "*://*.smartrecruiters.com/*",
+        "*://jobs.smartrecruiters.com/*",
+        "*://*.myworkdayjobs.com/*",
+        "*://*.bamboohr.com/*",
+        "*://*.recruitee.com/*",
+        "*://*.breezy.hr/*",
+        "*://*.applytojob.com/*",
+        "*://*.jobvite.com/*",
+        "*://*.rippling.com/*",
+        "*://ats.rippling.com/*",
+        "*://*.polymer.co/*",
+        "*://*.icims.com/*",
+        "*://*.oraclecloud.com/*",
+        "*://*.taleo.net/*",
+        "*://*.successfactors.com/*",
+        "*://*.adp.com/*",
+        "*://*.ultipro.com/*",
+        "*://*.dayforcehcm.com/*",
+        "*://*.paycomonline.net/*",
+        "*://*.paylocity.com/*",
+        "*://*.zohorecruit.com/*",
+        "*://*.zohorecruit.eu/*"
+      ],
+      "js": ["autofill.js", "content.js"],
       "run_at": "document_idle",
       "all_frames": true
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["autofill.js"],
+      "matches": ["<all_urls>"]
     }
   ]
 }

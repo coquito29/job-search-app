@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>SPL shadow-DOM autofill harness</title>
+<style>
+  body { font: 14px/1.5 system-ui, sans-serif; max-width: 720px; margin: 24px auto; }
+  spl-form-field { display: block; margin: 10px 0; }
+  #results { background: #f6f8fa; border: 1px solid #ddd; padding: 12px; white-space: pre-wrap; }
+  #decoy { border: 1px dashed #c00; padding: 6px; margin: 12px 0; }
+</style>
+</head>
+<body>
+<h1>Mock SmartRecruiters oneclick-ui form</h1>
+<p>Browser-runnable harness (Node isn't installed on this machine). Mimics the
+SPL-* web components from jobs.smartrecruiters.com/oneclick-ui: open shadow
+roots, labels as HOST ATTRIBUTES only, and autocompletes that REVERT on blur
+unless a dropdown option is clicked (Escape clears). Auto-runs the engine on
+load and prints PASS/FAIL per field into #results.</p>
+
+<!-- Decoy: a permanently visible [role=option] OUTSIDE any component. The
+     engine must NOT click this while an spl-autocomplete's own listbox is
+     still rendering (tests scoped search + the 1.2s no-text-match guard). -->
+<div id="decoy" role="listbox"><div role="option">Decoy Option — must never be picked</div></div>
+
+<form id="f" onsubmit="return false">
+  <spl-form-field label="First Name"><spl-input id="fld-first" label="First Name"></spl-input></spl-form-field>
+  <spl-form-field label="Last Name"><spl-input id="fld-last" label="Last Name"></spl-input></spl-form-field>
+  <spl-form-field label="Email"><spl-input id="fld-email" label="Email"></spl-input></spl-form-field>
+  <spl-form-field label="Phone number"><spl-input id="fld-phone" label="Phone number"></spl-input></spl-form-field>
+
+  <spl-form-field label="Institution"><spl-autocomplete id="fld-inst" label="Institution"></spl-autocomplete></spl-form-field>
+  <spl-form-field label="Company"><spl-autocomplete id="fld-company" label="Company"></spl-autocomplete></spl-form-field>
+  <spl-form-field label="Job title"><spl-autocomplete id="fld-title" label="Job title"></spl-autocomplete></spl-form-field>
+
+  <!-- Light-DOM regression controls: classic label[for] + radio group -->
+  <div><label for="li">LinkedIn</label> <input id="li" type="text"></div>
+  <fieldset>
+    <legend>Are you authorized to work in the US?</legend>
+    <label><input type="radio" name="auth" value="yes"> Yes</label>
+    <label><input type="radio" name="auth" value="no"> No</label>
+  </fieldset>
+</form>
+
+<h2>Results</h2>
+<pre id="results">running…</pre>
+
+<script>
+// ── Mock SPL components ─────────────────────────────────────────────────────
+class SplInput extends HTMLElement {
+  connectedCallback() {
+    if (this.shadowRoot) return;
+    const sr = this.attachShadow({ mode: "open" });
+    const inp = document.createElement("input");
+    inp.type = "text";
+    sr.appendChild(inp);
+    this.input = inp;
+  }
+}
+customElements.define("spl-input", SplInput);
+
+class SplFormField extends HTMLElement {
+  connectedCallback() {
+    if (this.shadowRoot) return;
+    const sr = this.attachShadow({ mode: "open" });
+    const lab = document.createElement("div");
+    lab.textContent = this.getAttribute("label") || "";
+    sr.appendChild(lab);
+    sr.appendChild(document.createElement("slot"));
+  }
+}
+customElements.define("spl-form-field", SplFormField);
+
+// Autocomplete: nested shadow (hosts an inner spl-input). Typing renders a
+// listbox in the outer shadow after 400ms whose FIRST option echoes the
+// typed text (like the real component). Blur without an option click
+// REVERTS to the last committed value; Escape clears; option click commits.
+class SplAutocomplete extends HTMLElement {
+  connectedCallback() {
+    if (this.shadowRoot) return;
+    const sr = this.attachShadow({ mode: "open" });
+    const inner = document.createElement("spl-input");
+    sr.appendChild(inner);
+    this.inner = inner;
+    this.committed = "";
+    this.optionClicked = false;
+
+    sr.addEventListener("input", () => {
+      this.optionClicked = false;
+      this.renderListbox(this.inner.input.value);
+    });
+    sr.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        this.inner.input.value = "";
+        this.committed = "";
+        this.removeListbox();
+      }
+    });
+    sr.addEventListener("focusout", () => {
+      setTimeout(() => {
+        if (!this.optionClicked) {
+          this.inner.input.value = this.committed;   // the REVERT trap
+          this.removeListbox();
+        }
+      }, 50);
+    });
+  }
+  renderListbox(q) {
+    this.removeListbox();
+    if (!q) return;
+    setTimeout(() => {
+      if (this.listbox) return;
+      const lb = document.createElement("ul");
+      lb.setAttribute("role", "listbox");
+      for (const t of [q, q + " Ltd", "Unrelated Suggestion"]) {
+        const li = document.createElement("li");
+        li.setAttribute("role", "option");
+        li.textContent = t;
+        li.addEventListener("click", () => {
+          this.inner.input.value = t;
+          this.committed = t;
+          this.optionClicked = true;
+          this.removeListbox();
+        });
+        lb.appendChild(li);
+      }
+      this.shadowRoot.appendChild(lb);
+      this.listbox = lb;
+    }, 400);
+  }
+  removeListbox() {
+    if (this.listbox) { this.listbox.remove(); this.listbox = null; }
+  }
+}
+customElements.define("spl-autocomplete", SplAutocomplete);
+</script>
+
+<script src="../autofill.js"></script>
+
+<script>
+// ── Runner + assertions ─────────────────────────────────────────────────────
+const profile = {
+  first_name: "George", last_name: "Test", full_name: "George Test",
+  email: "george@example.com", phone: "+1 614 555 0100",
+  linkedin: "https://linkedin.com/in/george-test",
+  address: { city: "Columbus", state: "Ohio", zip: "43004", country: "United States", street: "123 Main St" },
+  answers: { work_authorized_us: "Yes" },
+  education: [{ school: "Franklin University", degree: "Bachelor's", field: "Computer Science", end_date: "2025-05" }],
+  work_experience: [{ company: "Harrahs Casino", title: "Bartender", start_date: "2019-06", end_date: "2024-01", current: false }],
+};
+
+function innerValue(hostId) {
+  const host = document.getElementById(hostId);
+  // spl-input → its input; spl-autocomplete → inner spl-input → input
+  if (host.input) return host.input.value;
+  return host.inner.input.value;
+}
+
+window.addEventListener("load", async () => {
+  const out = [];
+  const check = (name, got, want) => {
+    out.push(`${got === want ? "PASS" : "FAIL"}  ${name}: got=${JSON.stringify(got)} want=${JSON.stringify(want)}`);
+  };
+  try {
+    const res = await window.__jobTrackerAutofill.run(profile, {});
+    // Force blur so any un-committed autocomplete value gets reverted —
+    // proves the engine really clicked the dropdown options.
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    await new Promise(r => setTimeout(r, 300));
+
+    check("first_name (spl-input host attr)", innerValue("fld-first"), "George");
+    check("last_name  (spl-input host attr)", innerValue("fld-last"), "Test");
+    check("email      (spl-input host attr)", innerValue("fld-email"), "george@example.com");
+    check("phone      (spl-input host attr)", innerValue("fld-phone"), "+1 614 555 0100");
+    check("institution VALUE (autocomplete)", innerValue("fld-inst"), "Franklin University");
+    check("institution COMMITTED (survives blur)", document.getElementById("fld-inst").committed, "Franklin University");
+    check("company COMMITTED", document.getElementById("fld-company").committed, "Harrahs Casino");
+    check("job title COMMITTED", document.getElementById("fld-title").committed, "Bartender");
+    check("linkedin (light-DOM regression)", document.getElementById("li").value, "https://linkedin.com/in/george-test");
+    check("radio yes (light-DOM regression)", document.querySelector('input[name="auth"]:checked')?.value ?? "(none)", "yes");
+    out.push(`engine result: filled=${res.filled} total=${res.total}`);
+  } catch (e) {
+    out.push("ERROR: " + (e.stack || e));
+  }
+  document.getElementById("results").textContent = out.join("\n");
+});
+</script>
+</body>
+</html>

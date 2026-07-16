@@ -193,12 +193,33 @@
   }
 
   // ── Field probing ──────────────────────────────────────────────────────────
+  // Chain of shadow hosts from the element outward (innermost first). Empty
+  // for light-DOM elements. Used to read component-host attributes and to
+  // scope dropdown searches to the owning web component.
+  function shadowHostChain(el) {
+    const hosts = [];
+    let root = el.getRootNode && el.getRootNode();
+    while (root && root.host) {
+      hosts.push(root.host);
+      root = root.host.getRootNode && root.host.getRootNode();
+    }
+    return hosts;
+  }
+
+  // <label for> lookup scoped to the element's own tree — for fields inside
+  // a shadow root, document.querySelector can't see their labels.
+  function labelForText(el) {
+    if (!el.id) return "";
+    const rootNode = (el.getRootNode && el.getRootNode()) || document;
+    const lab = rootNode.querySelector(`label[for="${CSS.escape(el.id)}"]`);
+    return (lab && lab.textContent) || "";
+  }
+
   function probeText(el) {
     const parts = [];
-    if (el.id) {
-      const lab = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
-      if (lab && lab.textContent) parts.push(lab.textContent);
-    }
+    const rootNode = (el.getRootNode && el.getRootNode()) || document;
+    const forLabel = labelForText(el);
+    if (forLabel) parts.push(forLabel);
     let p = el.parentElement;
     for (let i = 0; i < 3 && p; i++, p = p.parentElement) {
       if (p.tagName === "LABEL" && p.textContent) { parts.push(p.textContent); break; }
@@ -211,7 +232,8 @@
     const labelledby = el.getAttribute("aria-labelledby");
     if (labelledby) {
       labelledby.split(/\s+/).forEach(id => {
-        const node = document.getElementById(id);
+        const node = (rootNode.getElementById && rootNode.getElementById(id))
+          || document.getElementById(id);
         if (node && node.textContent) parts.push(node.textContent);
       });
     }
@@ -221,6 +243,28 @@
     if (el.name)         parts.push(el.name);
     if (el.id)           parts.push(el.id);
     if (el.dataset && el.dataset.qa) parts.push(el.dataset.qa);
+
+    // Semantic QA attributes on the element or its nearest wrapper — Zoho
+    // Recruit puts data-zcqa="manual_First_Name" on the <lyte-input> wrapper
+    // (the input's own name is a meaningless rec-form_<id>), Workday uses
+    // data-automation-id, others data-testid.
+    for (const attr of ["data-zcqa", "data-automation-id", "data-testid"]) {
+      const holder = el.closest && el.closest(`[${attr}]`);
+      if (holder) parts.push(holder.getAttribute(attr));
+    }
+
+    // Shadow-DOM web components (SmartRecruiters SPL-*) carry the human
+    // label as an ATTRIBUTE on the component host — <spl-input
+    // label="Institution"> — with no <label> element anywhere in the tree.
+    // Collect label-ish attributes from every host on the way out.
+    for (const host of shadowHostChain(el)) {
+      if (!host.getAttribute) continue;
+      for (const attr of ["label", "aria-label", "placeholder", "name",
+                          "data-label", "data-field", "formcontrolname"]) {
+        const v = host.getAttribute(attr);
+        if (v) parts.push(v);
+      }
+    }
 
     // Walk up looking for label-like siblings of ancestors. Catches the
     // Bootstrap pattern where the question is a <label class="d-block">
@@ -291,10 +335,16 @@
   // than label text so it works even when our regex misses the label.
   function isComboboxLike(el) {
     if (el.tagName !== "INPUT") return false;
-    return el.getAttribute("role") === "combobox"
+    if (el.getAttribute("role") === "combobox"
         || el.hasAttribute("aria-autocomplete")
         || el.getAttribute("aria-haspopup") === "listbox"
-        || /pac-target-input/.test(el.className || "");
+        || /pac-target-input/.test(el.className || "")) return true;
+    // Shadow-component autocompletes (SmartRecruiters <spl-autocomplete>)
+    // put no combobox ARIA on the inner native input — recognize them by
+    // the host tag name instead. Critical: these fields REVERT on blur
+    // unless a dropdown option is clicked, so the plain text path is
+    // guaranteed to silently lose the value.
+    return shadowHostChain(el).some(h => /autocomplete|combobox|typeahead/i.test(h.tagName || ""));
   }
 
   // ── Fillers ────────────────────────────────────────────────────────────────
@@ -302,13 +352,16 @@
     const proto = Object.getPrototypeOf(el);
     const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
     if (setter) setter.call(el, value); else el.value = value;
-    el.dispatchEvent(new Event("input",  { bubbles: true }));
-    el.dispatchEvent(new Event("change", { bubbles: true }));
+    // composed: true so the events escape shadow roots — web-component
+    // wrappers (spl-input) often listen at their shadow root or host.
+    el.dispatchEvent(new Event("input",  { bubbles: true, composed: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
     // React 17+ uses a root-delegated listener that requires a real InputEvent
     // with inputType so its synthetic event system recognises the change.
     try {
       el.dispatchEvent(new InputEvent("input", {
-        bubbles: true, cancelable: true, inputType: "insertText", data: String(value),
+        bubbles: true, cancelable: true, composed: true,
+        inputType: "insertText", data: String(value),
       }));
     } catch (_) {}
   }
@@ -319,6 +372,10 @@
   function querySelectorAllDeep(selector, root) {
     root = root || document;
     const results = Array.from(root.querySelectorAll(selector));
+    // When the root is itself a shadow host (an Element, not a Document),
+    // its own shadow tree isn't reachable via querySelectorAll — descend
+    // into it explicitly so scoped searches see the component's internals.
+    if (root.shadowRoot) results.push(...querySelectorAllDeep(selector, root.shadowRoot));
     for (const host of root.querySelectorAll("*")) {
       if (host.shadowRoot) results.push(...querySelectorAllDeep(selector, host.shadowRoot));
     }
@@ -405,7 +462,7 @@
         // Use only the radio's [for] label + parent <label> wrapper — NOT
         // the full walk-up. The walk-up includes the question label which
         // can contain misleading substrings (e.g. "Will you NOW or...").
-        const ownLabel = ((r.id && document.querySelector(`label[for="${CSS.escape(r.id)}"]`)?.textContent) || "")
+        const ownLabel = labelForText(r)
           + " " + (r.closest("label")?.textContent || "")
           + " " + (r.value || "");
         if (wordBoundaryRe.test(ownLabel)) {
@@ -533,14 +590,18 @@
     return filled;
   }
 
-  // ── Autocomplete (Google Places / React combobox) ──────────────────────────
+  // ── Autocomplete (Google Places / React combobox / shadow components) ──────
   function simulateClick(el) {
+    // composed: true lets the events cross shadow boundaries — required for
+    // options rendered inside a web component's shadow root (SPL listboxes).
     for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup", "click"]) {
-      el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, view: window }));
+      el.dispatchEvent(new MouseEvent(type, {
+        bubbles: true, cancelable: true, composed: true, button: 0, view: window,
+      }));
     }
   }
 
-  async function waitForOption(maxWaitMs) {
+  async function waitForOption(maxWaitMs, wantText, scopeRoot) {
     const start = Date.now();
     const selector = [
       '[role="option"]:not([aria-disabled="true"]):not([aria-selected="true"])',
@@ -548,12 +609,42 @@
       "li[data-option-index]",
       ".ashby-job-posting-form-field-entry__option",
       ".pac-item",
+      "spl-option",
       '[class*="autocomplete-option"]:not([class*="disabled"])',
       '[class*="MenuItem"]:not([aria-disabled="true"])',
     ].join(",");
+    // Only click an option whose text actually relates to what we typed:
+    // exact match first (SmartRecruiters echoes the typed free text as the
+    // FIRST option), then substring, then first-meaningful-token overlap
+    // (Google Places: want "Columbus" → option "Columbus, OH, USA").
+    //
+    // NO positional "just take the first option" fallback: now that the
+    // search pierces shadow roots it sees dropdowns the old light-DOM
+    // search never could — e.g. the dial-code country picker inside
+    // spl-phone-field — and blind-clicking the first entry there commits a
+    // wrong value. Unmatched fields fall through to a plain text-set.
+    const want = String(wantText || "").trim().toLowerCase();
+    const wantToken = want.split(/[\s,]+/).find(t => t.length >= 3) || "";
+    const matchOf = (cands) => {
+      if (!want) return null;
+      return cands.find(c => cleanText(c.textContent).toLowerCase() === want)
+          || cands.find(c => cleanText(c.textContent).toLowerCase().includes(want))
+          || (wantToken
+              ? cands.find(c => cleanText(c.textContent).toLowerCase().includes(wantToken))
+              : null);
+    };
     while (Date.now() - start < maxWaitMs) {
-      const candidates = Array.from(document.querySelectorAll(selector)).filter(isVisible);
-      if (candidates.length) return candidates[0];
+      // Options inside the owning component's shadow tree first; portalled
+      // dropdowns (Google Places .pac-container on <body>) via the
+      // document-wide deep fallback.
+      let candidates = scopeRoot
+        ? querySelectorAllDeep(selector, scopeRoot).filter(isVisible)
+        : [];
+      if (!candidates.length) {
+        candidates = querySelectorAllDeep(selector).filter(isVisible);
+      }
+      const matched = matchOf(candidates);
+      if (matched) return matched;
       await new Promise(r => setTimeout(r, 100));
     }
     return null;
@@ -563,16 +654,23 @@
     el.focus();
     el.click();
     // Set the value WITHOUT firing 'blur' — blur closes the dropdown before
-    // it has a chance to render. So we bypass setNativeValue here.
+    // it has a chance to render. SmartRecruiters spl-autocomplete goes
+    // further: blur REVERTS the field unless a dropdown option was clicked,
+    // and Escape clears it — so neither is ever dispatched here.
     const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), "value")?.set;
     if (setter) setter.call(el, value); else el.value = value;
-    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
     // Nudge typeahead APIs (Google Places) that listen for keyup too.
     const lastChar = value.slice(-1) || "a";
-    el.dispatchEvent(new KeyboardEvent("keydown", { key: lastChar, bubbles: true }));
-    el.dispatchEvent(new KeyboardEvent("keyup",   { key: lastChar, bubbles: true }));
+    el.dispatchEvent(new KeyboardEvent("keydown", { key: lastChar, bubbles: true, composed: true }));
+    el.dispatchEvent(new KeyboardEvent("keyup",   { key: lastChar, bubbles: true, composed: true }));
 
-    const option = await waitForOption(waitMs);
+    // Scope the dropdown search to the outermost shadow host (the whole
+    // spl-form-field / spl-autocomplete component) so its own listbox wins
+    // over unrelated [role=option]s elsewhere on the page.
+    const hosts = shadowHostChain(el);
+    const scopeRoot = hosts.length ? hosts[hosts.length - 1] : null;
+    const option = await waitForOption(waitMs, value, scopeRoot);
     if (option) {
       simulateClick(option);
       await new Promise(r => setTimeout(r, 220));
@@ -1092,7 +1190,7 @@
             // value attribute — some ATSes (Workable) use random hash IDs as
             // option values, which the AI can't reason about or match back.
             const ownLabel = (r.closest("label")?.textContent
-              || (r.id && document.querySelector(`label[for="${CSS.escape(r.id)}"]`)?.textContent)
+              || labelForText(r)
               || "");
             return cleanText(ownLabel) || r.value;
           })
@@ -1167,7 +1265,7 @@
         const checked = group.find(g => g.checked);
         if (!checked) continue;
         const ownLabel = (checked.closest("label")?.textContent
-          || (checked.id && document.querySelector(`label[for="${CSS.escape(checked.id)}"]`)?.textContent)
+          || labelForText(checked)
           || "");
         value = cleanText(ownLabel) || checked.value;
       } else {

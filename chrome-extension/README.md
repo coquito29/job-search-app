@@ -1,87 +1,249 @@
-# Job Search App — Auto-fill (Chrome extension)
+# Job Tracker Autofill (Chrome extension)
 
-Fills ATS application forms (Greenhouse, Workable, Workday, iCIMS, ADP, SmartRecruiters, etc.) from your Job Search App profile. You always review the fields and click Submit yourself — the extension never submits forms for you.
+Reads your profile from the job-tracker app's `/api/profile/full` endpoint and
+fills ATS application forms (Greenhouse, Lever, Workable, Ashby, SmartRecruiters,
+Workday, BambooHR, Recruitee, Breezy, JazzHR, Jobvite, Rippling, Polymer).
 
-## What gets filled (Phase 1 — rules)
+## Install (unpacked)
 
-- Name (first / last / full / preferred) — combined labels like "Legal First & Last Name" get the full name
-- Email + phone
-- Address (street / city / state / zip / country) — state and country selects try both abbreviation and full name
-- **Location autocomplete** (Ashby, Greenhouse, Lever — Google-Places-backed pickers): types value, waits for dropdown, clicks first option
-- LinkedIn URL
-- Work-authorisation answers (authorized to work in US, sponsorship needed, etc.)
-- EEO / demographics (gender, race, ethnicity, veteran, disability)
-- Salary expectation, notice period, e-signature
-- Common yes/no questions ("previously employed here", "willing to relocate", etc.)
-- **Custom button-based "radio" groups** (Ashby yes/no chips, Lever custom radios) — clicks the button whose text matches the answer
+1. Open `chrome://extensions`.
+2. Toggle **Developer mode** (top right).
+3. Click **Load unpacked** and select this `chrome-extension/` folder.
+4. Pin the extension to the toolbar.
 
-## What also gets filled (Phase 2 — AI, v0.4)
+## Use
 
-When the Job Search App server has `ANTHROPIC_API_KEY` set, a second pass kicks in for anything Phase 1 couldn't match:
+1. Open the popup, enter your app URL (e.g. `https://your-app.onrender.com`)
+   and your passcode, click **Sign in & sync profile**. The profile is cached
+   in `chrome.storage.local`.
+2. Navigate to an application form.
+3. Either:
+   - Click the floating **Autofill** button (appears on supported ATS domains), or
+   - Open the popup and click **Autofill this tab** (works on any page).
+4. Review the filled fields and submit yourself. The extension never submits.
 
-- Custom free-text questions like *"Why are you interested in this role?"*, *"Describe a time you handled a difficult customer."*
-- Custom select / radio / button-group questions whose label didn't match any rule (the AI is shown the option list and must pick one of them)
+## How field matching works
 
-The content script POSTs unfilled-field metadata (label, type, options, placeholder) + your default CV's parsed text + page context to `POST /api/autofill`. Claude returns one suggestion per field with a confidence score. The toast shows `Auto-filled 7 + 3 AI — review before submitting`.
+For each input/select/textarea on the page it concatenates the surrounding
+label text, `aria-label`, `placeholder`, `name`, `id`, and `data-qa`, then
+matches that against a prioritized list of regexes mapped to profile fields.
+Selects pick an option whose visible text or value matches; radios/checkboxes
+click the matching choice. The user's `qa_defaults` from the app act as a
+fuzzy fallback when no structured rule fires.
 
-If the server returns 503 (no API key set), Phase 2 silently no-ops and the flag is cached for the session so we don't keep pinging the endpoint. You still get Phase 1 fills.
+## v0.10.0 — Auto-upload resume/CV file
 
-## v0.2 fixes
+Browsers block setting `<input type="file">.value` for security, but they
+allow assigning `input.files` via a DataTransfer-constructed FileList.
+Password managers and credential autofill extensions use this technique;
+turns out it also works for résumé file inputs.
 
-- Rule-ordering bug: "Legal First & Last Name" now wins the full-name rule before the last_name singleton sees it (used to fill only "Tupayachi").
-- Ashby location field: was a plain `setNativeValue` that didn't trigger the Google Places dropdown — now focuses, types, waits, clicks the first option.
-- Custom button radios (Ashby Yes/No chips) are now detected and clicked.
-- Labels with trailing `*` / `(required)` / `(optional)` markers are normalized so they match cleanly.
+Flow:
+1. Server reads the user's default CV from the CV library
+   (`SELECT ... WHERE is_default = 1`; falls back to most-recent if
+   none flagged) and base64-encodes the bytes into the
+   `/bookmarklet/run.js` response as `window.__jt_cv_b64` plus
+   `__jt_cv_filename` + `__jt_cv_mime`.
+2. Engine adds a Pass 4 that finds `<input type="file">` elements
+   labeled resume / CV / curriculum vitae / upload, decodes the
+   base64 → Uint8Array → File, then assigns via DataTransfer.
+3. The native `change` event fires, so the page's "Selected: cv.pdf"
+   indicator renders.
 
-## What's NOT filled yet
+Limitations:
+- Strict-CSP ATSes (Greenhouse, Ashby, Workday) block the script-tag
+  load itself, so the engine never gets to Pass 4. On those, the user
+  manually uploads.
+- Multi-MB CVs make the bookmarklet payload bigger — a 300 KB PDF
+  expands to ~400 KB base64. Modern browsers handle script tags this
+  size fine but the network transfer is noticeable.
 
-- Education rows
-- Work-experience rows
-- Resume upload (always manual — Chrome blocks programmatic file uploads)
+## v0.9.0 — Pronouns + qa_defaults expansion + country code + Submit highlight
 
-## Install
+Four small additions, all from real-world ATS forms we hadn't covered:
 
-1. **Clone or download this folder** (`chrome_extension/`) to your computer.
-2. Open Chrome → navigate to `chrome://extensions`.
-3. Toggle **"Developer mode"** in the top-right corner.
-4. Click **"Load unpacked"**, select the `chrome_extension/` folder.
-5. The extension's icon (a generic puzzle piece for now) appears in the toolbar. Pin it for one-click access.
+- **Pronouns**: new profile field, fills selects whose label matches
+  /\\bpronoun(s)?\\b/i with "He/Him". Common DEI field at Lever / Workable.
+- **Phone country-code split**: many ATSes have separate inputs for the
+  +1 country code and the 10-digit phone. New rule fires on
+  /country_code|dial_code|calling_code/, fills with "+1"; the
+  /phone_number/ rule then fills the digits from profile.phone_digits.
+  Order matters — country-code rule must precede the generic phone
+  rule.
+- **Built-in qa_defaults**: 11 common questions with canonical answers
+  (over 18, valid driver's licence, "how did you hear about us" →
+  LinkedIn, "can you start within 2 weeks", "non-compete agreement",
+  remote work, English fluency, etc.). User's profile.qa_defaults
+  still wins as override.
+- **Submit-button highlight (NOT auto-click)**: after fill, finds the
+  submit button (type=submit OR text matches "Submit"/"Submit
+  Application"/"Apply Now") and pulses a green outline for 5 seconds.
+  Helps the user spot the button on long forms. The extension still
+  NEVER clicks Submit on the user's behalf — the value of this tool is
+  filling fast so the user reviews and submits themselves.
 
-## Use (v0.3 — auto-fill on supported hosts)
+## v0.8.0 — Native date input handling
 
-1. **Once per session**: open the extension popup once so it caches your profile to `chrome.storage.local`. (The content script can't fetch the API directly, so the popup is the only place that refreshes the cache.)
-2. Navigate to an application form on a supported ATS host (see list below).
-3. The extension auto-fills after a brief wait for the form to render. A green toast appears bottom-right: **"Auto-filled N fields — review before submitting"** with **↩ Undo** and **×** buttons. The toast auto-dismisses after 12s.
-4. Review every field. Manually handle anything that wasn't filled (custom questions, file upload, etc.).
-5. Click Submit on the ATS yourself when ready.
+HTML5 `<input type="date">` requires `YYYY-MM-DD` and rejects shorter
+formats silently — the field stays empty even if our rule fired with
+the right value. The profile stores dates as `YYYY-MM` ("2024-07")
+because that's the precision the user typed. Bridge added:
 
-**Manual fill (any host)**: click the toolbar icon → "Auto-fill this form". This works on every page, even non-supported hosts.
+  normalizeDate(value, el):
+    type="date"   → append "-01" (first of the month)
+    type="month"  → leave YYYY-MM as-is
+    text input    → consult placeholder/aria for format hints
+                    (mm/yyyy, yyyy-mm-dd, etc.)
+    YYYY-MM-DD    → return as-is
 
-### Supported hosts for auto-fill
+applyValue routes type="date" / type="month" through fillDate before
+the generic fillTextLike path so the format conversion lands before
+setNativeValue's React dispatch.
 
-`ashbyhq.com`, `greenhouse.io`, `workable.com`, `lever.co`, `smartrecruiters.com`, `bamboohr.com`, `applytojob.com` (JazzHR), `rippling.com`, `breezy.hr`, `icims.com`, `myworkdayjobs.com`, `workday.com`, `workforcenow.adp.com`, `dayforcehcm.com`, `successfactors.com`, `taleo.net`, `oraclecloud.com`, `ukgpro.com`, `polymerhr.com`, `recruitee.com`.
+## v0.7.0 — "Add Another" button auto-expansion
 
-On any host not in this list, use the popup to fill manually.
+Workday + Greenhouse + most ATSes render only the FIRST education and
+the FIRST work-history row by default. Additional rows appear after the
+user clicks an "Add Another" / "+" button.
 
-## Local dev
+New Pass -1 (runs before Pass 0):
+- Scans every visible <button>, [role="button"], and <a> on the page
+- Filters to elements whose text matches ADD_BTN_RE — accepts shapes
+  like "Add", "+ Add", "Add Another", "Add another education",
+  "+ Add work experience", "Add new entry"
+- For each candidate, looks at the closest fieldset / section /
+  card / form ancestor and reads its text. If it contains education
+  keywords → treat as education button; work keywords → work button.
+- Counts existing indexed rows in that ancestor (parsing names like
+  `education[0][school]`)
+- Clicks the button (profile_array_length - existing_rows) times,
+  waiting 300ms after each click for the new row's DOM to render
+- Capped at 5 clicks per button to bound runtime in pathological cases
 
-If you're running the Flask app locally on `localhost:5000`, open the extension popup → click **"API server"** → select **Local**. The extension will fetch your profile from the local instance instead of production.
+After Pass -1, the existing Pass 0 sees the newly-created rows and
+fills them with the right profile[N] data.
 
-## Privacy / security
+ADD_BTN_RE intentionally rejects things like "Add LinkedIn", "Add to
+cart", "Add reference" — only matches "Add (another) (educational
+section keyword)" shapes. The ancestor's keyword check provides
+further safety: a generic "Add" button outside a recognized section
+gets ignored.
 
-- The extension talks only to the configured Job Search App server (production by default).
-- Your profile data lives on the server and is sent over HTTPS.
-- The extension never auto-submits, never reads pages outside the active tab, and never sends form contents to any third party.
-- Session is via the same cookie the web app uses. Logging out of the web app invalidates the extension's access until you log back in.
+## v0.6.0 — multi-row education + work history
 
-## Files
+Adds a new Pass 0 that runs BEFORE the rule-based pass. It scans every
+field for indexed names like:
 
-- `manifest.json` — Chrome extension manifest (Manifest V3)
-- `popup.html` / `popup.css` / `popup.js` — toolbar popup UI
-- `content.js` — the form filler (runs on every page, idle until you click Auto-fill)
+  education[0][school]              → profile.education[0].school
+  education_1_school                → profile.education[1].school
+  work_experience[1][company]       → profile.work_experience[1].company
+  job_application[work_experience_attributes][0][title]
+                                    → profile.work_experience[0].title
 
-## Roadmap
+Pass 0 marks each filled element so Pass 1 (single-row rules) skips
+it — otherwise the unindexed `\bschool\b/` pattern would re-fill row 1
+with row 0's school (Franklin → Stockton, Stockton → Franklin etc).
 
-- **Phase 2 (v0.4 — shipped):** AI-powered field mapping. Sends form-field metadata + CV text + page context to `/api/autofill`, Claude returns per-field suggestions, the content script applies them. Requires `ANTHROPIC_API_KEY` set on the deployed server. Falls back silently to Phase 1 rules when AI is offline (503).
-- **Phase 3:** Per-ATS handlers for Workday (React event firing), iCIMS (Country dropdown), Workable (shadow DOM), Oracle HCM. Education/work-history row filling.
-- **Phase 4:** Chrome Web Store submission so installation is a one-click thing instead of unpacked.
+The field-type detection (school vs degree vs field of study vs
+graduation; company vs title vs dates vs current) lives in
+pickRepeatingValue() and uses the same regex shape as the single-row
+rules — just scoped to the indexed haystack.
+
+Covers Workday, Greenhouse, Lever, iCIMS — all of which use
+`education[N][field]` / `work[N][field]` markup for repeating rows.
+
+## v0.5.0 — single-row work experience
+
+Adds 5 rules covering the most-recent job (profile.work_experience[0]):
+company/employer, job title/position/role, employment start date,
+employment end date, and a "currently employed" Yes/No radio.
+
+Date rules require an explicit `employment|job|work` qualifier in the
+label or surrounding section, so they don't clobber the education end-date
+rule that matches `graduation year`. The "current position" Yes/No
+resolves to "Yes" when `work_experience[0].current === true` and the
+existing fillRadio path clicks the matching radio.
+
+Multi-row support (Stockton degree + Ocean Casino roles) is the next
+phase — needs `name="education[1][school]"` / `work[1][company]` index
+parsing plus "Add another" button detection.
+
+## v0.4.0 — single-row education fields
+
+Most ATSes (Workday, Greenhouse, Lever, iCIMS, Ashby) ask for the user's
+most recent school + degree + major + graduation date. The profile already
+has this in `education[]`; previously the engine skipped it entirely.
+
+New rules in autofill.js match the first/most-recent row:
+- `\b(school|university|college|institution)\b` → `education[0].school`
+- `\bdegree\b` / `\blevel of education\b` → `education[0].degree`
+- `\bfield of study\b` / `major|concentration|discipline` → `education[0].field`
+- `\bgraduation (year|date)\b` / `expected graduation` / `completion year`
+  → `education[0].end_date`
+
+The start-date rule is intentionally omitted for v1 — generic `\bstart date\b`
+overlaps with employment history fields and we don't yet have row-scoping
+to disambiguate. Multi-row repeating education sections + work history
+rows are the next phase.
+
+## v0.3.1 — sibling-label radio groups + "no"/"now" false-match fix
+
+Dogfood on `/test-form` exposed two more gaps:
+
+- **Bootstrap-style radio groups** (Bootstrap form-check pattern, also used
+  by Workday and some custom forms) put the question label as a sibling of
+  the input row, not as a parent `<label>` or `[for]` target. `probeText`
+  now walks up 5 levels and pulls in label-like siblings of ancestors —
+  but **only siblings that don't contain other inputs**, so a Phone Number
+  field doesn't pick up "First Name" from a neighboring form-group and
+  misfire the first_name rule.
+
+- **fillRadio's `text.includes("no")` was false-matching the substring
+  inside "now"** — "Will you **now** or in the future require sponsorship?"
+  was clicking the Yes radio. Switched to word-boundary regex
+  (`\bno\b`) and prioritized value-attr matching over text matching.
+  Yes/No → true/false/1/0 aliases still work.
+
+## v0.3.0 — button-radio chips + location autocomplete
+
+Two new field shapes are handled by the rule pass:
+
+- **Ashby-style button-radio groups**: Yes/No questions rendered as `<button>`
+  chips (no `<input type="radio">`). Pass 2 detects sibling button groups,
+  finds the question label above them, runs the rule pass against that
+  label, and clicks the matching button.
+- **Google-Places location autocomplete** (Ashby / Greenhouse / Lever):
+  inputs marked `role="combobox"` / `aria-autocomplete="list"` /
+  `aria-haspopup="listbox"` get focused, typed into, polled for ~3s for a
+  dropdown option, then clicked via a full pointer-event sequence so React
+  pickers register the selection. Falls through to plain `setNativeValue`
+  if no dropdown surfaces.
+
+Also expanded rules: "previously **worked** at this company" now matches the
+previously_employed rule alongside "previously employed".
+
+`run()` is now async (returns `Promise<{filled, total}>`). The popup's
+`chrome.scripting.executeScript` already awaits Promise returns, so no
+caller change is required.
+
+## Phase 2 — AI fill for custom questions (v0.2.0)
+
+When the popup's **Autofill this tab** button runs, after the rule pass it
+collects any field that didn't match a rule (custom free-text questions,
+unusual selects), POSTs them to `/api/autofill` on your app, and applies
+the per-field suggestions Claude returns. Resume text from your default CV
+grounds the answers so they reference real experience, not invented detail.
+
+The fetch is relayed through `background.js` so the 3-5s Claude round-trip
+survives the popup closing. The popup status line shows
+`Filled 7 + 3 AI of 12 fields`. If the server returns 503 (i.e.
+`ANTHROPIC_API_KEY` isn't set on the deploy), the AI pass silently no-ops
+and you still get the rule fills. Production needs the env var set; without
+it Phase 2 is dormant.
+
+## What it does NOT do
+
+- It does not auto-submit forms. You always click Submit yourself.
+- It does not upload your resume/CV file (browsers can't synthesise file
+  uploads from script for security reasons — that input is left alone).
+- It does not work cross-account. Cookies live in your extension's jar only.

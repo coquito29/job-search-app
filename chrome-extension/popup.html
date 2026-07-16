@@ -1,47 +1,40 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
 <head>
-  <meta charset="UTF-8">
+  <meta charset="utf-8">
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-  <div class="header">
-    <h1>Auto-fill</h1>
-    <p class="subtitle">from Job Search App</p>
-  </div>
+  <header>
+    <h1>Job Tracker Autofill</h1>
+    <span id="status-dot" class="dot dot-off" title="signed out"></span>
+  </header>
 
-  <!-- Status area -->
-  <div id="status" class="status status-info">Checking session…</div>
-
-  <!-- Server selector (lets you point at local dev) -->
-  <details class="server-select">
-    <summary>API server</summary>
+  <section id="settings">
     <label>
-      <input type="radio" name="server" value="https://job-search-app-9pnx.onrender.com" checked>
-      Production (Render)
+      App URL
+      <input id="app-url" type="url" placeholder="https://your-app.onrender.com" autocomplete="off">
     </label>
     <label>
-      <input type="radio" name="server" value="http://localhost:5000">
-      Local (localhost:5000)
+      Passcode
+      <input id="passcode" type="password" placeholder="••••" autocomplete="off">
     </label>
-  </details>
+    <button id="signin" type="button">Sign in &amp; sync profile</button>
+  </section>
 
-  <!-- Main button -->
-  <button id="fillBtn" class="btn-primary" disabled>
-    Auto-fill this form
-  </button>
+  <section id="active" hidden>
+    <p class="profile-line">Signed in as <strong id="profile-name">—</strong></p>
+    <p class="muted" id="last-sync">Last sync: —</p>
+    <label class="toggle-line">
+      <input id="auto-fill-toggle" type="checkbox" checked>
+      Auto-fill forms automatically
+    </label>
+    <button id="autofill"     type="button" class="primary">Autofill this tab</button>
+    <button id="refresh"      type="button">Refresh profile</button>
+    <button id="signout"      type="button" class="ghost">Sign out</button>
+  </section>
 
-  <!-- Login helper -->
-  <a id="loginLink" class="btn-link" target="_blank" style="display:none;">
-    Log in to Job Search App →
-  </a>
-
-  <!-- Results readout -->
-  <div id="results" class="results"></div>
-
-  <p class="footer">
-    Always review fields before clicking Submit. This extension never submits forms for you.
-  </p>
+  <p id="msg" class="msg" hidden></p>
 
   <script src="popup.js"></script>
 </body>
