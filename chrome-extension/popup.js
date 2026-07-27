@@ -91,10 +91,18 @@ async function init() {
   const { autoFillEnabled } = await new Promise(res =>
     chrome.storage.local.get("autoFillEnabled", res));
   $("auto-fill-toggle").checked = autoFillEnabled !== false;
+  // Auto-submit is opt-in and defaults OFF — it clicks Submit for real.
+  const { autoSubmitEnabled } = await new Promise(res =>
+    chrome.storage.local.get("autoSubmitEnabled", res));
+  $("auto-submit-toggle").checked = autoSubmitEnabled === true;
 }
 
 $("auto-fill-toggle").addEventListener("change", (e) => {
   chrome.storage.local.set({ autoFillEnabled: e.target.checked });
+});
+
+$("auto-submit-toggle").addEventListener("change", (e) => {
+  chrome.storage.local.set({ autoSubmitEnabled: e.target.checked });
 });
 
 $("signin").addEventListener("click", async () => {
@@ -233,7 +241,32 @@ $("autofill").addEventListener("click", async () => {
         ` of ${totals.total} fields.`;
     }
     if (aiReason) line += ` AI: ${aiReason}.`;
-    line += " Review before submit.";
+
+    // ── Phase 3: optional auto-submit ────────────────────────────────────
+    // Runs last so the AI phase has already filled everything it can. The
+    // engine re-validates in the page: every required field non-empty and no
+    // CAPTCHA, or it refuses and tells us why.
+    const { autoSubmitEnabled } = await new Promise(res =>
+      chrome.storage.local.get("autoSubmitEnabled", res));
+    if (autoSubmitEnabled === true) {
+      try {
+        const subRes = await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: () => window.__jobTrackerAutofill
+            && window.__jobTrackerAutofill.submitIfComplete(),
+        });
+        const s = (subRes && subRes[0] && subRes[0].result) || {};
+        if (s.submitted) {
+          line += " Submitted automatically.";
+        } else if (s.blockers && s.blockers.length) {
+          line += ` Not submitted — ${s.blockers[0]}.`;
+        }
+      } catch (e) {
+        line += ` Auto-submit failed: ${e.message}.`;
+      }
+    } else {
+      line += " Review before submit.";
+    }
     msg(line, combined > 0 ? "ok" : "err");
   } catch (e) {
     msg(e.message || "Autofill failed (can't inject into this page).", "err");

@@ -218,11 +218,17 @@
   function probeText(el) {
     const parts = [];
     const rootNode = (el.getRootNode && el.getRootNode()) || document;
+    // Does this field carry a label of its OWN (as opposed to ambient text
+    // that happens to sit nearby)? Decides whether the sibling walk-up below
+    // is allowed to contribute — see the comment there.
+    let hasOwnLabel = false;
     const forLabel = labelForText(el);
-    if (forLabel) parts.push(forLabel);
+    if (forLabel) { parts.push(forLabel); hasOwnLabel = true; }
     let p = el.parentElement;
     for (let i = 0; i < 3 && p; i++, p = p.parentElement) {
-      if (p.tagName === "LABEL" && p.textContent) { parts.push(p.textContent); break; }
+      if (p.tagName === "LABEL" && p.textContent) {
+        parts.push(p.textContent); hasOwnLabel = true; break;
+      }
     }
     const fieldset = el.closest("fieldset");
     if (fieldset) {
@@ -234,12 +240,12 @@
       labelledby.split(/\s+/).forEach(id => {
         const node = (rootNode.getElementById && rootNode.getElementById(id))
           || document.getElementById(id);
-        if (node && node.textContent) parts.push(node.textContent);
+        if (node && node.textContent) { parts.push(node.textContent); hasOwnLabel = true; }
       });
     }
     const ariaLabel = el.getAttribute("aria-label");
-    if (ariaLabel) parts.push(ariaLabel);
-    if (el.placeholder)  parts.push(el.placeholder);
+    if (ariaLabel) { parts.push(ariaLabel); hasOwnLabel = true; }
+    if (el.placeholder)  { parts.push(el.placeholder); hasOwnLabel = true; }
     if (el.name)         parts.push(el.name);
     if (el.id)           parts.push(el.id);
     if (el.dataset && el.dataset.qa) parts.push(el.dataset.qa);
@@ -277,12 +283,30 @@
     // labels belong to other fields. Without this guard, a Phone Number
     // field's walk-up would pick up "First Name" from a sibling form-group
     // and the first_name rule would fire on the phone input.
+    //
+    // CRITICAL #2: only walk when the field has NO label of its own. Sibling
+    // <label for="...">s belong to OTHER inputs, and collecting them made
+    // every field in a flat form see every other field's label — so "Legal
+    // First & Last Name" bled onto the Preferred Name and Email inputs and
+    // the full-name rule (which is earlier in the list) won, writing the
+    // applicant's name into the email box. Radios/checkboxes still walk
+    // unconditionally: their own text is just "Yes"/"No" and the question
+    // genuinely lives in ambient markup.
     const isRadioOrCheck = el.type === "radio" || el.type === "checkbox";
-    let container = el.parentElement;
+    let container = (isRadioOrCheck || !hasOwnLabel) ? el.parentElement : null;
     for (let depth = 0; container && container !== document.body && depth < 5; depth++) {
       for (const child of container.children) {
         if (child === el || child.contains(el)) continue;
         if (child.querySelector && child.querySelector("input, select, textarea")) continue;
+        // A <label for="other-field"> is owned by that field, not this one.
+        // In flat forms (label and input as siblings) the input-containing
+        // guard above never fires, so without this check an over-18 radio
+        // also saw "Country Code" / "Phone Number" from neighbouring rows —
+        // and the country-code rule, being earlier in the list, hijacked it.
+        if (child.tagName === "LABEL") {
+          const owns = child.getAttribute && child.getAttribute("for");
+          if (owns && owns !== el.id) continue;
+        }
         const tag = child.tagName;
         const isLabelLike = tag === "LABEL"
                          || tag === "LEGEND"
@@ -419,6 +443,114 @@
     // React-Select sets a `__reactFiber` key on the container's input.
     // Dispatching the synthetic InputEvent from setNativeValue already covers it.
     return true;
+  }
+
+  // ── Decoy <select> / searchable dropdown bridge (BambooHR, Fabric UI) ─────
+  // BambooHR renders State/Country as a <select> that contains NO real
+  // options — the visible widget is a custom panel with its own search box.
+  // fillSelect can never succeed on those (there is nothing to select), so
+  // the field silently stayed blank and the ATS blocked submit on it.
+  // Here we drive the real widget: click the trigger, type into whatever
+  // search box appears, then click the exact option.
+  const OPTION_SELECTOR = [
+    '[role="option"]:not([aria-disabled="true"])',
+    '[role="listbox"] li:not([aria-disabled="true"])',
+    "li[data-option-index]",
+    '[class*="option"]:not([class*="disabled"]):not([class*="options"])',
+    '[class*="MenuItem"]:not([aria-disabled="true"])',
+  ].join(",");
+
+  // Equivalent spellings of a value, tried in order when the first form
+  // finds no matching option. Custom widgets are inconsistent about whether
+  // they list "NJ" or "New Jersey" / "US" or "United States", and a native
+  // <select> hides the difference (option value vs text) while a custom
+  // panel does not.
+  let CURRENT_PROFILE = null;
+  function valueAlternates(value) {
+    const v = String(value == null ? "" : value).trim();
+    const out = v ? [v] : [];
+    const addr = (CURRENT_PROFILE && CURRENT_PROFILE.address) || {};
+    const pairs = [
+      [addr.state, addr.state_full],
+      [addr.country_code, addr.country],
+    ];
+    for (const [short, long] of pairs) {
+      if (!short || !long) continue;
+      if (v.toLowerCase() === String(short).toLowerCase() && !out.includes(long)) out.push(long);
+      if (v.toLowerCase() === String(long).toLowerCase() && !out.includes(short)) out.push(short);
+    }
+    return out;
+  }
+
+  function isDecoySelect(el) {
+    if (!el || el.tagName !== "SELECT") return false;
+    // A real select has choices beyond the blank placeholder.
+    const real = Array.from(el.options || [])
+      .filter(o => cleanText(o.textContent || "") && String(o.value || "").trim());
+    return real.length === 0;
+  }
+
+  // The clickable thing a user would press to open the dropdown: the select
+  // itself if it's visible, else the nearest visible wrapper/button sibling.
+  function decoyTrigger(el) {
+    if (isVisible(el)) return el;
+    let cur = el.parentElement;
+    for (let d = 0; d < 3 && cur; d++, cur = cur.parentElement) {
+      const btn = Array.from(cur.querySelectorAll('button,[role="combobox"],[role="button"],input'))
+        .find(isVisible);
+      if (btn) return btn;
+      if (isVisible(cur)) return cur;
+    }
+    return null;
+  }
+
+  async function fillDecoySelect(el, value, waitMs = 2500) {
+    for (const candidate of valueAlternates(value)) {
+      if (await fillDecoySelectOnce(el, candidate, waitMs)) return true;
+    }
+    return false;
+  }
+
+  async function fillDecoySelectOnce(el, value, waitMs = 2500) {
+    const trigger = decoyTrigger(el);
+    if (!trigger) return false;
+    simulateClick(trigger);
+    await new Promise(r => setTimeout(r, 150));
+
+    // If the opened panel has a search box, typing narrows the list — vital
+    // for 50-state pickers that virtualise their options.
+    const search = querySelectorAllDeep('input[type="search"],input[type="text"],input:not([type])')
+      .filter(isVisible)
+      .filter(i => i !== el && !i.value)
+      .find(i => /search|filter/i.test(`${i.placeholder || ""} ${i.getAttribute("aria-label") || ""} ${i.className || ""}`))
+      || null;
+    if (search) {
+      search.focus();
+      setNativeValue(search, String(value));
+      search.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+      await new Promise(r => setTimeout(r, 250));
+    }
+
+    const want = String(value).trim().toLowerCase();
+    const start = Date.now();
+    while (Date.now() - start < waitMs) {
+      const cands = querySelectorAllDeep(OPTION_SELECTOR).filter(isVisible);
+      if (cands.length) {
+        // Exact match strictly preferred: a substring match on a state list
+        // turns "New Jersey" into "South ..." style mis-picks.
+        const exact = cands.find(c => cleanText(c.textContent).toLowerCase() === want);
+        const pick = exact
+          || cands.find(c => cleanText(c.textContent).toLowerCase().startsWith(want))
+          || pickClosestOption(cands, value);
+        if (pick) {
+          simulateClick(pick);
+          await new Promise(r => setTimeout(r, 200));
+          return true;
+        }
+      }
+      await new Promise(r => setTimeout(r, 100));
+    }
+    return false;
   }
 
   function fillRadioOrCheckbox(el, value) {
@@ -633,6 +765,7 @@
               ? cands.find(c => cleanText(c.textContent).toLowerCase().includes(wantToken))
               : null);
     };
+    let lastSeen = [];
     while (Date.now() - start < maxWaitMs) {
       // Options inside the owning component's shadow tree first; portalled
       // dropdowns (Google Places .pac-container on <body>) via the
@@ -643,11 +776,79 @@
       if (!candidates.length) {
         candidates = querySelectorAllDeep(selector).filter(isVisible);
       }
+      if (candidates.length) lastSeen = candidates;
       const matched = matchOf(candidates);
-      if (matched) return matched;
+      if (matched) return { matched, candidates };
       await new Promise(r => setTimeout(r, 100));
     }
-    return null;
+    // No text match. Hand back whatever options WERE on screen so the caller
+    // can tell "this is a fixed option list I failed to match" apart from
+    // "this is a free-text field with no dropdown at all".
+    return { matched: null, candidates: lastSeen };
+  }
+
+  // ── Fixed-option (closed) dropdown handling ────────────────────────────────
+  // Some comboboxes only accept values from their own list — Greenhouse's
+  // "expected compensation range" is the canonical example. Typing free text
+  // ("Negotiable") into one leaves the field invalid, and the ATS rejects the
+  // whole submission with a "field is required" error AFTER you click Submit.
+  // So when options are present but none matched, pick the best legal option
+  // rather than injecting text that is guaranteed to fail validation.
+
+  // Pull the numbers out of a salary-ish string: "$40,000 - $49,999" → [40000, 49999].
+  // "80k" → [80000].
+  function parseMoneyTokens(s) {
+    const out = [];
+    const re = /(\d[\d,]*(?:\.\d+)?)\s*([kK])?/g;
+    let m;
+    while ((m = re.exec(String(s || "")))) {
+      let n = parseFloat(m[1].replace(/,/g, ""));
+      if (!isFinite(n)) continue;
+      if (m[2]) n *= 1000;
+      out.push(n);
+    }
+    return out;
+  }
+
+  // Choose the option that best fits `value`.
+  //  - salary/numeric: the option whose range contains (or sits nearest to)
+  //    the desired figure
+  //  - otherwise: highest meaningful-token overlap
+  // Returns null when nothing scores above zero — better to leave a field
+  // blank for the user than to commit a wrong answer on their behalf.
+  function pickClosestOption(candidates, value) {
+    const cands = (candidates || []).filter(Boolean);
+    if (!cands.length) return null;
+    const textOf = (c) => cleanText(c.textContent || "");
+
+    const wanted = parseMoneyTokens(value).filter(n => n >= 1000);
+    if (wanted.length) {
+      // Use the low end of a requested range as the target figure.
+      const target = Math.min(...wanted);
+      let best = null, bestDist = Infinity;
+      for (const c of cands) {
+        const nums = parseMoneyTokens(textOf(c)).filter(n => n >= 1000);
+        if (!nums.length) continue;
+        const lo = Math.min(...nums), hi = Math.max(...nums);
+        // Distance 0 when the target sits inside the option's range.
+        const dist = target < lo ? lo - target : (target > hi ? target - hi : 0);
+        if (dist < bestDist) { bestDist = dist; best = c; }
+      }
+      if (best) return best;
+    }
+
+    const wantTokens = qaTokens(value);
+    if (!wantTokens.length) return null;
+    let best = null, bestScore = 0;
+    for (const c of cands) {
+      const optTokens = new Set(qaTokens(textOf(c)));
+      if (!optTokens.size) continue;
+      let shared = 0;
+      for (const t of wantTokens) if (optTokens.has(t)) shared++;
+      const score = shared / wantTokens.length;
+      if (score > bestScore) { bestScore = score; best = c; }
+    }
+    return bestScore > 0 ? best : null;
   }
 
   async function fillAutocomplete(el, value, waitMs = 3000) {
@@ -670,13 +871,25 @@
     // over unrelated [role=option]s elsewhere on the page.
     const hosts = shadowHostChain(el);
     const scopeRoot = hosts.length ? hosts[hosts.length - 1] : null;
-    const option = await waitForOption(waitMs, value, scopeRoot);
-    if (option) {
-      simulateClick(option);
+    const { matched, candidates } = await waitForOption(waitMs, value, scopeRoot);
+    if (matched) {
+      simulateClick(matched);
       await new Promise(r => setTimeout(r, 220));
-      return true;
+      return { ok: true, hadOptions: true };
     }
-    return false;
+    // Options rendered but none matched the requested text — this is a closed
+    // list. Commit the nearest legal option instead of falling through to a
+    // free-text set that the ATS will reject at submit time.
+    if (candidates && candidates.length) {
+      const closest = pickClosestOption(candidates, value);
+      if (closest) {
+        simulateClick(closest);
+        await new Promise(r => setTimeout(r, 220));
+        return { ok: true, hadOptions: true, approximate: true };
+      }
+      return { ok: false, hadOptions: true };
+    }
+    return { ok: false, hadOptions: false };
   }
 
   async function applyValue(el, value, opts) {
@@ -690,7 +903,15 @@
   async function applyValueCore(el, value, opts) {
     if (value === undefined || value === null) return false;
     const v = String(value);
-    if (el.tagName === "SELECT") return fillSelect2(el, v);
+    if (el.tagName === "SELECT") {
+      if (fillSelect2(el, v)) return true;
+      // Nothing selectable in the element itself — drive the custom widget
+      // that's standing in for it (BambooHR State/Country).
+      if ((opts?.autocomplete ?? true) && isDecoySelect(el)) {
+        return await fillDecoySelect(el, v, opts?.autocompleteWaitMs ?? 2500);
+      }
+      return false;
+    }
     if (el.type === "radio" || el.type === "checkbox") return fillRadioOrCheckbox(el, v);
     // Native date/month inputs — convert YYYY-MM to whatever format the
     // input accepts. Browsers reject malformed values silently otherwise.
@@ -705,9 +926,16 @@
     // Autocomplete-aware path for combobox-like inputs. Defaults on; opts can
     // disable for fast jsdom tests.
     if ((opts?.autocomplete ?? true) && isComboboxLike(el)) {
-      const ok = await fillAutocomplete(el, v, opts?.autocompleteWaitMs ?? 3000);
-      if (ok) return true;
-      // Fall through to plain text-set if dropdown didn't surface.
+      const res = await fillAutocomplete(el, v, opts?.autocompleteWaitMs ?? 3000);
+      if (res.ok) return true;
+      // A dropdown DID render and we still couldn't find a usable option:
+      // the list is closed, so free text would only fail validation later.
+      // Clear whatever we typed and leave the field for the user.
+      if (res.hadOptions) {
+        try { setNativeValue(el, ""); } catch (_) {}
+        return false;
+      }
+      // No dropdown at all — genuine free-text input, fall through.
     }
     return fillTextLike(el, v);
   }
@@ -741,24 +969,94 @@
     [/\bable[\s_]+to[\s_]+work[\s_]+(remotely|from[\s_]+home)\b/i, "Yes"],
   ];
 
-  async function tryQADefaults(el, qaDefaults, opts) {
-    const text = probeText(el).toLowerCase();
-    // User's qa_defaults first (allows override of built-ins)
+  // Words that carry no signal when comparing two phrasings of the same
+  // question. Dropped before token-overlap scoring so "Do you now, or will
+  // you in the future, need sponsorship..." still matches a saved answer
+  // whose wording differs in the filler words.
+  const QA_STOPWORDS = new Set([
+    "a","an","the","and","or","of","to","in","for","on","at","by","with","as",
+    "is","are","was","were","be","been","being","do","does","did","doing",
+    "you","your","yours","we","our","us","i","me","my","it","its","this","that",
+    "have","has","had","will","would","can","could","should","may","might",
+    "any","all","some","if","from","about","please","select","choose","enter",
+    "now","future","order","other","currently","ever","following","below",
+  ]);
+
+  function qaTokens(s) {
+    return String(s || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]+/g, " ")
+      .split(/\s+/)
+      .filter(t => t.length > 2 && !QA_STOPWORDS.has(t));
+  }
+
+  // Resolve a question string to candidate answers, most-confident first:
+  //   1. substring either direction (saved question appears in the field
+  //      text, or the field text appears in the saved question)
+  //   2. token overlap — needs >=2 shared meaningful tokens AND >=60% of the
+  //      saved question's tokens present, so "need sponsorship ... United
+  //      States?" matches "... United States or Canada?" but unrelated
+  //      questions that merely share one word do not
+  //   3. BUILT_IN_QA regexes
+  //
+  // Returns a LIST, not a single answer, because probeText deliberately casts
+  // a wide net for radio groups: an over-18 radio in a flat form also sees a
+  // sibling "How did you hear about us?" label, which matched a saved answer
+  // ("LinkedIn") that can't apply to a Yes/No radio. Returning one guess meant
+  // the field was abandoned; the caller can now fall through to the next
+  // candidate (the built-in over-18 → "Yes") and actually fill it.
+  function lookupQACandidates(rawText, qaDefaults) {
+    const text = String(rawText || "").toLowerCase();
+    if (!text) return [];
+    const out = [];
+    const push = (v) => {
+      if (v === undefined || v === null || v === "") return;
+      if (!out.includes(v)) out.push(v);
+    };
+
     if (qaDefaults && qaDefaults.length) {
+      // Tier 1 — substring in either direction.
       for (const entry of qaDefaults) {
         if (!Array.isArray(entry) || entry.length < 2) continue;
         const needle = String(entry[0]).toLowerCase().trim();
         if (!needle || needle.length < 3) continue;
-        if (text.includes(needle)) {
-          return await applyValue(el, entry[1], opts);
+        if (text.includes(needle) || (needle.length > 25 && needle.includes(text) && text.length > 12)) {
+          push(entry[1]);
         }
       }
-    }
-    // Built-in last-resort
-    for (const [re, value] of BUILT_IN_QA) {
-      if (re.test(text)) {
-        return await applyValue(el, value, opts);
+      // Tier 2 — fuzzy token overlap, best-scoring entries first.
+      const fieldTokens = new Set(qaTokens(text));
+      if (fieldTokens.size) {
+        const scored = [];
+        for (const entry of qaDefaults) {
+          if (!Array.isArray(entry) || entry.length < 2) continue;
+          const saved = qaTokens(entry[0]);
+          if (saved.length < 2) continue;
+          let shared = 0;
+          for (const t of saved) if (fieldTokens.has(t)) shared++;
+          const coverage = shared / saved.length;
+          if (shared >= 2 && coverage >= 0.6) scored.push([coverage, entry[1]]);
+        }
+        scored.sort((a, b) => b[0] - a[0]);
+        for (const [, v] of scored) push(v);
       }
+    }
+    // Tier 3 — built-in last-resort.
+    for (const [re, value] of BUILT_IN_QA) {
+      if (re.test(text)) push(value);
+    }
+    return out.slice(0, 6);
+  }
+
+  // Convenience wrapper for callers that only want the top answer.
+  function lookupQA(rawText, qaDefaults) {
+    const c = lookupQACandidates(rawText, qaDefaults);
+    return c.length ? c[0] : null;
+  }
+
+  async function tryQADefaults(el, qaDefaults, opts) {
+    for (const value of lookupQACandidates(probeText(el), qaDefaults)) {
+      if (await applyValue(el, value, opts)) return true;
     }
     return false;
   }
@@ -937,6 +1235,8 @@
 
   async function run(profile, opts) {
     opts = opts || {};
+    profile = profile || {};
+    CURRENT_PROFILE = profile;   // used by valueAlternates() for state/country forms
 
     // ── Pass -1: click "Add another" buttons to surface hidden rows ──────────
     // Runs BEFORE we snapshot `fields` so the newly-created inputs are picked
@@ -978,11 +1278,15 @@
       }
       const text = probeText(el);
       const rule = matchRule(rules, text);
-      if (rule) {
-        if (await applyValue(el, rule.value, opts)) filled++;
+      if (rule && await applyValue(el, rule.value, opts)) {
+        filled++;
         continue;
       }
-      if (profile.qa_defaults && await tryQADefaults(el, profile.qa_defaults, opts)) {
+      // Either no rule matched, or the matched rule's value couldn't be
+      // applied to this control (e.g. a text value aimed at a Yes/No radio).
+      // Falling through to the Q&A candidates rescues the field instead of
+      // abandoning it after one failed attempt.
+      if (await tryQADefaults(el, profile.qa_defaults, opts)) {
         filled++;
       }
     }
@@ -999,11 +1303,18 @@
       buttonGroupTotal++;
       const label = findButtonGroupLabel(parent, btns);
       if (!label) continue;
+      // Rules win; otherwise fall back to the user's saved answers and the
+      // built-in Q&A list — the same ladder Pass 1 uses for native inputs.
+      // Without this fallback, screener questions rendered as button chips
+      // (Ashby "Have you worked with X?" Yes/No) were silently left blank
+      // even when the exact answer was already saved in qa_defaults.
       const rule = matchRule(rules, label);
-      if (!rule) continue;
-      const value = rule.value;
-      if (value === undefined || value === null || value === "") continue;
-      if (clickMatchingButton(btns, value)) filled++;
+      const values = rule && rule.value !== undefined && rule.value !== null && rule.value !== ""
+        ? [rule.value]
+        : lookupQACandidates(label, profile.qa_defaults);
+      for (const value of values) {
+        if (clickMatchingButton(btns, value)) { filled++; break; }
+      }
     }
 
     // ── Pass 4: auto-upload the user's default CV into resume file inputs ──
@@ -1019,7 +1330,22 @@
     // value of this extension is filling fast so the user can review.
     try { highlightSubmitButton(opts); } catch (_) {}
 
-    return { filled, total: fields.length + buttonGroupTotal };
+    // ── Optional auto-submit ────────────────────────────────────────────────
+    // Off unless the caller explicitly opts in. Even then it only fires when
+    // validateBeforeSubmit() can show every required field is satisfied and
+    // no CAPTCHA is on screen — otherwise we hand back the blocker list and
+    // leave the form for the user.
+    let autoSubmit = { submitted: false, blockers: [] };
+    try { autoSubmit = maybeAutoSubmit(opts); } catch (e) {
+      autoSubmit = { submitted: false, blockers: ["auto-submit error: " + e.message] };
+    }
+
+    return {
+      filled,
+      total: fields.length + buttonGroupTotal,
+      submitted: autoSubmit.submitted,
+      blockers: autoSubmit.blockers,
+    };
   }
 
   async function fillResumeUpload() {
@@ -1082,22 +1408,86 @@
     }
   }
 
-  function highlightSubmitButton(opts) {
-    // Find candidate submit buttons. Prioritize type=submit, then text.
-    const SUBMIT_TEXT = /^(submit|submit\s+application|send\s+application|apply\s+now|finish\s+&?\s*submit|review\s+&?\s*submit)$/i;
-    let btn = null;
+  const SUBMIT_TEXT = /^(submit|submit\s+application|send\s+application|apply\s+now|finish\s+&?\s*submit|review\s+&?\s*submit)$/i;
+
+  function findSubmitButton() {
     // Prefer explicit type="submit"
     for (const b of document.querySelectorAll('button[type="submit"], input[type="submit"]')) {
-      if (isVisible(b)) { btn = b; break; }
+      if (isVisible(b)) return b;
     }
     // Fall back to text match
-    if (!btn) {
-      for (const b of document.querySelectorAll('button, [role="button"], a.btn, input[type="button"]')) {
-        if (!isVisible(b)) continue;
-        const txt = cleanText(b.innerText || b.value || b.textContent || "");
-        if (SUBMIT_TEXT.test(txt)) { btn = b; break; }
-      }
+    for (const b of document.querySelectorAll('button, [role="button"], a.btn, input[type="button"]')) {
+      if (!isVisible(b)) continue;
+      const txt = cleanText(b.innerText || b.value || b.textContent || "");
+      if (SUBMIT_TEXT.test(txt)) return b;
     }
+    return null;
+  }
+
+  // ── Pre-submit validation ──────────────────────────────────────────────────
+  // Auto-submit is only safe when we can prove the form is actually complete.
+  // Returns { ok, blockers: [reason, ...] } — every reason is phrased for
+  // display in the popup so the user knows what to finish by hand.
+  function validateBeforeSubmit() {
+    const blockers = [];
+
+    // 1. A CAPTCHA means a human must act; we never attempt to solve one.
+    const captcha = [
+      'iframe[src*="recaptcha"]', 'iframe[src*="hcaptcha"]',
+      'iframe[src*="turnstile"]', ".g-recaptcha", ".h-captcha", "[data-sitekey]",
+    ].some(sel => Array.from(document.querySelectorAll(sel)).some(isVisible));
+    if (captcha) blockers.push("CAPTCHA present — needs a human");
+
+    // 2. Every required control must hold a value. Radio/checkbox groups are
+    //    judged per NAME (any one checked satisfies the group).
+    const seenGroups = new Set();
+    for (const el of querySelectorAllDeep("input, select, textarea")) {
+      const required = el.required || el.getAttribute("aria-required") === "true";
+      if (!required || el.disabled) continue;
+      if (!isVisible(el) && el.type !== "hidden" && el.tagName !== "SELECT") continue;
+
+      if (el.type === "radio" || el.type === "checkbox") {
+        const key = el.name || el.id;
+        if (!key || seenGroups.has(key)) continue;
+        seenGroups.add(key);
+        const group = querySelectorAllDeep(`input[name="${CSS.escape(key)}"]`);
+        if (!group.some(g => g.checked)) {
+          blockers.push(`required: ${fieldLabelFor(el)}`);
+        }
+        continue;
+      }
+      if (el.type === "file") {
+        if (!el.files || el.files.length === 0) blockers.push(`required file: ${fieldLabelFor(el)}`);
+        continue;
+      }
+      if (!String(el.value || "").trim()) blockers.push(`required: ${fieldLabelFor(el)}`);
+    }
+
+    return { ok: blockers.length === 0, blockers: blockers.slice(0, 12) };
+  }
+
+  // Short human-readable name for a control, for blocker messages.
+  function fieldLabelFor(el) {
+    const raw = labelForText(el) || el.getAttribute("aria-label") || el.placeholder
+             || el.name || el.id || "field";
+    return cleanText(raw).slice(0, 60) || "field";
+  }
+
+  // Click Submit only when validation passes. Opt-in via opts.autoSubmit.
+  // Returns { submitted, blockers }.
+  function maybeAutoSubmit(opts) {
+    if (!opts || !opts.autoSubmit) return { submitted: false, blockers: [] };
+    const { ok, blockers } = validateBeforeSubmit();
+    if (!ok) return { submitted: false, blockers };
+    const btn = findSubmitButton();
+    if (!btn) return { submitted: false, blockers: ["no submit button found"] };
+    if (btn.disabled) return { submitted: false, blockers: ["submit button is disabled"] };
+    simulateClick(btn);
+    return { submitted: true, blockers: [] };
+  }
+
+  function highlightSubmitButton(opts) {
+    const btn = findSubmitButton();
     if (!btn) return;
     // Pulse outline animation
     const prev = btn.style.cssText;
@@ -1338,5 +1728,11 @@
     return { applied, skipped };
   }
 
-  window.__jobTrackerAutofill = { run, collectUnfilledFields, applyAiFills, collectLearnableAnswers };
+  window.__jobTrackerAutofill = {
+    run, collectUnfilledFields, applyAiFills, collectLearnableAnswers,
+    validateBeforeSubmit, findSubmitButton,
+    // Called by the popup AFTER the AI phase has had its turn — submitting
+    // straight from run() would fire before those fields were filled.
+    submitIfComplete: () => maybeAutoSubmit({ autoSubmit: true }),
+  };
 })();
