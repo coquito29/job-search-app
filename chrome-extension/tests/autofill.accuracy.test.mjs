@@ -278,6 +278,33 @@ const DECOY_SELECT = `
     "own name still fills": [w.document.getElementById("me").value, "George Tupayachi"],
   }));
 
+  // ── Consent is the applicant's to give ────────────────────────────────────
+  // Captured from Teamtailor (SOFTSWISS). Note the privacy box says
+  // "Required." in the LABEL but carries no required attribute — so it must
+  // be caught by the consent sweep, not the generic required-field sweep.
+  const TEAMTAILOR_CONSENT = `
+    <form>
+      <label for="fn4">First name</label><input id="fn4" name="first_name" required />
+      <label for="lic">Do you have a valid drivers license?</label>
+      <input id="lic" name="drivers_license" type="checkbox" />
+      <label for="cg">Required. By submitting this application, I agree that I have read the Privacy Policy</label>
+      <input id="cg" name="candidate[consent_given]" type="checkbox" />
+      <label for="cgf">Yes, SOFTSWISS can contact me directly about specific job opportunities.</label>
+      <input id="cgf" name="candidate[consent_given_future_jobs]" type="checkbox" />
+      <button type="submit" id="go4">Submit application</button>
+    </form>`;
+
+  await group("Consent boxes are never auto-ticked", TEAMTAILOR_CONSENT, (w) => ({
+    "privacy policy left unticked":  [w.document.getElementById("cg").checked, false],
+    "marketing opt-in left unticked":[w.document.getElementById("cgf").checked, false],
+    // A normal screener checkbox must still fill from the saved answers.
+    "ordinary screener still fills": [w.document.getElementById("lic").checked, true],
+  }));
+
+  await group("Auto-submit blocked by unticked required consent", TEAMTAILOR_CONSENT, (w) => ({
+    "submit NOT clicked": [w.document.getElementById("go4").hasAttribute("data-clicked"), false],
+  }), { autoSubmit: true });
+
   // ── Auto-submit safety gates ──────────────────────────────────────────────
   const COMPLETE_FORM = `
     <form>
