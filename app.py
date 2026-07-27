@@ -2998,6 +2998,32 @@ def application_stats():
 
 # ── Profile export for the Chrome extension auto-fill ───────────────────────
 
+def _qa_pick(qa_defaults, needles, default):
+    """First saved answer whose QUESTION contains any of `needles`.
+
+    The extension's rule list is evaluated before the user's qa_defaults, so
+    the structured answers built here outrank everything the user saved. That
+    makes an exact-key lookup actively harmful: a miss doesn't fall through to
+    the saved answer, it overrides it with a constant. Substring matching lets
+    real phrasings ("Are you legally authorized to work in the United States")
+    resolve to the right value.
+
+    Longest question wins on ties so a specific entry beats a generic one.
+    """
+    best, best_len = None, -1
+    for entry in qa_defaults or []:
+        if not isinstance(entry, (list, tuple)) or len(entry) < 2:
+            continue
+        question = str(entry[0]).lower()
+        answer   = entry[1]
+        if answer is None or str(answer).strip() == "":
+            continue
+        if any(n in question for n in needles):
+            if len(question) > best_len:
+                best, best_len = answer, len(question)
+    return best if best is not None else default
+
+
 def _build_full_profile(uid):
     """Build the autofill profile dict for a given user. Shared by
     /api/profile/full (Chrome extension) and /bookmarklet/run.js (mobile)."""
@@ -3050,22 +3076,50 @@ def _build_full_profile(uid):
         # Links
         "linkedin":  "https://www.linkedin.com/in/george-tupayachi",
         "portfolio": "",
-        # Default answers — these get pasted into yes/no and demographic dropdowns
+        # Default answers — these get pasted into yes/no and demographic dropdowns.
+        #
+        # These feed the extension's RULE list, which is evaluated BEFORE the
+        # user's qa_defaults. So whatever lands here wins over anything the
+        # user saved via "Learn answers". The old code looked each value up by
+        # one exact lowercase key ("authorized to work in us"); no real saved
+        # question is ever worded that way, so every lookup missed and the
+        # hardcoded fallback was used instead — silently overriding the user's
+        # own answers. willing_to_relocate wasn't looked up at all.
+        # _qa_pick matches on substrings so real phrasings resolve.
         "answers": {
-            "work_authorized_us":       qa_map.get("authorized to work in us", "Yes"),
-            "sponsorship_needed":       qa_map.get("sponsorship needed", "No"),
-            "veteran_status":           qa_map.get("veteran", "Not a protected veteran"),
-            "disability":               qa_map.get("disability", "No"),
-            "gender":                   qa_map.get("gender", "Male"),
-            "hispanic_latino":          qa_map.get("hispanic / latino", "Yes"),
-            "race":                     qa_map.get("race", "White"),
-            "salary_expectation":       qa_map.get("salary expectation", "Negotiable"),
-            "notice_period":            qa_map.get("notice period", "Available immediately (2-week notice)"),
-            "esignature":               qa_map.get("e-signature", "George Tupayachi"),
-            "previously_employed":      "No",
-            "willing_to_relocate":      "Yes",
-            "active_security_clearance":"None",
-            "us_gov_employment":        "Never",
+            "work_authorized_us":       _qa_pick(qa_defaults, [
+                                            "authorized to work", "authorised to work",
+                                            "able to work in the united states",
+                                            "eligible to work", "legally authorized",
+                                        ], "Yes"),
+            "sponsorship_needed":       _qa_pick(qa_defaults, [
+                                            "need sponsorship", "require sponsorship",
+                                            "require visa sponsorship", "sponsorship for employment",
+                                            "sponsorship needed",
+                                        ], "No"),
+            "veteran_status":           _qa_pick(qa_defaults, ["veteran"], "Not a protected veteran"),
+            "disability":               _qa_pick(qa_defaults, ["disability"], "No"),
+            "gender":                   _qa_pick(qa_defaults, ["gender"], "Male"),
+            "hispanic_latino":          _qa_pick(qa_defaults, ["hispanic", "latino"], "Yes"),
+            "race":                     _qa_pick(qa_defaults, ["race", "ethnicity"], "White"),
+            "salary_expectation":       _qa_pick(qa_defaults, [
+                                            "salary expectation", "expected compensation",
+                                            "salary requirement", "desired pay", "desired salary",
+                                        ], "Negotiable"),
+            "notice_period":            _qa_pick(qa_defaults, [
+                                            "notice period", "when can you start",
+                                            "earliest start", "date available",
+                                        ], "Available immediately (2-week notice)"),
+            "esignature":               _qa_pick(qa_defaults, ["e-signature", "signature"], "George Tupayachi"),
+            "previously_employed":      _qa_pick(qa_defaults, [
+                                            "employed by this company", "current or former employee",
+                                            "previously employed", "ever worked",
+                                        ], "No"),
+            "willing_to_relocate":      _qa_pick(qa_defaults, ["relocat"], "Yes"),
+            "active_security_clearance":_qa_pick(qa_defaults, ["security clearance"], "None"),
+            "us_gov_employment":        _qa_pick(qa_defaults, [
+                                            "government employ", "federal employ",
+                                        ], "Never"),
         },
         # Education (most ATSes ask)
         "education": [
