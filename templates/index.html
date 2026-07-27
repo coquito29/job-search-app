@@ -1739,6 +1739,21 @@
   <div class="results-summary">
     <div class="results-summary-top">
       <span id="resultsSummary">No results yet</span>
+      <!-- Batch apply: opens the top N fast-apply jobs at once so the
+           extension can fill them in parallel instead of one round trip
+           per job. Walled/blocked ATSes and already-applied jobs are
+           skipped automatically. -->
+      <div class="btn-group" role="group" style="margin-right:.5rem;">
+        <button class="btn btn-dark btn-sm" id="batchApplyBtn" onclick="batchApply()">
+          <i class="bi bi-lightning-charge-fill me-1"></i>Batch apply
+        </button>
+        <select id="batchApplyCount" class="form-select form-select-sm"
+                style="max-width:5.5rem;" aria-label="How many jobs to open">
+          <option value="3">3 jobs</option>
+          <option value="5" selected>5 jobs</option>
+          <option value="10">10 jobs</option>
+        </select>
+      </div>
       <div class="sort-btns btn-group" role="group">
         <button class="btn btn-outline-secondary active" id="sortMatch" onclick="sortJobs('match')">
           Match %
@@ -2926,6 +2941,100 @@ async function applyAndLog(index) {
   } catch(e) {
     showToast('Logged locally (server unreachable)', 'warning');
   }
+}
+
+// ── Batch apply ──────────────────────────────────────────────────────────────
+// Opens the top N eligible jobs in background tabs in ONE user gesture, then
+// logs them all. Applying one-at-a-time meant a full open → fill → submit →
+// return cycle per job; this front-loads the opening so the extension can
+// autofill every tab while you review them as a batch.
+//
+// Eligibility: fast-apply ATS (walled ones need an account, blocked ones
+// can't be filled), has a URL, and not already applied.
+function eligibleForBatch(job) {
+  if (!job || !job.url) return false;
+  if ((job.ats_class || 'unknown') !== 'fast') return false;
+  if (jobStatuses[job.url] === 'applied') return false;
+  if (applicationFor(job)) return false;
+  return true;
+}
+
+async function batchApply() {
+  const btn   = document.getElementById('batchApplyBtn');
+  const count = parseInt(document.getElementById('batchApplyCount').value, 10) || 5;
+  const picks = jobs.filter(eligibleForBatch).slice(0, count);
+
+  if (!picks.length) {
+    showToast('No eligible jobs — batch apply only opens fast-apply jobs you have not applied to yet.', 'warning');
+    return;
+  }
+
+  // Open every tab synchronously inside the click handler. Deferring any of
+  // these behind an await hands control back to the browser, which then
+  // treats the rest as unrequested popups and blocks them.
+  let opened = 0;
+  for (const job of picks) {
+    const w = window.open(job.url, '_blank', 'noopener');
+    if (w !== null || typeof w === 'undefined') opened++;
+  }
+  if (opened === 0) {
+    showToast('Your browser blocked the pop-ups. Allow pop-ups for this site, then try again.', 'danger');
+    return;
+  }
+  if (opened < picks.length) {
+    showToast(`Only ${opened} of ${picks.length} tabs opened — check your pop-up blocker.`, 'warning');
+  }
+
+  btn.disabled = true;
+  const nowIso = new Date().toISOString();
+  let logged = 0, failed = 0;
+
+  for (const job of picks.slice(0, opened)) {
+    // Optimistic local state first, so the cards flip immediately even if
+    // the server round-trip is slow or offline.
+    jobStatuses[job.url] = 'applied';
+    savedJobs[job.url]   = job;
+    appliedIndex.urls[job.url] = {
+      applied_at: nowIso, status: 'Applied',
+      company: job.company_name || '', title: job.title || '',
+    };
+    const co = (job.company_name || '').toLowerCase().trim();
+    const ti = (job.title        || '').toLowerCase().trim();
+    if (co && ti) appliedIndex.fingerprints[`${co}|${ti}`] = { applied_at: nowIso, status: 'Applied' };
+
+    try {
+      const resp = await fetch('/api/applications', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          company:  job.company_name || '',
+          title:    job.title        || '',
+          url:      job.url,
+          ats:      guessAts(job.url),
+          location: job.location     || '',
+          salary:   job.salary_clean || job.salary || '',
+          source:   job.source       || '',
+          status:   'Applied',
+        }),
+      });
+      resp.ok ? logged++ : failed++;
+    } catch (e) {
+      failed++;
+    }
+  }
+
+  localStorage.setItem('job_statuses', JSON.stringify(jobStatuses));
+  localStorage.setItem('saved_jobs',   JSON.stringify(savedJobs));
+  updateTrackerBadge();
+  renderJobCards();
+  btn.disabled = false;
+
+  showToast(
+    `Opened ${opened} tab${opened === 1 ? '' : 's'} · logged ${logged}` +
+    (failed ? ` · ${failed} failed to save server-side` : '') +
+    '. Autofill runs in each tab — review, then submit.',
+    failed ? 'warning' : 'success'
+  );
 }
 
 function toggleToken() {
