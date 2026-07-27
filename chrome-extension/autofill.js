@@ -38,7 +38,13 @@
       { value: p.preferred_name,   patterns: [/\b(preferred|nick)[\s_-]*name\b/i, /\bgoes[\s_-]*by\b/i] },
       // Bare "name" is the lowest-priority full-name match — fires only after
       // first/last/preferred have had their shot above. Ashby uses this shape.
-      { value: p.full_name,        patterns: [/^name$/i, /\byour[\s_-]*name\b/i, /\bname\b/i] },
+      // Bare "name" must not claim fields asking for SOMEONE ELSE's name —
+      // "Referred by: provide the name of the person who referred you" was
+      // being filled with the applicant's own name, which reads as a fake
+      // self-referral. Same for emergency contacts and manager/supervisor.
+      { value: p.full_name,
+        skipIf: /\b(referr?(ed|al)|referred[\s_-]*by|emergency[\s_-]*contact|supervisor|manager'?s?[\s_-]*name|reference'?s?[\s_-]*name|next[\s_-]*of[\s_-]*kin|spouse|guardian)\b/i,
+        patterns: [/^name$/i, /\byour[\s_-]*name\b/i, /\bname\b/i] },
 
       { value: p.email,            patterns: [/\bemail\b/i, /\be-?mail[\s_-]*address\b/i] },
 
@@ -942,6 +948,11 @@
 
   function matchRule(rules, text) {
     for (const rule of rules) {
+      // A rule can veto itself for fields that merely share a keyword —
+      // e.g. the bare "name" rule must not fill "name of the person who
+      // referred you". Checked before the patterns so the rule is skipped
+      // entirely and a later, more specific rule still gets its turn.
+      if (rule.skipIf && rule.skipIf.test(text)) continue;
       for (const re of rule.patterns) {
         if (re.test(text)) return rule;
       }
@@ -967,6 +978,11 @@
     [/\bfluent[\s_]+in[\s_]+english\b/i, "Yes"],
     [/\b(non[\s-]*compete|non[\s-]*disclosure)[\s_]+agreement\b/i, "No"],
     [/\bable[\s_]+to[\s_]+work[\s_]+(remotely|from[\s_]+home)\b/i, "Yes"],
+    // "Are you able/authorized/eligible to work in the US (without
+    // sponsorship)?" — the positive framing of the sponsorship question.
+    // Deliberately requires an ability word so it can never fire on the
+    // "do you NEED/REQUIRE sponsorship?" phrasing, which is answered No.
+    [/\b(able|authoriz(?:ed)?|authoris(?:ed)?|eligible|permitted|legally)\b[^?]{0,80}\bwork\b[^?]{0,80}(without[\s_]+(?:visa[\s_]+)?sponsorship|in[\s_]+the[\s_]+(?:us\b|u\.s\.|united[\s_]+states))/i, "Yes"],
   ];
 
   // Words that carry no signal when comparing two phrasings of the same
@@ -981,6 +997,50 @@
     "any","all","some","if","from","about","please","select","choose","enter",
     "now","future","order","other","currently","ever","following","below",
   ]);
+
+  // ── Polarity guard for fuzzy Yes/No reuse ─────────────────────────────────
+  // Two questions can share nearly every word and still mean opposite things:
+  //   saved: "Do you NEED sponsorship to work in the United States?"      → No
+  //   form:  "Are you ABLE to work in the United States WITHOUT sponsorship?"
+  // Token overlap is ~100%, so the fuzzy tier happily reused "No" — which
+  // states the applicant is not authorized to work and auto-rejects them.
+  // Before reusing a yes/no answer on a fuzzy (non-exact) match, require the
+  // two questions to be framed the same way.
+  // Classify the FRAMING of a work-authorization question. Both framings use
+  // nearly identical vocabulary but invert the correct answer:
+  //   needs_sponsorship   "Do you NEED sponsorship to work in the US?"   → No
+  //   authorized_to_work  "Are you ABLE to work in the US w/o sponsorship?" → Yes
+  // "needs_sponsorship" is tested first because the authorized-to-work
+  // wording ("...renew your AUTHORIZATION to work...") frequently appears
+  // inside a need-sponsorship question too.
+  const RE_NEEDS_SPONSOR = /\b(need|needs|require[sd]?|requiring|request)\b[^?]{0,80}\bsponsor/i;
+  const RE_SPONSOR_NEEDED = /\bsponsor\w*\b[^?]{0,40}\b(required|needed|necessary)\b/i;
+  const RE_AUTHORIZED    = /\b(able|allowed|authoriz\w*|authoris\w*|eligible|permitted|legally)\b[^?]{0,80}\bwork\b/i;
+
+  function polarityClass(text) {
+    const t = String(text || "");
+    if (RE_NEEDS_SPONSOR.test(t) || RE_SPONSOR_NEEDED.test(t)) return "needs_sponsorship";
+    if (RE_AUTHORIZED.test(t)) return "authorized_to_work";
+    return "";
+  }
+
+  function isYesNo(v) {
+    return /^(yes|no|y|n|true|false)$/i.test(String(v == null ? "" : v).trim());
+  }
+
+  // Same framing? Only consulted for yes/no answers reused via fuzzy match.
+  function polarityCompatible(savedQ, fieldQ) {
+    const a = polarityClass(savedQ), b = polarityClass(fieldQ);
+    if (a !== b) return false;
+    // Neither is a work-auth question: still refuse to carry a yes/no across
+    // a bare negation flip ("Do you have X?" vs "Do you NOT have X?").
+    if (!a) {
+      const negA = /\bwithout\b|\bnot\b|\bnever\b/i.test(savedQ || "");
+      const negB = /\bwithout\b|\bnot\b|\bnever\b/i.test(fieldQ || "");
+      if (negA !== negB) return false;
+    }
+    return true;
+  }
 
   function qaTokens(s) {
     return String(s || "")
@@ -1035,7 +1095,11 @@
           let shared = 0;
           for (const t of saved) if (fieldTokens.has(t)) shared++;
           const coverage = shared / saved.length;
-          if (shared >= 2 && coverage >= 0.6) scored.push([coverage, entry[1]]);
+          if (shared < 2 || coverage < 0.6) continue;
+          // Yes/No answers only carry over when the question is framed the
+          // same way — see polarityCompatible() above.
+          if (isYesNo(entry[1]) && !polarityCompatible(entry[0], text)) continue;
+          scored.push([coverage, entry[1]]);
         }
         scored.sort((a, b) => b[0] - a[0]);
         for (const [, v] of scored) push(v);
