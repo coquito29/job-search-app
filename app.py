@@ -415,6 +415,14 @@ ATS_FAST = {
     "recruitee.com":       "Recruitee",
     "bamboohr.com":        "BambooHR",
     "jobvite.com":         "Jobvite",
+    # Added 2026-07-27: hit a real Teamtailor posting that scored "unknown",
+    # so it was filtered out of the Fast-only view and batch apply even though
+    # its form is a plain 4-field direct apply.
+    "teamtailor.com":      "Teamtailor",
+    "personio.com":        "Personio",
+    "personio.de":         "Personio",
+    "pinpointhq.com":      "Pinpoint",
+    "join.com":            "Join",
 }
 ATS_WALLED = {
     "myworkdayjobs.com":   "Workday",
