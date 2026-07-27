@@ -608,6 +608,17 @@
         }
       }
     }
+    // 4. Lone checkbox answering a yes/no question — "Do you have a valid
+    // driver's licence? [x]". There is no sibling to match against and its
+    // value attribute is the useless default "on", so steps 1-3 all miss and
+    // the box was left permanently unticked. Affirmative answers tick it,
+    // negative answers guarantee it stays clear.
+    if (el.type === "checkbox" && group.length === 1) {
+      const affirmative = /^(yes|y|true|1)$/i.test(want);
+      const negative    = /^(no|n|false|0)$/i.test(want);
+      if (affirmative) { if (!el.checked) el.click(); return true; }
+      if (negative)    { if (el.checked)  el.click(); return true; }
+    }
     return false;
   }
 
@@ -1042,6 +1053,44 @@
     return true;
   }
 
+  // Agreements and marketing opt-ins — never auto-ticked. Kept deliberately
+  // narrow so ordinary screener checkboxes ("Do you have a driver's licence?")
+  // still fill normally.
+  const CONSENT_RE = /\b(i\s+(agree|consent|accept|acknowledge)|privacy\s+polic|terms\s+(and|&|of)\s+(conditions|use|service)|gdpr|data\s+protection|can\s+contact\s+me|contact\s+me\s+(directly\s+)?about|marketing|newsletter|subscribe|promotional|receive\s+(emails|updates|communications|news))\b/i;
+
+  // The element's OWN label only — no ambient sibling text. probeText()
+  // deliberately casts a wide net for checkboxes, which means a plain
+  // screener box sitting next to a privacy-policy box inherits the word
+  // "consent" and would be wrongly skipped. Consent detection must look at
+  // the box's own wording and nothing else.
+  function ownLabelText(el) {
+    const parts = [];
+    const forLabel = labelForText(el);
+    if (forLabel) parts.push(forLabel);
+    let p = el.parentElement;
+    for (let i = 0; i < 3 && p; i++, p = p.parentElement) {
+      if (p.tagName === "LABEL" && p.textContent) { parts.push(p.textContent); break; }
+    }
+    const aria = el.getAttribute("aria-label");
+    if (aria) parts.push(aria);
+    if (el.getAttribute("aria-labelledby")) {
+      const root = (el.getRootNode && el.getRootNode()) || document;
+      el.getAttribute("aria-labelledby").split(/\s+/).forEach(id => {
+        const n = (root.getElementById && root.getElementById(id)) || document.getElementById(id);
+        if (n && n.textContent) parts.push(n.textContent);
+      });
+    }
+    return cleanText(parts.join(" "));
+  }
+
+  function isConsentControl(el) {
+    const own = ownLabelText(el);
+    // With no label of its own, fall back to the name/id so machine-named
+    // boxes like candidate[consent_given] are still caught.
+    const basis = own || `${el.name || ""} ${el.id || ""}`;
+    return CONSENT_RE.test(basis) || /\bconsent\b/i.test(`${el.name || ""} ${el.id || ""}`);
+  }
+
   function qaTokens(s) {
     return String(s || "")
       .toLowerCase()
@@ -1360,6 +1409,13 @@
     // ── Pass 1: native inputs ────────────────────────────────────────────────
     for (const el of fields) {
       if (handledByRow.has(el)) continue;
+      // Consent is the applicant's to give. Never tick a privacy-policy /
+      // terms agreement or a marketing opt-in on their behalf — those are
+      // legal and commercial choices, not data entry. They're surfaced as
+      // auto-submit blockers instead (see validateBeforeSubmit).
+      if ((el.type === "checkbox" || el.type === "radio") && isConsentControl(el)) {
+        continue;
+      }
       if (el.type === "radio" && el.name) {
         if (skipNames.has(el.name)) continue;
         skipNames.add(el.name);
@@ -1518,6 +1574,19 @@
   // display in the popup so the user knows what to finish by hand.
   function validateBeforeSubmit() {
     const blockers = [];
+
+    // Consent boxes the engine deliberately left alone. Teamtailor marks the
+    // privacy-policy box "Required." in its LABEL while leaving the input
+    // without a required attribute, so the generic required-field sweep below
+    // can't see it. Any unticked consent box blocks auto-submit.
+    for (const el of querySelectorAllDeep('input[type="checkbox"]')) {
+      if (el.disabled || el.checked) continue;
+      if (!isConsentControl(el)) continue;
+      const text = probeText(el);
+      if (/\brequired\b|\*/i.test(text)) {
+        blockers.push(`consent needed: ${fieldLabelFor(el)}`);
+      }
+    }
 
     // 1. A CAPTCHA means a human must act; we never attempt to solve one.
     const captcha = [
