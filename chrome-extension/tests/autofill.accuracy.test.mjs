@@ -237,6 +237,47 @@ const DECOY_SELECT = `
     };
   });
 
+  // ── Polarity: never invert a work-authorization answer ────────────────────
+  // Captured from MedWatch (JazzHR). The saved answer is for the "do you NEED
+  // sponsorship?" framing (No). This form asks the opposite way, so reusing
+  // "No" states the applicant is NOT allowed to work — an auto-reject.
+  await group("Work-auth question is not inverted", `
+    <form>
+      <label for="wa">Are you able to work in the United States for any employer without sponsorship</label>
+      <select id="wa" name="work_auth">
+        <option value="">-- No answer --</option>
+        <option>Yes</option>
+        <option>No</option>
+      </select>
+    </form>`, (w) => ({
+    "answered Yes, not No": [w.document.getElementById("wa").value, "Yes"],
+  }));
+
+  // The inverse framing must still answer No.
+  await group("Needs-sponsorship question still answers No", `
+    <form>
+      <label for="sp">Do you now, or will you in the future, require visa sponsorship to work in the United States?</label>
+      <select id="sp" name="sponsorship">
+        <option value="">-- No answer --</option>
+        <option>Yes</option>
+        <option>No</option>
+      </select>
+    </form>`, (w) => ({
+    "answered No": [w.document.getElementById("sp").value, "No"],
+  }));
+
+  // ── Referral fields must not receive the applicant's own name ─────────────
+  await group("Referral field is left for the user", `
+    <form>
+      <label for="ref">Referred by: Please provide the name of the person who referred you</label>
+      <input id="ref" name="referred_by" type="text" />
+      <label for="me">Name</label>
+      <input id="me" name="name" type="text" />
+    </form>`, (w) => ({
+    "referral left empty":  [w.document.getElementById("ref").value, ""],
+    "own name still fills": [w.document.getElementById("me").value, "George Tupayachi"],
+  }));
+
   // ── Auto-submit safety gates ──────────────────────────────────────────────
   const COMPLETE_FORM = `
     <form>
