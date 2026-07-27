@@ -1090,17 +1090,36 @@
     return best;
   }
 
+  // Click an option chip without letting it submit the form. These chips are
+  // <button> elements with no type attribute, which the HTML spec treats as
+  // type="submit" — so a synthetic click can fire the form's submit handler
+  // and send a half-filled application. Real users are safe because the ATS's
+  // own onClick calls preventDefault, but we must not depend on that.
+  function clickWithoutSubmitting(btn) {
+    const form = btn.closest && btn.closest("form");
+    if (!form) { btn.click(); return; }
+    const block = (e) => { e.preventDefault(); e.stopPropagation(); };
+    form.addEventListener("submit", block, true);
+    try {
+      btn.click();
+    } finally {
+      // Detach on the next tick: any submit caused by our click has already
+      // dispatched, and a genuine user submit can't land inside this tick.
+      setTimeout(() => form.removeEventListener("submit", block, true), 0);
+    }
+  }
+
   function clickMatchingButton(buttons, value) {
     const mark = (btn) => { try { btn.setAttribute("data-jt-autofilled", "1"); } catch (_) {} };
     const want = normalizeYesNo(value);
     for (const btn of buttons) {
       const txt = cleanText(btn.innerText || btn.textContent || "").toLowerCase();
-      if (txt === want) { btn.click(); mark(btn); return true; }
+      if (txt === want) { clickWithoutSubmitting(btn); mark(btn); return true; }
     }
     for (const btn of buttons) {
       const txt = cleanText(btn.innerText || btn.textContent || "").toLowerCase();
       if (!txt) continue;
-      if (txt.includes(want) || want.includes(txt)) { btn.click(); mark(btn); return true; }
+      if (txt.includes(want) || want.includes(txt)) { clickWithoutSubmitting(btn); mark(btn); return true; }
     }
     return false;
   }
@@ -1113,8 +1132,13 @@
         const txt = cleanText(b.innerText || b.textContent || "");
         if (!txt || txt.length > 30) return false;
         if (NAV_RE.test(txt)) return false;
-        // Skip type="submit" or "reset" buttons.
-        const t = (b.type || "").toLowerCase();
+        // Skip type="submit"/"reset" — but read the ATTRIBUTE, not the IDL
+        // property. A <button> with no type inside a <form> reports
+        // .type === "submit" by spec, and Ashby's Yes/No chips are exactly
+        // that: <button class="_option_...">Yes</button>. Using .type here
+        // discarded every real screener chip. NAV_RE above still filters
+        // genuine submit buttons, which say "Submit"/"Apply"/"Next".
+        const t = (b.getAttribute("type") || "").toLowerCase();
         if (t === "submit" || t === "reset") return false;
         return true;
       });
