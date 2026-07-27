@@ -1,6 +1,33 @@
 # Extension tests
 
-Three layers, smallest first:
+Four layers, smallest first:
+
+## 0. `autofill.accuracy.test.mjs` — accuracy regressions (jsdom)
+
+Every fixture here reproduces a failure seen on a REAL application form
+(July 2026). Run it before shipping any matcher change:
+
+```
+cd chrome-extension/tests
+node autofill.accuracy.test.mjs
+```
+
+Covers:
+
+- **Ashby button chips consult saved answers.** Pass 2 used to check only the
+  rule list, so Yes/No screeners stayed blank even when the answer was saved.
+- **Fuzzy Q&A matching.** A saved "...work in the United States?" answer must
+  still match a form asking "...United States **or Canada**?".
+- **Closed comboboxes.** Greenhouse's compensation-range field only accepts
+  its own options; free text ("Negotiable") is rejected *after* Submit. The
+  engine now picks the nearest legal band, or clears the field if none fits.
+- **Decoy `<select>`s.** BambooHR's State field has no real options — the
+  widget is a separate search panel. Also checks the short→long fallback
+  ("NJ" → "New Jersey") and exact-match preference over "New Hampshire".
+- **Auto-submit gates.** Off by default; fires only when every required field
+  is filled; never fires past a CAPTCHA.
+
+Expected: all assertions pass, exit 0.
 
 ## 1. `autofill.test.mjs` — matcher unit tests (jsdom)
 
