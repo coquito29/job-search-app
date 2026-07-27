@@ -63,6 +63,16 @@ async function withDom(html, fn, opts = {}) {
     const t = e.target;
     if (t && t.setAttribute) t.setAttribute("data-clicked", "1");
   }, true);
+  // Trip a flag if a submit ESCAPES the form, so tests can assert that
+  // filling a field never fires a premature submission. Deliberately on the
+  // bubble phase: the engine's guard sits in the form's capture phase and
+  // calls stopPropagation, so a properly-suppressed submit never reaches
+  // here, while an unguarded one does.
+  w.__submitted = false;
+  w.document.addEventListener("submit", (e) => {
+    w.__submitted = true;
+    e.preventDefault();
+  }, false);
   const { profile, ...runOpts } = opts;
   w.eval(AUTOFILL_SRC);
   await w.__jobTrackerAutofill.run(profile || PROFILE, {
@@ -95,12 +105,25 @@ async function group(name, html, assertFn, opts) {
 // Observed on Recharge "Support Engineer (Skio)": the Yes/No chips for the
 // Shopify and SaaS-support screeners stayed blank even though both answers
 // were already saved, because Pass 2 only consulted the rule list.
+//
+// NOTE ON MARKUP FIDELITY: the first block below is copied VERBATIM from the
+// live Recharge form, including the fact that the chips carry no `type`
+// attribute. That matters — inside a <form>, `button.type` reports "submit"
+// by spec, and an earlier version of findButtonGroups filtered those out. A
+// hand-written fixture using `type="button"` passed while the real form still
+// failed. Keep at least one group in real captured markup.
 const ASHBY_CHIPS = `
 <form>
-  <div class="field">
-    <label>Have you worked directly with Shopify? Either at Shopify or at a
-      company building apps or integrations in the Shopify ecosystem?</label>
-    <div><button type="button" id="shopify_yes">Yes</button><button type="button" id="shopify_no">No</button></div>
+  <div class="_fieldEntry_1e3gg_28 ashby-application-form-field-entry"
+       data-field-path="12d9301e-9579-4aa9-a276-da20deee50d1">
+    <label class="_heading_f7cvd_52 _required_f7cvd_91 ashby-application-form-question-title"
+           for="12d9301e-9579-4aa9-a276-da20deee50d1">Have you worked directly with Shopify? Either at Shopify or at a company building apps or integrations in the Shopify ecosystem?</label>
+    <div class="_container_1svni_28 _yesno_1e3gg_148 ">
+      <button class="_container_pjyt6_1 _option_1svni_32 " id="shopify_yes">Yes</button>
+      <button class="_container_pjyt6_1 _option_1svni_32 " id="shopify_no">No</button>
+      <input type="checkbox" class="_input_1svni_78" tabindex="-1"
+             name="12d9301e-9579-4aa9-a276-da20deee50d1">
+    </div>
   </div>
   <div class="field">
     <label>Do you have experience working in technical support at a Saas company?</label>
@@ -154,8 +177,11 @@ const DECOY_SELECT = `
   await group("Ashby chips use saved answers", ASHBY_CHIPS, (w) => {
     const clicked = (id) => w.document.getElementById(id).hasAttribute("data-jt-autofilled");
     return {
+      // Real captured markup: no type attribute on the chips.
       "Shopify → Yes":       [clicked("shopify_yes"), true],
       "Shopify not No":      [clicked("shopify_no"), false],
+      // Clicking a type-less button must not submit the form.
+      "form was not submitted": [w.__submitted === true, false],
       "SaaS support → Yes":  [clicked("saas_yes"), true],
       // Saved answer says "United States"; the form says "United States or
       // Canada" — only the fuzzy tier can bridge that wording gap.
