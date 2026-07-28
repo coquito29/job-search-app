@@ -253,6 +253,34 @@ const DECOY_SELECT = `
     "answered Yes, not No": [w.document.getElementById("wa").value, "Yes"],
   }));
 
+  // The rule list has its own copy of this trap: ans.sponsorship_needed is
+  // matched by a bare /\bsponsor(ship)?\b/, which claims "able to work
+  // WITHOUT sponsorship" and answers No. Rules run before saved answers, so
+  // this must be guarded at the rule level too — seen live on MedWatch.
+  await group("Work-auth: rules do not hijack the positive framing", `
+    <form>
+      <label for="wa2">Are you able to work in the United States for any employer without sponsorship</label>
+      <select id="wa2" name="wa2">
+        <option value=""></option><option>Yes</option><option>No</option>
+      </select>
+    </form>`, (w) => ({
+    "answered Yes": [w.document.getElementById("wa2").value, "Yes"],
+  }), { profile: { ...PROFILE, qa_defaults: [],
+        answers: { work_authorized_us: "Yes", sponsorship_needed: "No" } } });
+
+  // ...and the need-sponsorship framing must not be captured by the
+  // work-authorized rule just because it says "authorization to work".
+  await group("Work-auth: 'renew your authorization' still answers No", `
+    <form>
+      <label for="wa3">Do you now, or will you in the future, need sponsorship from an employer in order to obtain, extend or renew your authorization to work in the United States or Canada?</label>
+      <select id="wa3" name="wa3">
+        <option value=""></option><option>Yes</option><option>No</option>
+      </select>
+    </form>`, (w) => ({
+    "answered No": [w.document.getElementById("wa3").value, "No"],
+  }), { profile: { ...PROFILE, qa_defaults: [],
+        answers: { work_authorized_us: "Yes", sponsorship_needed: "No" } } });
+
   // The inverse framing must still answer No.
   await group("Needs-sponsorship question still answers No", `
     <form>
