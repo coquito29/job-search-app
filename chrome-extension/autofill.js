@@ -82,8 +82,26 @@
       // Demographic / EEO answers — these are usually selects/radios; the
       // dropdown matcher below tries to find an <option> whose text contains
       // this value.
-      { value: ans.work_authorized_us,       patterns: [/\bauthor(i[sz]ed|i[sz]ation)\b.*\b(work|us|u\.s\.)\b/i, /\beligible\b.*\bwork\b.*\bus\b/i, /\bus[\s_-]*work[\s_-]*author/i] },
-      { value: ans.sponsorship_needed,       patterns: [/\bsponsor(ship)?\b/i, /\bvisa\b.*\bsponsor/i, /\brequire[\s_-]*sponsor/i] },
+      // Skipped for need-sponsorship questions: "...need sponsorship to renew
+      // your AUTHORIZATION TO WORK in the US?" contains the authorization
+      // wording but is asking the opposite thing, and answering "Yes" there
+      // says the applicant needs sponsorship.
+      { value: ans.work_authorized_us,
+        skipIf: (text) => polarityClass(text) === "needs_sponsorship",
+        patterns: [/\bauthor(i[sz]ed|i[sz]ation)\b.*\b(work|us|u\.s\.)\b/i, /\beligible\b.*\bwork\b.*\bus\b/i, /\bus[\s_-]*work[\s_-]*author/i] },
+      // "Are you ABLE to work in the US for any employer WITHOUT sponsorship?"
+      // is the positive framing — the answer is work_authorized_us ("Yes"),
+      // NOT sponsorship_needed ("No"). It must be matched before the
+      // sponsorship rule below, whose bare /\bsponsor(ship)?\b/ pattern
+      // otherwise claims it and answers "No" — i.e. "I am not allowed to
+      // work here", an instant rejection. Skipped when the question is
+      // actually asking whether sponsorship is NEEDED.
+      { value: ans.work_authorized_us,
+        skipIf: (text) => polarityClass(text) === "needs_sponsorship",
+        patterns: [/\b(able|allowed|eligible|permitted|legally)\b[^?]{0,80}\bwork\b/i] },
+      { value: ans.sponsorship_needed,
+        skipIf: (text) => polarityClass(text) === "authorized_to_work",
+        patterns: [/\bsponsor(ship)?\b/i, /\bvisa\b.*\bsponsor/i, /\brequire[\s_-]*sponsor/i] },
       { value: ans.veteran_status,           patterns: [/\bveteran\b/i] },
       { value: ans.disability,               patterns: [/\bdisab(il)ity\b/i, /\bdisabled\b/i] },
       { value: ans.gender,                   patterns: [/\bgender\b/i, /\bsex\b/i] },
@@ -963,7 +981,12 @@
       // e.g. the bare "name" rule must not fill "name of the person who
       // referred you". Checked before the patterns so the rule is skipped
       // entirely and a later, more specific rule still gets its turn.
-      if (rule.skipIf && rule.skipIf.test(text)) continue;
+      if (rule.skipIf) {
+        const veto = typeof rule.skipIf === "function"
+          ? rule.skipIf(text)
+          : rule.skipIf.test(text);
+        if (veto) continue;
+      }
       for (const re of rule.patterns) {
         if (re.test(text)) return rule;
       }
