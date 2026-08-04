@@ -1450,6 +1450,9 @@
       #jobsList > * { max-width: none; margin-left: 0; margin-right: 0; }
     }
 
+    /* Hiding a tab has to beat inline display set by other code. */
+    .tab-hidden { display: none !important; }
+
     /* Less air per card — the page was mostly padding. */
     .section-card { margin: 10px auto; padding: 14px 14px 16px; }
     .job-card     { margin: 6px auto;  padding: 11px 13px 10px 15px; }
@@ -4317,13 +4320,17 @@ let currentTab = 'search';
 function showTab(name) {
   if (!TAB_SECTIONS[name]) name = 'search';
   currentTab = name;
+  // Toggle a class, not inline display. Several places set
+  // resultsSection.style.display = 'block' when data arrives, and on load that
+  // raced showTab() and left the whole job list sitting under the Search tab.
+  // .tab-hidden carries !important, so it wins regardless of who ran last.
   ALL_TAB_SECTIONS.forEach(id => {
     const el = document.getElementById(id);
-    if (el) el.style.display = 'none';
+    if (el) el.classList.add('tab-hidden');
   });
   TAB_SECTIONS[name].forEach(id => {
     const el = document.getElementById(id);
-    if (el) el.style.display = '';
+    if (el) el.classList.remove('tab-hidden');
   });
   document.querySelectorAll('.step-item').forEach(s => s.classList.remove('active'));
   const btn = document.querySelector('.step-item[data-tab="' + name + '"]');
