@@ -1825,37 +1825,39 @@ def profile_save():
     uid, err = _auth_required()
     if err: return err
     data = request.get_json(force=True) or {}
-    summary  = (data.get("summary") or "").strip()
     skills   = data.get("skills") or []
+    summary  = data.get("summary")
     settings = data.get("settings")
-    if not isinstance(skills, list):   skills = []
-    # An absent or empty settings block means "leave what is stored alone",
-    # NOT "wipe it". saveServerProfile() in the UI posts settings:{} on every
-    # skills sync, which silently erased qa_defaults -- and would now erase the
-    # saved work history too -- on a completely unrelated action.
+    if not isinstance(skills, list): skills = []
+    # An absent or empty value means "leave what is stored alone", NOT "wipe
+    # it". saveServerProfile() in the UI fires on every skills sync and used to
+    # post summary:"" and settings:{}, which silently erased the CV summary and
+    # all 60 saved answers on a completely unrelated action. Work history now
+    # lives in settings too, so the same clobber would have taken that with it.
+    summary  = summary.strip() if isinstance(summary, str) and summary.strip() else None
     if not isinstance(settings, dict) or not settings:
         settings = None
     now = datetime.utcnow().isoformat()
     with _db_conn() as conn:
         cur = conn.execute("SELECT id FROM profiles WHERE user_id = ?", (uid,))
         if cur.fetchone():
-            if settings is None:
-                conn.execute(
-                    "UPDATE profiles SET summary = ?, skills = ?, "
-                    "updated_at = ? WHERE user_id = ?",
-                    (summary, json.dumps(skills), now, uid),
-                )
-            else:
-                conn.execute(
-                    "UPDATE profiles SET summary = ?, skills = ?, settings = ?, "
-                    "updated_at = ? WHERE user_id = ?",
-                    (summary, json.dumps(skills), json.dumps(settings), now, uid),
-                )
+            cols   = ["skills = ?"]
+            params = [json.dumps(skills)]
+            if summary is not None:
+                cols.append("summary = ?");  params.append(summary)
+            if settings is not None:
+                cols.append("settings = ?"); params.append(json.dumps(settings))
+            cols.append("updated_at = ?");   params.append(now)
+            params.append(uid)
+            conn.execute(
+                "UPDATE profiles SET " + ", ".join(cols) + " WHERE user_id = ?",
+                params,
+            )
         else:
             conn.execute(
                 "INSERT INTO profiles (user_id, summary, skills, settings, updated_at) "
                 "VALUES (?, ?, ?, ?, ?)",
-                (uid, summary, json.dumps(skills), json.dumps(settings or {}), now),
+                (uid, summary or "", json.dumps(skills), json.dumps(settings or {}), now),
             )
     return jsonify({"ok": True, "updated_at": now})
 
