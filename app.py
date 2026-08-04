@@ -2498,7 +2498,10 @@ def daily_digest():
         job.update(score_job(job, profile))
         job["salary_clean"] = _clean_salary(job.get("salary", ""))
         job["date_fmt"]     = fmt_date(job.get("posted"))
-    remote_jobs.sort(key=lambda j: j["match_pct"], reverse=True)
+    # Same ordering rule as /api/search: non-US roles go last regardless of
+    # score. The digest is where this mattered most -- it was surfacing Poland,
+    # Malta, Romania and India roles at the top every morning.
+    remote_jobs.sort(key=lambda j: (j.get("loc_class") == "NON_US", -j["match_pct"]))
 
     # Drop jobs already in the applications tracker (by URL or company|title
     # fingerprint) — every digest slot should be a job you can still apply to.
