@@ -1,0 +1,96 @@
+{
+  "_README": "Field markup captured read-only from real application forms George was about to fill, 2026-08-04. Nothing was typed and nothing was submitted. Each field records only what the autofill engine can actually see: label text, aria-label, placeholder, name, id, type. Use these as regression fixtures so the matcher is tested against forms that exist rather than forms we imagined.",
+
+  "greenhouse_array_it_specialist": {
+    "url": "https://job-boards.greenhouse.io/array/jobs/6133725004",
+    "ats": "Greenhouse",
+    "company": "Array",
+    "field_count": 26,
+    "notes": "Screener questions render as a visible input[type=text] with id=question_<id>, each followed by an unnamed input[required] with no label — Greenhouse's combobox pattern. The unnamed sibling is what validation checks.",
+    "fields": [
+      {"type": "text", "id": "first_name", "label": "First Name*", "aria": "First Name"},
+      {"type": "text", "id": "last_name", "label": "Last Name*", "aria": "Last Name"},
+      {"type": "text", "id": "email", "label": "Email*", "aria": "Email"},
+      {"type": "text", "id": "country", "label": "Country*"},
+      {"type": "tel", "id": "phone", "label": "Phone*", "aria": "Phone"},
+      {"type": "text", "id": "candidate-location", "label": "Location (City)*"},
+      {"type": "file", "id": "resume", "label": "Attach"},
+      {"type": "text", "id": "question_19366124004", "label": "LinkedIn URL *"},
+      {"type": "text", "id": "question_19366125004", "label": "Are you located in one of the following countries? *"},
+      {"type": "text", "id": "", "label": "", "required": true, "note": "unnamed sibling of the question above"},
+      {"type": "text", "id": "question_19366126004", "label": "Will you now or in the future require employer sponsorship (e.g., H-1B, O-1, TN)?"},
+      {"type": "text", "id": "", "label": "", "required": true},
+      {"type": "text", "id": "question_19366127004", "label": "What style of management do you prefer from your supervisor?*"},
+      {"type": "text", "id": "", "label": "", "required": true},
+      {"type": "text", "id": "question_19366128004", "label": "When faced with an unexpected challenge at work, my first approach would be to:*"},
+      {"type": "text", "id": "", "label": "", "required": true},
+      {"type": "text", "id": "question_19366129004", "label": "What is your comfort level escalating when you experience a roadblock or challenge?*"},
+      {"type": "text", "id": "", "label": "", "required": true},
+      {"type": "text", "id": "question_19366130004", "label": "What programing language are you most proficient in? (if not an engineer/not applicable)"},
+      {"type": "text", "id": "question_19366131004", "label": "What AI tool / LLM are you most familiar with?*"},
+      {"type": "text", "id": "question_19366132004", "label": "When faced with a problem or a task, do you ask an AI tool for input and feedback?*"},
+      {"type": "text", "id": "", "label": "", "required": true},
+      {"type": "text", "id": "gender", "label": "Gender"},
+      {"type": "text", "id": "hispanic_ethnicity", "label": "Are you Hispanic/Latino?"},
+      {"type": "text", "id": "veteran_status", "label": "Veteran Status"},
+      {"type": "text", "id": "disability_status", "label": "Disability Status"}
+    ]
+  },
+
+  "ashby_posh_support_engineer": {
+    "url": "https://jobs.ashbyhq.com/posh-ai/5ee5d401-1189-42a1-bd6d-e66b629a7462/application",
+    "ats": "Ashby",
+    "company": "Posh",
+    "field_count": 6,
+    "notes": "Form is not in the DOM until the 'Apply for this Job' button is clicked. Yes/No questions are button chips, not radios — no input element and no label association; the question text is only reachable by walking up ancestors.",
+    "fields": [
+      {"type": "file", "label": ""},
+      {"type": "text", "name": "_systemfield_name", "label": "Name", "note": "SINGLE combined name field, not first + last"},
+      {"type": "email", "name": "_systemfield_email", "label": "Email"},
+      {"type": "file", "label": "Resume"},
+      {"type": "text", "label": ""},
+      {"type": "url", "name": "247b3fa2-0b16-4699-a347-6f2d1441ac95", "label": "Please link your LinkedIn profile:"}
+    ],
+    "button_chip_questions": [
+      {"question": "Are you authorized to work in the United States?", "chips": ["Yes", "No"], "expected": "Yes"},
+      {"question": "Will you at any point need visa sponsorship?", "chips": ["Yes", "No"], "expected": "No"}
+    ]
+  },
+
+  "breezy_transact_campus_support_engineer": {
+    "url": "https://transact-campus.breezy.hr/p/8f5f427d0dac-technical-support-engineer-quickcharge/apply",
+    "ats": "Breezy HR",
+    "company": "Transact Campus",
+    "field_count": 62,
+    "notes": "AngularJS form. Repeating Experience and Education rows carry NO name, NO id and NO index — the only identifier is the placeholder. The two date inputs in each row inherit placeholder='Company', so placeholder matching alone puts a company name into a date field.",
+    "fields": [
+      {"type": "text", "name": "cName", "placeholder": "Full Name", "section": "Personal Details", "prev_sibling": "Full Name*", "note": "SINGLE combined name field"},
+      {"type": "email", "name": "cEmail", "placeholder": "Email Address", "section": "Personal Details"},
+      {"type": "text", "name": "cPhoneNumber", "placeholder": "Phone Number", "section": "Personal Details"},
+      {"type": "checkbox", "name": "smsConsent", "section": "Personal Details", "note": "CONSENT — must never be auto-ticked"},
+      {"type": "text", "name": "cAddress", "placeholder": "Address", "section": "Personal Details"},
+      {"type": "select-one", "name": "salaryCurrency", "section": "Desired Salary*", "options": ["US Dollar ($)", "Canadian Dollar ($)", "Euro (€)"]},
+      {"type": "text", "name": "cSalary", "placeholder": "Desired Salary", "section": "Desired Salary*"},
+      {"type": "select-one", "name": "cLocation", "section": "Which location are you applying for"},
+      {"type": "text", "name": "", "placeholder": "Company", "section": "Experience", "row": 0},
+      {"type": "text", "name": "", "placeholder": "Title", "section": "Experience", "row": 0},
+      {"type": "textarea", "name": "", "placeholder": "Summary", "section": "Experience", "row": 0},
+      {"type": "date", "name": "", "placeholder": "Company", "prev_sibling": "Start date", "section": "Experience", "row": 0, "note": "placeholder is WRONG — says Company, is a start date"},
+      {"type": "date", "name": "", "placeholder": "Company", "prev_sibling": "End date", "section": "Experience", "row": 0, "note": "placeholder is WRONG — says Company, is an end date"},
+      {"type": "text", "name": "", "placeholder": "Company", "section": "Experience", "row": 1},
+      {"type": "text", "name": "", "placeholder": "Title", "section": "Experience", "row": 1},
+      {"type": "textarea", "name": "", "placeholder": "Summary", "section": "Experience", "row": 1},
+      {"type": "date", "name": "", "placeholder": "Company", "prev_sibling": "Start date", "section": "Experience", "row": 1},
+      {"type": "date", "name": "", "placeholder": "Company", "prev_sibling": "End date", "section": "Experience", "row": 1},
+      {"type": "text", "name": "", "placeholder": "Company", "section": "Experience", "row": 2}
+    ]
+  },
+
+  "workable_bes_software_it_specialist": {
+    "url": "https://jobs.workable.com/view/fdEufgEvWfqmCavF8Ap3qm/remote-it-specialist-in-arizona-at-bes-software",
+    "ats": "Workable",
+    "company": "BES Software",
+    "field_count": 0,
+    "notes": "BEHAVIOURAL FINDING, not a field capture. The page has an 'Apply now' button and a 'Submit application' button in the DOM, but zero input/select/textarea elements — including hidden ones — until the modal genuinely mounts. No shadow DOM, no iframe. Autofill run before the modal opens finds nothing and reports 0 of 0 fields, which looks like a failure but is a timing problem."
+  }
+}
