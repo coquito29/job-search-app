@@ -1549,6 +1549,18 @@
 
     /* Hairline instead of a 5px slab under every card. */
     .match-bar-wrap { height: 3px; background: var(--surface-soft); }
+
+    /* With the tint gone, the reason lines became the loudest thing on the
+       card — 12px blue 500-weight, three lines of it, reading as links that
+       are not clickable. Demote to muted body text; the badges above already
+       carry the signal. */
+    #jobsList .job-why {
+      color: var(--ink-muted);
+      font-weight: 400;
+      background: transparent;
+    }
+    #jobsList .job-why strong { color: var(--ink); font-weight: 500; }
+    #jobsList .job-why .bi { opacity: .55; }
   </style>
 </head>
 <body>
