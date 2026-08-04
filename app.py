@@ -9,6 +9,9 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import List, Dict, Any
 
+# US work-eligibility classifier for job locations — see location_filter.py.
+from location_filter import classify_location
+
 import requests as http_req
 from flask import Flask, request, jsonify, render_template, send_file, session, redirect
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -883,6 +886,19 @@ def score_job(job, profile):
         block_bonus += -40
         block_labels.append("Customer service role")
 
+    # Work eligibility by location. Remote != US-remote: the digest kept
+    # surfacing Poznan, Malta, Bucharest and Bengaluru roles that are perfectly
+    # remote and perfectly unusable, and George only found out at the
+    # application form. Penalize + tag here; the sort in /api/search also parks
+    # these below everything applyable. UNKNOWN locations are left alone on
+    # purpose -- upstream falls back to a bare "Remote", so that bucket is
+    # large, and penalizing it is exactly how the old US-state whitelist broke.
+    loc_class, loc_country = classify_location(job.get("location"))
+    if loc_class == "NON_US":
+        block_bonus += -35
+        block_labels.append(
+            f"Non-US ({loc_country})" if loc_country else "Non-US location")
+
     # Boosts for things directly in George's profile
     fit_bonus = 0
     fit_labels = []
@@ -947,6 +963,7 @@ def score_job(job, profile):
         "ats_name":       ats_name,
         "blockers":       block_labels,
         "fits":           fit_labels,
+        "loc_class":      loc_class,
     }
 
 
@@ -2228,7 +2245,11 @@ def search_jobs():
         job["date_fmt"] = fmt_date(job.get("posted"))
         scored.append(job)
 
-    scored.sort(key=lambda j: j["match_pct"], reverse=True)
+    # Non-US roles sort below everything applyable regardless of score --
+    # George cannot take them, so a strong skills match is beside the point.
+    # They are kept in the list rather than dropped, so a mislabeled location
+    # never silently costs a real job.
+    scored.sort(key=lambda j: (j.get("loc_class") == "NON_US", -j["match_pct"]))
     top = scored[:TOP_JOBS_LIMIT]
 
     return jsonify({
