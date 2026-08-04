@@ -1500,6 +1500,55 @@
       border-bottom-color: currentColor;
     }
     .step-item.done { color: #6c757d; }
+
+    /* ── Surface pass ────────────────────────────────────────────────────
+       Two things dated this: a saturated blue gradient header, and every job
+       card flood-filled by match score — 21 of 23 grey-blue, 2 yellow, which
+       is a lot of colour doing almost no work. Colour now appears only where
+       it carries information (the match number, status badges) and every
+       surface under it is neutral. All values are the existing theme vars, so
+       dark mode follows automatically. */
+
+    .app-header {
+      background: var(--surface-card);
+      background-image: none;
+      color: var(--ink-strong);
+      border-bottom: 1px solid var(--border);
+    }
+    .app-header h1,
+    .app-header i { color: var(--ink-strong); }
+    .app-header .subtitle { color: var(--ink-muted); }
+    .app-header .install-btn,
+    .app-header .dark-toggle-btn {
+      background: var(--surface-soft);
+      color: var(--ink-strong);
+      border: 1px solid var(--border);
+    }
+    .app-header .install-btn i,
+    .app-header .dark-toggle-btn i { color: var(--ink-strong); }
+    /* Mint on blue was fine; mint on white is not. */
+    .app-header .bi-stars { color: #0f9d76; }
+
+    /* Neutral cards. [class*="match-"] catches every score variant at once. */
+    #jobsList .job-card,
+    #jobsList .job-card[class*="match-"] {
+      background: var(--surface-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+    }
+    #jobsList .job-card:hover { border-color: var(--border-strong); }
+
+    /* The score keeps its colour — it is the one number worth reading fast. */
+    .match-badge { font-weight: 700; }
+
+    /* Which API returned the job is a label, not an alert. It was red. */
+    .source-badge {
+      background: var(--surface-soft) !important;
+      color: var(--ink-muted) !important;
+    }
+
+    /* Hairline instead of a 5px slab under every card. */
+    .match-bar-wrap { height: 3px; background: var(--surface-soft); }
   </style>
 </head>
 <body>
