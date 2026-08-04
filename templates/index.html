@@ -1659,11 +1659,29 @@
     fields use. Saves automatically.
   </p>
   <div id="workHistoryList"></div>
-  <div class="d-flex gap-2 mt-2 align-items-center">
+  <div class="d-flex gap-2 mt-2 align-items-center flex-wrap">
     <button class="btn btn-sm btn-outline-primary" type="button" onclick="addWorkEntry()">
       <i class="bi bi-plus-lg"></i> Add job
     </button>
+    <button class="btn btn-sm btn-primary" type="button" onclick="pullWorkHistoryFromCv()"
+            title="Read your default CV and fill these rows in. You review it before anything saves.">
+      <i class="bi bi-stars"></i> Pull from CV
+    </button>
     <span id="workHistoryStatus" class="text-muted" style="font-size:.78rem"></span>
+  </div>
+  <div id="workHistoryReview" class="alert alert-warning py-2 px-3 mt-2 mb-0"
+       style="display:none; font-size:.82rem">
+    Read from <strong data-wh-file></strong>. <strong>Nothing is saved yet.</strong>
+    Check the dates and the Current tick against reality before you keep it —
+    this goes on real applications under your name.
+    <div class="d-flex gap-2 mt-2">
+      <button class="btn btn-sm btn-success" type="button" onclick="keepWorkHistoryFromCv()">
+        Keep it
+      </button>
+      <button class="btn btn-sm btn-outline-secondary" type="button" onclick="discardWorkHistoryFromCv()">
+        Discard
+      </button>
+    </div>
   </div>
 </div>
 
@@ -2673,6 +2691,65 @@ function whField(i, key, placeholder, value, cls) {
     ' onchange="updateWorkEntry(' + i + ', \'' + key + '\', this.value)"></div>';
 }
 
+// ── Pull work history out of the CV ────────────────────────────────────
+// The CV parser only ever returned skills, a summary and two bare job-title
+// strings — never company/dates/current — which is why work history had to be
+// entered separately. This asks for the structured version, but leaves it as a
+// draft: a model reading a PDF should not silently become what you swear to on
+// an application.
+let workHistoryPending = false;
+let workHistoryBackup  = null;
+
+async function pullWorkHistoryFromCv() {
+  const status = document.getElementById('workHistoryStatus');
+  if (status) status.textContent = 'Reading your CV…';
+  try {
+    const r = await fetch('/api/profile/work-history/from-cv', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      if (status) status.textContent = d.error || 'Could not read that CV';
+      return;
+    }
+    workHistoryBackup  = workHistory.map(e => Object.assign({}, e));
+    workHistory        = d.work_experience || [];
+    workHistoryPending = true;
+    renderWorkHistory();
+    if (status) status.textContent = '';
+    const bar = document.getElementById('workHistoryReview');
+    if (bar) {
+      const f = bar.querySelector('[data-wh-file]');
+      if (f) f.textContent = d.cv_filename || 'your CV';
+      bar.style.display = '';
+    }
+  } catch (e) {
+    if (status) status.textContent = 'Could not reach the server';
+  }
+}
+
+function keepWorkHistoryFromCv() {
+  const bar = document.getElementById('workHistoryReview');
+  if (bar) bar.style.display = 'none';
+  workHistoryPending = false;
+  workHistoryBackup  = null;
+  saveWorkHistory();
+}
+
+function discardWorkHistoryFromCv() {
+  if (workHistoryBackup) workHistory = workHistoryBackup;
+  workHistoryBackup  = null;
+  workHistoryPending = false;
+  const bar = document.getElementById('workHistoryReview');
+  if (bar) bar.style.display = 'none';
+  renderWorkHistory();
+  const status = document.getElementById('workHistoryStatus');
+  if (status) status.textContent = '';
+}
+
 // Pull the list autofill is currently using (saved copy, or the seed in
 // work_history.py) so the editor starts from reality. Nothing is written
 // back until the user actually changes something.
@@ -2716,6 +2793,13 @@ function removeWorkEntry(i) {
 
 async function saveWorkHistory() {
   const status = document.getElementById('workHistoryStatus');
+  // A draft pulled from the CV is not saved by editing it — the user has to
+  // press Keep. Otherwise "nothing is saved yet" would be a lie the moment
+  // they corrected a date.
+  if (workHistoryPending) {
+    if (status) status.textContent = 'Not saved yet — press Keep it';
+    return;
+  }
   if (status) status.textContent = 'Saving…';
   try {
     // Read-modify-write: qa_defaults lives in the same settings blob, so a
