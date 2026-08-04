@@ -2170,13 +2170,22 @@ Return ONLY valid JSON, no markdown:
     "current": false, "location": "City, ST"}}
 ]}}
 
-This output goes onto real job applications, so accuracy beats completeness:
-- Only jobs actually written on the CV. Never invent an employer, title or date.
+This output goes onto real job applications, so accuracy beats completeness.
+
+NEVER list a school, university, college, bootcamp or training provider as an
+employer. If the CV describes coursework, labs, capstones or projects done at
+one, that is education and must be left out entirely, even when it carries
+dates and reads like a role. A degree in progress is not a current job.
+
+- Only paid employment actually written on the CV. Never invent an employer,
+  title or date, and never promote a project or certification into a job.
+- One entry per employer. Never merge two company names into a single entry.
 - Most recent first.
 - Dates as YYYY-MM. Year only becomes YYYY-01. Genuinely absent stays "".
-- end_date "" and current true ONLY where the CV says Present / Current / Now.
+- end_date "" and current true ONLY where the CV says Present / Current / Now
+  for that specific job.
 - At most one entry may be current. If the CV shows none, set every one false.
-- Paid roles only: skip education, certifications, volunteering, side projects.
+- Skip volunteering and unpaid side projects.
 - location is the job's location, "" when the CV does not give one."""
 
     try:
