@@ -1435,7 +1435,7 @@
        of vertical scroll. Wider column plus a two-column job grid spends that
        empty space on less scrolling. Phone layout is deliberately untouched. */
     @media (min-width: 1200px) { :root { --content-max: 1040px; } }
-    @media (min-width: 1600px) { :root { --content-max: 1200px; } }
+    @media (min-width: 1500px) { :root { --content-max: 1360px; } }
 
     /* Two-column job list once there is width for it. */
     @media (min-width: 1100px) {
@@ -1456,6 +1456,41 @@
     /* Less air per card — the page was mostly padding. */
     .section-card { margin: 10px auto; padding: 14px 14px 16px; }
     .job-card     { margin: 6px auto;  padding: 11px 13px 10px 15px; }
+
+    /* ── Desktop sizing ──────────────────────────────────────────────────
+       This was built phone-first and then stretched: on a 1280px screen the
+       primary button rendered 1012px wide and 51px tall, the time-range switch
+       the same, and 143px of header sat above a single pixel of content. None
+       of that is a touch target on a PC — it just reads as a blown-up phone
+       app. Sizes below apply from 1024px up; narrow screens keep the old ones. */
+    @media (min-width: 1024px) {
+      /* Bootstrap w-100 is on the element, hence the !important. */
+      #searchBtn.search-btn-main {
+        width: auto !important;
+        min-width: 320px;
+        max-width: 420px;
+        height: 46px;
+        padding: 0 30px;
+        display: block;
+        margin: 6px auto 0;
+        font-size: .98rem;
+      }
+      #searchSection .time-btn-group   { max-width: 560px; }
+      #searchSection .external-search-bar { max-width: 760px; }
+
+      /* Claw back the header height. */
+      .app-header { padding-top: 8px; padding-bottom: 7px; }
+      .step-bar   { padding-top: 2px; }
+      .step-item  { padding: 7px 4px; font-size: .78rem; }
+
+      /* 15px headings are too small to anchor a 1,000px-wide card. */
+      .section-card .card-title { font-size: 1.05rem; margin-bottom: 12px; }
+    }
+
+    /* Three columns once the screen can carry them. */
+    @media (min-width: 1500px) {
+      #jobsList { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    }
 
     /* The bar is navigation now, not a progress meter: give the current tab a
        filled pill so it reads as "where I am" rather than "how far along". */
