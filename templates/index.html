@@ -1649,6 +1649,24 @@
   </div>
 </div>
 
+<!-- ══ Section: Work History ═══════════════════════════════════════════ -->
+<div id="workHistorySection" class="section-card">
+  <div class="card-title"><i class="bi bi-briefcase-fill"></i> Work History</div>
+  <p class="text-muted mb-2" style="font-size:.8rem">
+    This is what autofill puts in <strong>current employer</strong>,
+    <strong>current title</strong> and <strong>are you currently employed?</strong>
+    on application forms. Whichever job you tick as Current is the one those
+    fields use. Saves automatically.
+  </p>
+  <div id="workHistoryList"></div>
+  <div class="d-flex gap-2 mt-2 align-items-center">
+    <button class="btn btn-sm btn-outline-primary" type="button" onclick="addWorkEntry()">
+      <i class="bi bi-plus-lg"></i> Add job
+    </button>
+    <span id="workHistoryStatus" class="text-muted" style="font-size:.78rem"></span>
+  </div>
+</div>
+
 <!-- ══ Section 3: Search ═════════════════════════════════════════════════════ -->
 <div id="searchSection" class="section-card">
   <div class="card-title"><i class="bi bi-search"></i> Search Jobs</div>
@@ -2580,6 +2598,11 @@ async function loadServerProfile() {
     if (Array.isArray(qa) && qa.length) {
       qaDefaults = qa.filter(x => Array.isArray(x) && x.length === 2);
     }
+      // Work history lives alongside qa_defaults in settings. Empty means the
+      // user has never saved one, and the server is serving the seed list.
+      const we = (p.settings && p.settings.work_experience) || [];
+      if (Array.isArray(we)) workHistory = we;
+      renderWorkHistory();
   } catch (e) {}
 }
 
@@ -2589,10 +2612,117 @@ async function saveServerProfile() {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ skills, summary: '', settings: {} }),
+      body: JSON.stringify({ skills }),
     });
   } catch (e) {}
 }
+
+// ── Work history ─────────────────────────────────────────────────────────
+// Stored in profile.settings.work_experience. The server falls back to the
+// seed list in work_history.py until something is saved here, and re-orders
+// on read so the job ticked Current always lands at work_experience[0] —
+// which is exactly what the extension reads for "current employer".
+let workHistory = [];
+
+function renderWorkHistory() {
+  const wrap = document.getElementById('workHistoryList');
+  if (!wrap) return;
+  if (!workHistory.length) {
+    wrap.innerHTML = '<div class="text-muted" style="font-size:.82rem">' +
+      'Nothing saved yet — autofill is using the built-in default list. ' +
+      'Add a job here to take control of it.</div>';
+    return;
+  }
+  wrap.innerHTML = workHistory.map((e, i) => [
+    '<div class="border rounded p-2 mb-2">',
+    '  <div class="row g-2">',
+    whField(i, 'company',    'Company',        e.company,    'col-6'),
+    whField(i, 'title',      'Job title',      e.title,      'col-6'),
+    whField(i, 'start_date', 'Start YYYY-MM',  e.start_date, 'col-4'),
+    whField(i, 'end_date',   'End YYYY-MM',    e.end_date,   'col-4'),
+    whField(i, 'location',   'Location',       e.location,   'col-4'),
+    '  </div>',
+    '  <div class="d-flex align-items-center gap-2 mt-2">',
+    '    <div class="form-check mb-0">',
+    '      <input class="form-check-input" type="checkbox" id="whCur' + i + '"' +
+           (e.current ? ' checked' : '') +
+           ' onchange="updateWorkEntry(' + i + ', \'current\', this.checked)">',
+    '      <label class="form-check-label" for="whCur' + i + '" style="font-size:.8rem">',
+    '        Current job',
+    '      </label>',
+    '    </div>',
+    '    <button class="btn btn-sm btn-outline-danger ms-auto" type="button"' +
+    '            onclick="removeWorkEntry(' + i + ')" title="Remove this job">',
+    '      <i class="bi bi-trash"></i>',
+    '    </button>',
+    '  </div>',
+    '</div>',
+  ].join('')).join('');
+}
+
+function whField(i, key, placeholder, value, cls) {
+  return '<div class="' + cls + '">' +
+    '<input type="text" class="form-control form-control-sm" placeholder="' + placeholder + '"' +
+    ' value="' + escHtml(value || '') + '"' +
+    ' onchange="updateWorkEntry(' + i + ', \'' + key + '\', this.value)"></div>';
+}
+
+function addWorkEntry() {
+  workHistory.push({ company: '', title: '', start_date: '', end_date: '',
+                     current: false, location: '', address: '' });
+  renderWorkHistory();
+}
+
+function updateWorkEntry(i, field, value) {
+  if (!workHistory[i]) return;
+  workHistory[i][field] = value;
+  // Exactly one job can be current. Two would make work_experience[0] a coin
+  // flip, and that value goes onto real applications as your current employer.
+  if (field === 'current' && value) {
+    workHistory.forEach((e, k) => { if (k !== i) e.current = false; });
+    renderWorkHistory();
+  }
+  saveWorkHistory();
+}
+
+function removeWorkEntry(i) {
+  const e = workHistory[i] || {};
+  const label = (e.company || e.title || 'this entry');
+  if (!confirm('Remove ' + label + ' from your work history?')) return;
+  workHistory.splice(i, 1);
+  renderWorkHistory();
+  saveWorkHistory();
+}
+
+async function saveWorkHistory() {
+  const status = document.getElementById('workHistoryStatus');
+  if (status) status.textContent = 'Saving…';
+  try {
+    // Read-modify-write: qa_defaults lives in the same settings blob, so a
+    // blind POST would wipe 60 saved answers.
+    const r = await fetch('/api/profile', { credentials: 'same-origin' });
+    const p = r.ok ? await r.json() : {};
+    const settings = (p && p.settings) || {};
+    settings.work_experience = workHistory.filter(
+      e => (e.company || '').trim() || (e.title || '').trim());
+    const res = await fetch('/api/profile', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ skills, summary: (p && p.summary) || '', settings }),
+    });
+    if (status) {
+      status.textContent = res.ok ? 'Saved' : 'Could not save';
+      if (res.ok) setTimeout(() => { status.textContent = ''; }, 2000);
+    }
+  } catch (err) {
+    if (status) status.textContent = 'Could not save — check your connection';
+  }
+}
+
+// Render once on load even if the profile fetch fails, so the card shows its
+// empty state instead of a blank gap. loadServerProfile() re-renders with data.
+document.addEventListener('DOMContentLoaded', renderWorkHistory);
 
 function showAiBadge() {
   document.getElementById('aiBadge').classList.add('visible');
