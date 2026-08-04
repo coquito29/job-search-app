@@ -2599,10 +2599,16 @@ async function loadServerProfile() {
       qaDefaults = qa.filter(x => Array.isArray(x) && x.length === 2);
     }
       // Work history lives alongside qa_defaults in settings. Empty means the
-      // user has never saved one, and the server is serving the seed list.
+      // user has never saved one, so seed the editor from what autofill is
+      // actually using — otherwise adding one job would silently replace the
+      // whole list with a single entry the first time it saves.
       const we = (p.settings && p.settings.work_experience) || [];
-      if (Array.isArray(we)) workHistory = we;
-      renderWorkHistory();
+      if (Array.isArray(we) && we.length) {
+        workHistory = we;
+        renderWorkHistory();
+      } else {
+        seedWorkHistoryFromServer();
+      }
   } catch (e) {}
 }
 
@@ -2665,6 +2671,20 @@ function whField(i, key, placeholder, value, cls) {
     '<input type="text" class="form-control form-control-sm" placeholder="' + placeholder + '"' +
     ' value="' + escHtml(value || '') + '"' +
     ' onchange="updateWorkEntry(' + i + ', \'' + key + '\', this.value)"></div>';
+}
+
+// Pull the list autofill is currently using (saved copy, or the seed in
+// work_history.py) so the editor starts from reality. Nothing is written
+// back until the user actually changes something.
+async function seedWorkHistoryFromServer() {
+  try {
+    const r = await fetch('/api/profile/full', { credentials: 'same-origin' });
+    if (r.ok) {
+      const full = await r.json();
+      if (Array.isArray(full.work_experience)) workHistory = full.work_experience;
+    }
+  } catch (e) {}
+  renderWorkHistory();
 }
 
 function addWorkEntry() {
