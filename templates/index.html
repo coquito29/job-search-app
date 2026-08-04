@@ -1428,6 +1428,40 @@
       background: #2d3139; color: #e9ecef; border-color: #3d4349;
     }
     body.dark-mode .tracker-notes::placeholder { color: #6c757d; }
+
+    /* ── Layout tightening ───────────────────────────────────────────────
+       The content column was capped at 860px, so on a 1500px laptop roughly
+       350px of dead grey sat on each side while the job list ran to ~5,000px
+       of vertical scroll. Wider column plus a two-column job grid spends that
+       empty space on less scrolling. Phone layout is deliberately untouched. */
+    @media (min-width: 1200px) { :root { --content-max: 1040px; } }
+    @media (min-width: 1600px) { :root { --content-max: 1200px; } }
+
+    /* Two-column job list once there is width for it. */
+    @media (min-width: 1100px) {
+      #jobsList {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+        max-width: var(--content-max);
+        margin: 0 auto;
+        align-items: start;
+      }
+      #jobsList > * { max-width: none; margin-left: 0; margin-right: 0; }
+    }
+
+    /* Less air per card — the page was mostly padding. */
+    .section-card { margin: 10px auto; padding: 14px 14px 16px; }
+    .job-card     { margin: 6px auto;  padding: 11px 13px 10px 15px; }
+
+    /* The bar is navigation now, not a progress meter: give the current tab a
+       filled pill so it reads as "where I am" rather than "how far along". */
+    .step-item.active {
+      color: var(--bs-primary, #0d6efd);
+      background: rgba(13, 110, 253, .08);
+      border-bottom-color: currentColor;
+    }
+    .step-item.done { color: #6c757d; }
   </style>
 </head>
 <body>
@@ -1531,31 +1565,29 @@
   </div>
 </header>
 
-<!-- ══ Step bar ══════════════════════════════════════════════════════════════ -->
+<!-- ══ Tab bar ═══════════════════════════════════════════════════════════════ -->
 <div class="step-bar" id="stepBar">
-  <div class="step-item active" id="step1Indicator" onclick="scrollToSection('tokenSection')">
-    <i class="bi bi-key"></i>Token
-  </div>
-  <div class="step-item" id="step2Indicator" onclick="scrollToSection('cvSection')">
-    <i class="bi bi-file-person"></i>CV
-    <span class="badge bg-success ms-1" id="cvCountBadge" style="display:none;font-size:.6rem;padding:1px 5px;"></span>
-  </div>
-  <div class="step-item" id="step3Indicator" onclick="scrollToSection('searchSection')">
+  <div class="step-item active" id="step3Indicator" data-tab="search" onclick="showTab('search')">
     <i class="bi bi-search"></i>Search
   </div>
-  <div class="step-item" id="step4Indicator" onclick="scrollToSection('resultsSection')">
+  <div class="step-item" id="step4Indicator" data-tab="results" onclick="showTab('results')">
     <i class="bi bi-list-ul"></i>Results
   </div>
-  <div class="step-item" id="step5Indicator" onclick="showTrackerTab()">
+  <div class="step-item" id="step5Indicator" data-tab="tracker" onclick="showTab('tracker')">
     <i class="bi bi-bookmark-check"></i>Tracker
-    <span class="badge bg-primary ms-1" id="trackerBadge" style="display:none;font-size:.6rem;padding:1px 5px;"></span>
+    <span class="badge bg-primary ms-1" id="trackerBadge">0</span>
   </div>
-  <div class="step-item" id="step7Indicator" onclick="showStatsTab()">
+  <div class="step-item" id="step7Indicator" data-tab="stats" onclick="showTab('stats')">
     <i class="bi bi-bar-chart-fill"></i>Stats
   </div>
-  <div class="step-item" id="step6Indicator" onclick="window.location.href='/checklist'" title="Today's job-search routine">
+  <div class="step-item" id="step2Indicator" data-tab="setup" onclick="showTab('setup')">
+    <i class="bi bi-sliders"></i>Setup
+    <span class="badge bg-success ms-1" id="cvCountBadge">0</span>
+  </div>
+  <div class="step-item" id="step6Indicator" onclick="window.location.href='/checkout'">
     <i class="bi bi-calendar-check"></i>Plan
   </div>
+  <div class="step-item d-none" id="step1Indicator"></div>
 </div>
 
 <!-- ══ Section 1: Token ══════════════════════════════════════════════════════ -->
@@ -2895,17 +2927,7 @@ function clearSalaryFilter() {
 // ════════════════════════════════════════════════════════════════════════
 //  Tracker tab
 // ════════════════════════════════════════════════════════════════════════
-function showTrackerTab() {
-  document.getElementById('trackerSection').style.display = 'block';
-  document.getElementById('resultsSection').style.display = 'none';
-  const statsSec = document.getElementById('statsSection');
-  if (statsSec) statsSec.style.display = 'none';
-  const s5 = document.getElementById('step5Indicator');
-  document.querySelectorAll('.step-item').forEach(s => s.classList.remove('active'));
-  s5.classList.add('active');
-  renderTrackerTab();
-  scrollToSection('trackerSection');
-}
+function showTrackerTab() { showTab('tracker'); }
 
 function filterTracker(f) {
   trackerFilter = f;
@@ -3592,7 +3614,7 @@ async function searchJobs() {
       showToast('No remote jobs found. Try different skills or a wider time range.', 'info');
     } else {
       showToast(`Found ${jobs.length} matching jobs!`, 'success');
-      scrollToSection('resultsSection');
+    showTab('results');
     }
 
   } catch(e) {
@@ -4268,30 +4290,56 @@ function scrollToSection(id) {
   if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
-function updateStepIndicators() {
-  const token    = localStorage.getItem('apify_token') || '';
-  const hasSkills = skills.length > 0;
-  const hasJobs   = jobs.length > 0;
+// The step bar used to double as a progress meter, marking steps done/active
+// as you filled things in. With real tabs that fights the tab state — it moved
+// the highlight off whichever tab you were actually looking at. showTab() owns
+// the active class now; this stays as a no-op so the many existing callers do
+// not need touching.
+function updateStepIndicators() {}
 
-  const s1 = document.getElementById('step1Indicator');
-  const s2 = document.getElementById('step2Indicator');
-  const s3 = document.getElementById('step3Indicator');
-  const s4 = document.getElementById('step4Indicator');
-  const s5 = document.getElementById('step5Indicator');
+// ── Tabs ────────────────────────────────────────────────────────────────
+// These were scroll anchors, not tabs: Token, CV, Work History, Search and
+// Results were all in the DOM at once on one ~7,000px page, so pressing
+// "Search" just scrolled you past the API-key box. Each tab now owns its
+// sections and everything else is taken out of the flow.
+const TAB_SECTIONS = {
+  search:  ['searchSection'],
+  results: ['resultsSection'],
+  tracker: ['trackerSection'],
+  stats:   ['statsSection'],
+  setup:   ['tokenSection', 'cvSection', 'workHistorySection'],
+};
+const ALL_TAB_SECTIONS = ['tokenSection', 'cvSection', 'workHistorySection',
+                          'searchSection', 'resultsSection', 'trackerSection',
+                          'statsSection'];
+let currentTab = 'search';
 
-  [s1, s2, s3, s4, s5].forEach(s => s.classList.remove('active', 'done'));
-
-  if (hasJobs) {
-    s1.classList.add('done'); s2.classList.add('done');
-    s3.classList.add('done'); s4.classList.add('active');
-  } else if (hasSkills) {
-    s1.classList.add('done'); s2.classList.add('done'); s3.classList.add('active');
-  } else if (token) {
-    s1.classList.add('done'); s2.classList.add('active');
-  } else {
-    s1.classList.add('active');
-  }
+function showTab(name) {
+  if (!TAB_SECTIONS[name]) name = 'search';
+  currentTab = name;
+  ALL_TAB_SECTIONS.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  });
+  TAB_SECTIONS[name].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = '';
+  });
+  document.querySelectorAll('.step-item').forEach(s => s.classList.remove('active'));
+  const btn = document.querySelector('.step-item[data-tab="' + name + '"]');
+  if (btn) btn.classList.add('active');
+  window.scrollTo(0, 0);
+  try { localStorage.setItem('job_search_tab', name); } catch (e) {}
+  if (name === 'tracker') renderTrackerTab();
+  if (name === 'stats')   loadStats();
 }
+
+// Land on Search, except when the last visit ended somewhere else.
+document.addEventListener('DOMContentLoaded', () => {
+  let last = 'search';
+  try { last = localStorage.getItem('job_search_tab') || 'search'; } catch (e) {}
+  showTab(last);
+});
 
 // Override Results step click to restore results view
 document.addEventListener('DOMContentLoaded', () => {
@@ -4301,7 +4349,7 @@ document.addEventListener('DOMContentLoaded', () => {
       document.getElementById('resultsSection').style.display = 'block';
     }
     updateStepIndicators();
-    scrollToSection('resultsSection');
+    showTab('results');
   });
 });
 
@@ -4631,15 +4679,7 @@ async function sendFollowUp() {
 // ════════════════════════════════════════════════════════════════════════
 //  Stats dashboard
 // ════════════════════════════════════════════════════════════════════════
-function showStatsTab() {
-  document.getElementById('statsSection').style.display = 'block';
-  document.getElementById('resultsSection').style.display = 'none';
-  document.getElementById('trackerSection').style.display = 'none';
-  document.querySelectorAll('.step-item').forEach(s => s.classList.remove('active'));
-  document.getElementById('step7Indicator')?.classList.add('active');
-  scrollToSection('statsSection');
-  loadStats();
-}
+function showStatsTab() { showTab('stats'); }
 
 async function loadStats() {
   const loading = document.getElementById('statsLoading');
