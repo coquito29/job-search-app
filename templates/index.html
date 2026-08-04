@@ -4330,7 +4330,11 @@ function showTab(name) {
   });
   TAB_SECTIONS[name].forEach(id => {
     const el = document.getElementById(id);
-    if (el) el.classList.remove('tab-hidden');
+    if (!el) return;
+    el.classList.remove('tab-hidden');
+    // Tracker and Stats ship with inline display:none in the markup, which the
+    // class alone cannot undo — clear it so the tab is not blank.
+    if (el.style.display === 'none') el.style.display = '';
   });
   document.querySelectorAll('.step-item').forEach(s => s.classList.remove('active'));
   const btn = document.querySelector('.step-item[data-tab="' + name + '"]');
