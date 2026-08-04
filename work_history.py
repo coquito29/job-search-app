@@ -78,6 +78,16 @@ def normalize_work_experience(raw):
     # ISO-ish "YYYY-MM" strings sort correctly as text; a blank start sorts last.
     cleaned.sort(key=lambda e: e["start_date"], reverse=True)
     cleaned.sort(key=lambda e: not e["current"])
+
+    # At most one job can be current. Two would make work_experience[0] depend
+    # on sort tie-breaking, and that entry is what fills "current employer" on
+    # a real application. The most recent one wins; the rest are demoted.
+    seen_current = False
+    for entry in cleaned:
+        if entry["current"] and seen_current:
+            entry["current"] = False
+        elif entry["current"]:
+            seen_current = True
     return cleaned
 
 

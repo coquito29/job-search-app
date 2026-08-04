@@ -72,6 +72,24 @@ check("current is always a real bool", all(isinstance(e["current"], bool) for e 
 title_only = normalize_work_experience([{"title": "Freelance Developer"}])
 check("title-only row is kept", len(title_only) == 1)
 
+# ── Only one job may be current ────────────────────────────────────────────
+# The CV parser can easily mark two jobs "Present"; work_experience[0] would
+# then depend on sort tie-breaking, and that value goes on applications.
+two_current = normalize_work_experience([
+    {"company": "Older Ongoing", "title": "A", "start_date": "2020-01", "end_date": "", "current": True},
+    {"company": "Newer Ongoing", "title": "B", "start_date": "2024-07", "end_date": "", "current": True},
+])
+check("only one entry stays current", sum(1 for e in two_current if e["current"]) == 1)
+check("the most recent current job is the one kept",
+      two_current[0]["company"] == "Newer Ongoing" and two_current[0]["current"] is True,
+      two_current[0]["company"])
+check("the demoted one is still in the list", len(two_current) == 2)
+check("no current at all is left alone",
+      all(e["current"] is False for e in normalize_work_experience([
+          {"company": "X", "title": "A", "start_date": "2020-01", "end_date": "2021-01", "current": False},
+          {"company": "Y", "title": "B", "start_date": "2022-01", "end_date": "2023-01", "current": False},
+      ])))
+
 print()
 print(("FAILED: " + ", ".join(fails)) if fails else "All work-history assertions passed")
 raise SystemExit(1 if fails else 0)
