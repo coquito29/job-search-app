@@ -12,7 +12,7 @@ from typing import List, Dict, Any
 # US work-eligibility classifier for job locations — see location_filter.py.
 from location_filter import classify_location
 # Work history comes from the saved profile now, not a literal in this file.
-from work_history import work_experience_for
+from work_history import normalize_work_experience, work_experience_for
 
 import requests as http_req
 from flask import Flask, request, jsonify, render_template, send_file, session, redirect
@@ -2111,6 +2111,95 @@ Return ONLY valid JSON, no markdown:
         "rationale": str(parsed.get("rationale") or "")[:300],
         "from_cv":   _row_get(row, "filename"),
         "merged":    merge,
+    })
+
+
+@app.route("/api/profile/work-history/from-cv", methods=["POST"])
+def work_history_from_cv():
+    """Read a CV and return its employment history as structured rows.
+
+    Deliberately does NOT save. What lands in "current employer" on a real
+    application is the user's own claim, so a model's reading of a PDF never
+    becomes the stored answer without them seeing it first.
+
+    Optional body: {"cv_id": <id>}. Defaults to the default CV, then the most
+    recently uploaded one.
+    """
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key or not _anthropic:
+        return jsonify({"error": "AI not available — set ANTHROPIC_API_KEY"}), 503
+
+    uid, err = _auth_required()
+    if err: return err
+
+    cv_id = (request.get_json(silent=True) or {}).get("cv_id")
+    with _db_conn() as conn:
+        row = None
+        if cv_id:
+            try:
+                row = conn.execute(
+                    "SELECT id, filename, parsed_text FROM cvs "
+                    "WHERE user_id = ? AND id = ? LIMIT 1", (uid, int(cv_id)),
+                ).fetchone()
+            except (TypeError, ValueError):
+                row = None
+        if not row:
+            row = conn.execute(
+                "SELECT id, filename, parsed_text FROM cvs "
+                "WHERE user_id = ? AND is_default = 1 LIMIT 1", (uid,),
+            ).fetchone()
+        if not row:
+            row = conn.execute(
+                "SELECT id, filename, parsed_text FROM cvs "
+                "WHERE user_id = ? ORDER BY id DESC LIMIT 1", (uid,),
+            ).fetchone()
+    if not row:
+        return jsonify({"error": "no CV in your library to read from"}), 400
+    cv_text = (_row_get(row, "parsed_text") or "").strip()
+    if not cv_text:
+        return jsonify({"error": "that CV has no parsed text — re-upload it"}), 400
+
+    prompt = f"""Extract the employment history from this CV.
+
+CV:
+{cv_text[:6000]}
+
+Return ONLY valid JSON, no markdown:
+{{"work_experience": [
+  {{"company": "", "title": "", "start_date": "YYYY-MM", "end_date": "YYYY-MM",
+    "current": false, "location": "City, ST"}}
+]}}
+
+This output goes onto real job applications, so accuracy beats completeness:
+- Only jobs actually written on the CV. Never invent an employer, title or date.
+- Most recent first.
+- Dates as YYYY-MM. Year only becomes YYYY-01. Genuinely absent stays "".
+- end_date "" and current true ONLY where the CV says Present / Current / Now.
+- At most one entry may be current. If the CV shows none, set every one false.
+- Paid roles only: skip education, certifications, volunteering, side projects.
+- location is the job's location, "" when the CV does not give one."""
+
+    try:
+        client  = _anthropic.Anthropic(api_key=api_key)
+        message = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=1200,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text   = message.content[0].text.strip()
+        m      = re.search(r'\{.*\}', text, re.DOTALL)
+        parsed = json.loads(m.group() if m else text)
+    except Exception as e:
+        return jsonify({"error": f"Could not read that CV: {e}"}), 500
+
+    entries = normalize_work_experience(parsed.get("work_experience") or [])
+    if not entries:
+        return jsonify({"error": "no jobs found in that CV — add them by hand"}), 502
+
+    return jsonify({
+        "work_experience": entries,
+        "cv_filename":     _row_get(row, "filename", "") or "",
+        "saved":           False,
     })
 
 
