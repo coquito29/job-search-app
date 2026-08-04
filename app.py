@@ -11,6 +11,8 @@ from typing import List, Dict, Any
 
 # US work-eligibility classifier for job locations — see location_filter.py.
 from location_filter import classify_location
+# Work history comes from the saved profile now, not a literal in this file.
+from work_history import work_experience_for
 
 import requests as http_req
 from flask import Flask, request, jsonify, render_template, send_file, session, redirect
@@ -1825,23 +1827,35 @@ def profile_save():
     data = request.get_json(force=True) or {}
     summary  = (data.get("summary") or "").strip()
     skills   = data.get("skills") or []
-    settings = data.get("settings") or {}
+    settings = data.get("settings")
     if not isinstance(skills, list):   skills = []
-    if not isinstance(settings, dict): settings = {}
+    # An absent or empty settings block means "leave what is stored alone",
+    # NOT "wipe it". saveServerProfile() in the UI posts settings:{} on every
+    # skills sync, which silently erased qa_defaults -- and would now erase the
+    # saved work history too -- on a completely unrelated action.
+    if not isinstance(settings, dict) or not settings:
+        settings = None
     now = datetime.utcnow().isoformat()
     with _db_conn() as conn:
         cur = conn.execute("SELECT id FROM profiles WHERE user_id = ?", (uid,))
         if cur.fetchone():
-            conn.execute(
-                "UPDATE profiles SET summary = ?, skills = ?, settings = ?, "
-                "updated_at = ? WHERE user_id = ?",
-                (summary, json.dumps(skills), json.dumps(settings), now, uid),
-            )
+            if settings is None:
+                conn.execute(
+                    "UPDATE profiles SET summary = ?, skills = ?, "
+                    "updated_at = ? WHERE user_id = ?",
+                    (summary, json.dumps(skills), now, uid),
+                )
+            else:
+                conn.execute(
+                    "UPDATE profiles SET summary = ?, skills = ?, settings = ?, "
+                    "updated_at = ? WHERE user_id = ?",
+                    (summary, json.dumps(skills), json.dumps(settings), now, uid),
+                )
         else:
             conn.execute(
                 "INSERT INTO profiles (user_id, summary, skills, settings, updated_at) "
                 "VALUES (?, ?, ?, ?, ?)",
-                (uid, summary, json.dumps(skills), json.dumps(settings), now),
+                (uid, summary, json.dumps(skills), json.dumps(settings or {}), now),
             )
     return jsonify({"ok": True, "updated_at": now})
 
@@ -3053,6 +3067,7 @@ def _build_full_profile(uid):
     /api/profile/full (Chrome extension) and /bookmarklet/run.js (mobile)."""
     # Pull user's custom Q&A defaults from profile.settings if they edited them
     qa_defaults = []
+    saved_settings = {}
     try:
         with _db_conn() as conn:
             row = conn.execute(
@@ -3061,8 +3076,8 @@ def _build_full_profile(uid):
         if row:
             settings_raw = _row_get(row, "settings")
             if settings_raw:
-                settings = json.loads(settings_raw)
-                qa = settings.get("qa_defaults") or []
+                saved_settings = json.loads(settings_raw) or {}
+                qa = saved_settings.get("qa_defaults") or []
                 if isinstance(qa, list):
                     qa_defaults = qa
     except Exception:
@@ -3166,36 +3181,12 @@ def _build_full_profile(uid):
                 "location":    "Galloway, NJ",
             },
         ],
-        # Work history (most recent first)
-        "work_experience": [
-            {
-                "company":  "Harrah's Casino",
-                "title":    "Bartender",
-                "start_date":"2024-07",
-                "end_date":  "",
-                "current":  True,
-                "location": "Atlantic City, NJ",
-                "address":  "777 Harrah's Blvd, Atlantic City, NJ 08401",
-            },
-            {
-                "company":  "Ocean Casino Resort",
-                "title":    "Casino Shift Manager",
-                "start_date":"2021-06",
-                "end_date":  "2022-07",
-                "current":  False,
-                "location": "Atlantic City, NJ",
-                "address":  "500 Boardwalk, Atlantic City, NJ 08401",
-            },
-            {
-                "company":  "Ocean Casino Resort",
-                "title":    "Bartender",
-                "start_date":"2019-06",
-                "end_date":  "2020-08",
-                "current":  False,
-                "location": "Atlantic City, NJ",
-                "address":  "500 Boardwalk, Atlantic City, NJ 08401",
-            },
-        ],
+        # Work history. The saved copy in profile.settings wins; the list in
+        # work_history.py is only a seed for an account that has never saved
+        # one. work_experience_for() also orders it so the entry marked current
+        # leads -- the extension reads work_experience[0] for "current
+        # employer", "current title" and "are you currently employed?".
+        "work_experience": work_experience_for(saved_settings),
         # Raw Q&A list so the extension can do fuzzy matching too
         "qa_defaults": qa_defaults,
     }
