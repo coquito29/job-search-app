@@ -131,7 +131,12 @@ async function runFixture(key, fixture) {
       const lbl = (w.document.querySelector(`label[for="${e.id}"]`) || {}).textContent || '';
       const sib = e.parentElement && e.parentElement.querySelector('span');
       const hint = (lbl || (sib ? sib.textContent : '') || e.placeholder || e.name || e.id || '').trim();
-      return { hint: hint.slice(0, 58), type: e.type, value: (e.value || '').slice(0, 40) };
+      // A checkbox reports value==="on" even when unchecked — reading .value
+      // here once produced a false 'the engine ticked your consent box' report.
+      const val = (e.type === 'checkbox' || e.type === 'radio')
+        ? (e.checked ? 'CHECKED' : '')
+        : (e.value || '');
+      return { hint: hint.slice(0, 58), type: e.type, value: val.slice(0, 40) };
     });
 
   const chipsClicked = [...w.document.querySelectorAll('button[data-q]')]
