@@ -939,7 +939,13 @@
     if (value === undefined || value === null) return false;
     const v = String(value);
     if (el.tagName === "SELECT") {
-      if (fillSelect2(el, v)) return true;
+      // Try equivalent spellings too — a native State select listing
+      // "New Jersey" never matches the profile's "NJ" (and vice versa for
+      // country codes). The decoy-select path already did this; native
+      // selects need it just as much.
+      for (const cand of valueAlternates(v)) {
+        if (fillSelect2(el, cand)) return true;
+      }
       // Nothing selectable in the element itself — drive the custom widget
       // that's standing in for it (BambooHR State/Country).
       if ((opts?.autocomplete ?? true) && isDecoySelect(el)) {
