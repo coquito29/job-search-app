@@ -72,6 +72,22 @@ cd chrome-extension/tests
 PLAYWRIGHT_BROWSERS_PATH=/path/to/pw-browsers xvfb-run -a node extension-integration.test.mjs
 ```
 
+## 4. `bookmarklet_drive.mjs` — mobile bookmarklet against captured forms
+
+Drives the MOBILE BOOKMARKLET path end-to-end in headless Chromium: rebuilds
+each captured form from `../form_fixtures.json` on a local origin, then
+injects `<script src="<app>/bookmarklet/run.js">` exactly as a phone tap
+does. The Flask app must be running — it inlines the profile + engine into
+the response. Diagnostic like the fixture runner: read the per-field report.
+(The Phase 2 AI call targets the production URL, so locally it reports
+"AI skipped (network/CORS)" — expected.)
+
+```
+flask --app app run --port 5054                                # repo root
+cd chrome-extension/tests
+APP=http://127.0.0.1:5054 node bookmarklet_drive.mjs           # CHROMIUM=/path/to/chrome to pin the binary
+```
+
 Add new fixtures or matcher rules in `../autofill.js`, then re-run `node
 autofill.test.mjs`. If you change the manifest / popup / content script,
 re-run the smoke + integration tests too.

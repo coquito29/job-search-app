@@ -1220,7 +1220,15 @@
         const tag = child.tagName.toLowerCase();
         const isLabelLike = tag === "label" || tag === "legend"
                          || /^h[1-6]$/.test(tag)
-                         || /label/i.test(child.className || "");
+                         || /label/i.test(child.className || "")
+                         // Ashby renders the question as a bare <div>/<p> with
+                         // no label class at all. Accept plain-text siblings
+                         // only when they read like a question ("?") and hold
+                         // no controls of their own, so ambient prose can't
+                         // hijack the group label.
+                         || ((tag === "div" || tag === "span" || tag === "p")
+                             && !child.querySelector("input,select,textarea,button")
+                             && /\?/.test(child.textContent || ""));
         if (!isLabelLike) continue;
         const t = cleanText(child.innerText || child.textContent || "");
         if (!t || t.length > 300) continue;
@@ -1399,6 +1407,117 @@
     return undefined;
   }
 
+  // ── Positional repeating rows (Breezy-style unindexed sections) ────────────
+  // Breezy (and other ATSes) render repeating work-history / education rows
+  // with NO indexed names at all — every row is just placeholder="Company",
+  // placeholder="Title", two bare date inputs, repeated N times. Pass 0's
+  // name parser can't see rows there, and the single-row Pass 1 rules used
+  // to stamp work_experience[0].company into EVERY row.
+  //
+  // Strategy: fields matching a company/school ANCHOR pattern, in DOM order,
+  // mark the start of row 0, 1, 2…; the fields between two anchors belong to
+  // the earlier row. Within a row, text fields are classified by their own
+  // label and date inputs are assigned positionally (first = start date,
+  // second = end date) — Breezy's captured date inputs carry a bogus
+  // "Company" placeholder, so their labels can't be trusted anyway.
+  //
+  // Every classified field is marked handled EVEN WHEN the profile has no
+  // row for it, so Pass 1 can never cross-fill row 3 with row 0's employer.
+  const WORK_ANCHOR_RE = /(?:^|\|)\s*(company|employer|organization|org)\s*\*?\s*(?:\||$)|\b(company|employer|organization)[\s_-]*name\b/i;
+  const EDU_ANCHOR_RE  = /(?:^|\|)\s*(school|university|college|institution)\s*\*?\s*(?:\||$)|\bname[\s_-]*of[\s_-]*(school|university|college|institution)\b/i;
+
+  async function fillPositionalRows(profile, fields, handledByRow, opts) {
+    let filled = 0;
+    const probes = new Map();
+    const probeOf = (el) => {
+      if (!probes.has(el)) probes.set(el, probeText(el));
+      return probes.get(el);
+    };
+    const isTextish = (el) =>
+      (el.tagName === "INPUT"
+        && !/^(radio|checkbox|date|month|file|number)$/.test(el.type || "text"))
+      || el.tagName === "TEXTAREA";
+
+    for (const section of ["work", "education"]) {
+      const anchorRe = section === "work" ? WORK_ANCHOR_RE : EDU_ANCHOR_RE;
+      const otherRe  = section === "work" ? EDU_ANCHOR_RE  : WORK_ANCHOR_RE;
+      const rows = section === "work"
+        ? (profile.work_experience || [])
+        : (profile.education || []);
+      const anchorIdx = [];
+      fields.forEach((el, i) => {
+        if (handledByRow.has(el)) return;
+        if (!isTextish(el) || el.tagName === "TEXTAREA") return;
+        if (anchorRe.test(probeOf(el))) anchorIdx.push(i);
+      });
+      // One anchor is the single-row case Pass 1 already handles well.
+      if (anchorIdx.length < 2) continue;
+
+      for (let k = 0; k < anchorIdx.length; k++) {
+        const start = anchorIdx[k];
+        // Last row's slice extends as far as the first row's did — repeating
+        // rows are uniform, and an open-ended slice would swallow whatever
+        // section follows the history block (EEO, references, …).
+        const end = k + 1 < anchorIdx.length
+          ? anchorIdx[k + 1]
+          : Math.min(fields.length, start + (anchorIdx[1] - anchorIdx[0]));
+        const row = rows[k];   // may be undefined — still claim the fields
+        const dates = [];
+        for (let i = start; i < end; i++) {
+          const el = fields[i];
+          if (handledByRow.has(el)) continue;
+          const probe = probeOf(el);
+          if (otherRe.test(probe) && i !== start) break; // ran into the other section
+          let value;
+          let claimed = true;
+          if (i === start) {
+            value = section === "work" ? row?.company : row?.school;
+          } else if (el.type === "date" || el.type === "month") {
+            dates.push(el);   // positional — assigned after the loop
+            continue;
+          } else if (el.tagName === "TEXTAREA"
+                     && /\b(summary|description|duties|responsibilit)/i.test(probe)) {
+            value = undefined; // nothing in the profile for these — claim, leave blank
+          } else if (el.type === "checkbox" && /\bcurrent/i.test(probe)) {
+            value = row ? (row.current ? "Yes" : "No") : undefined;
+          } else if (!isTextish(el)) {
+            claimed = false;
+          } else if (section === "work" && /\b(job[\s_-]*)?title\b|\bposition\b|\brole\b/i.test(probe)) {
+            value = row?.title;
+          } else if (section === "education" && /\bdegree\b/i.test(probe)) {
+            value = row?.degree;
+          } else if (section === "education" && /\b(major|field[\s_-]*of[\s_-]*study|concentration)\b/i.test(probe)) {
+            value = row?.field;
+          // Bare "From"/"To"/"Until" only count when they are a field's ENTIRE
+          // label segment — as loose words they appear in ordinary prose
+          // ("willing to relocate") and would misclassify neighbours.
+          } else if (/\b(start|begin)[\s_-]*(date|year|month)?\b/i.test(probe)
+                     || /(?:^|\|)\s*from\s*\*?\s*(?:\||$)/i.test(probe)) {
+            value = row?.start_date;
+          } else if (/\b(end|finish)[\s_-]*(date|year|month)?\b/i.test(probe)
+                     || /\blast[\s_-]*day\b/i.test(probe)
+                     || /(?:^|\|)\s*(to|until)\s*\*?\s*(?:\||$)/i.test(probe)) {
+            value = row?.end_date;
+          } else if (section === "work" && /\b(location|city)\b/i.test(probe)) {
+            value = row?.location;
+          } else {
+            claimed = false;  // not a row field — leave it for Pass 1
+          }
+          if (!claimed) continue;
+          handledByRow.add(el);
+          if (value && await applyValue(el, value, opts)) filled++;
+        }
+        for (let d = 0; d < dates.length && d < 2; d++) {
+          const el = dates[d];
+          handledByRow.add(el);
+          const value = d === 0 ? row?.start_date : row?.end_date;
+          if (value && await applyValue(el, value, opts)) filled++;
+        }
+      }
+    }
+    return filled;
+  }
+
   async function run(profile, opts) {
     opts = opts || {};
     profile = profile || {};
@@ -1434,6 +1553,13 @@
         handledByRow.add(el);
       }
     }
+
+    // ── Pass 0.5: positional rows (unindexed repeating sections) ─────────────
+    // Catches Breezy-style repeats that carry no row index in their names.
+    // Must run before Pass 1 for the same reason Pass 0 does.
+    try {
+      filled += await fillPositionalRows(profile, fields, handledByRow, opts);
+    } catch (_) {}
 
     // ── Pass 1: native inputs ────────────────────────────────────────────────
     for (const el of fields) {
