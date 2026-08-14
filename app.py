@@ -6165,13 +6165,15 @@ def bookmarklet_install():
     <p style="font-size:.8rem;color:#6c757d">Browsers may strip <code>javascript:</code> URLs from dragged links for security. If drag-to-bookmark doesn't work, see the platform-specific instructions below.</p>
 
     <div class="platform">
-      <h4>📱 iOS Safari</h4>
+      <h4>📱 iPhone — use Safari, not Chrome</h4>
+      <p style="margin:0 0 8px;font-size:.84rem"><strong>Chrome on iPhone can't run bookmarklets reliably</strong> — it often strips or refuses the <code>javascript:</code> code, and tapping the bookmark silently does nothing. On iPhone, install and use this in <strong>Safari</strong>:</p>
       <ol style="padding-left:22px;margin:0">
+        <li>Open this page in <strong>Safari</strong> and tap <strong>Copy to clipboard</strong> below.</li>
         <li>Tap the <strong>Share</strong> button at the bottom of Safari → <strong>Add Bookmark</strong>.</li>
         <li>Save the bookmark anywhere (Favorites is good).</li>
         <li>Open <strong>Bookmarks</strong> (book icon at bottom) → tap <strong>Edit</strong>.</li>
-        <li>Tap the bookmark you just saved → tap the <strong>URL</strong> field → <strong>delete</strong> everything → paste the code below.</li>
-        <li>Rename it "Autofill". Done.</li>
+        <li>Tap the bookmark you just saved → tap the <strong>URL</strong> field → <strong>delete</strong> everything → paste the code.</li>
+        <li>Rename it "Autofill", then verify it on <a href="/test-form">/test-form</a>: open that page, tap the book icon → tap <strong>Autofill</strong> — fields should fill and a green box appear.</li>
       </ol>
     </div>
 
@@ -6479,11 +6481,12 @@ def bookmarklet_inline():
       <a class="install-btn" href=\"""" + bm_for_href + """\">📝 Job Search Autofill (Offline)</a>
     </p>
     <div class="platform">
-      <h4>📱 iOS Safari</h4>
+      <h4>📱 iPhone — use Safari, not Chrome</h4>
+      <p style="margin:0 0 8px;font-size:.84rem"><strong>Chrome on iPhone can't run bookmarklets reliably</strong> — install and use this in <strong>Safari</strong>:</p>
       <ol style="padding-left:22px;margin:0">
-        <li>Tap <strong>Share</strong> → <strong>Add Bookmark</strong>. Save anywhere.</li>
+        <li>Open this page in <strong>Safari</strong>. Tap <strong>Share</strong> → <strong>Add Bookmark</strong>. Save anywhere.</li>
         <li>Open <strong>Bookmarks</strong> → <strong>Edit</strong> → tap the bookmark → tap the URL field → <strong>delete it all</strong> → tap the Copy button below this list, then paste into the URL field.</li>
-        <li>Rename it "Autofill (Offline)". Done.</li>
+        <li>Rename it "Autofill (Offline)", then verify on <a href="/test-form">/test-form</a>: open it, tap the book icon → <strong>Autofill (Offline)</strong> — fields should fill and a green box appear.</li>
       </ol>
     </div>
     <div class="platform">
