@@ -134,5 +134,110 @@
       {"type": "radio", "name": "sponsorship", "label": "Yes", "prev_sibling": "Will you now or in the future require sponsorship for employment visa status?"},
       {"type": "radio", "name": "sponsorship", "label": "No"}
     ]
+  },
+
+  "lever_standard_apply": {
+    "url": "https://jobs.lever.co/example/apply",
+    "ats": "Lever",
+    "company": "(reconstructed)",
+    "field_count": 15,
+    "notes": "Reconstructed from Lever's standard hosted apply form: single full-name field, links block (LinkedIn/GitHub/Portfolio/Other), current company, location text input (Google Places combobox on the real page), EEO selects at the bottom.",
+    "fields": [
+      {"type": "file", "name": "resume", "label": "Resume/CV"},
+      {"type": "text", "name": "name", "label": "Full name*", "required": true},
+      {"type": "email", "name": "email", "label": "Email*", "required": true},
+      {"type": "text", "name": "phone", "label": "Phone"},
+      {"type": "text", "name": "location", "label": "Current location"},
+      {"type": "text", "name": "org", "label": "Current company"},
+      {"type": "text", "name": "urls[LinkedIn]", "label": "LinkedIn URL"},
+      {"type": "text", "name": "urls[GitHub]", "label": "GitHub URL"},
+      {"type": "text", "name": "urls[Portfolio]", "label": "Portfolio URL"},
+      {"type": "text", "name": "urls[Other]", "label": "Other website"},
+      {"type": "textarea", "name": "comments", "label": "Additional information"},
+      {"type": "select-one", "name": "eeo[gender]", "label": "Gender", "options": ["", "Male", "Female", "Decline to self-identify"]},
+      {"type": "select-one", "name": "eeo[race]", "label": "Race", "options": ["", "Hispanic or Latino", "White (Not Hispanic or Latino)", "Black or African American", "Decline to self-identify"]},
+      {"type": "select-one", "name": "eeo[veteran]", "label": "Veteran status", "options": ["", "I am not a protected veteran", "I identify as one or more of the classifications of protected veteran", "Decline to self-identify"]},
+      {"type": "select-one", "name": "eeo[disability]", "label": "Disability status", "options": ["", "Yes, I have a disability", "No, I do not have a disability", "I do not want to answer"]}
+    ]
+  },
+
+  "jazzhr_standard_apply": {
+    "url": "https://example.applytojob.com/apply",
+    "ats": "JazzHR",
+    "company": "(reconstructed)",
+    "field_count": 10,
+    "notes": "Reconstructed from JazzHR's applytojob.com form: placeholder-labelled inputs, bare 'Postal' placeholder for the zip field (the pattern that motivated the zip rule's postal-address lookahead).",
+    "fields": [
+      {"type": "text", "name": "first_name", "placeholder": "First Name", "required": true},
+      {"type": "text", "name": "last_name", "placeholder": "Last Name", "required": true},
+      {"type": "email", "name": "email", "placeholder": "Email", "required": true},
+      {"type": "tel", "name": "phone", "placeholder": "Phone"},
+      {"type": "text", "name": "address", "placeholder": "Address"},
+      {"type": "text", "name": "city", "placeholder": "City"},
+      {"type": "text", "name": "state", "placeholder": "State"},
+      {"type": "text", "name": "postal", "placeholder": "Postal"},
+      {"type": "file", "name": "resume", "label": "Resume"},
+      {"type": "textarea", "name": "cover_letter", "label": "Cover Letter"}
+    ]
+  },
+
+  "bamboohr_standard_apply": {
+    "url": "https://example.bamboohr.com/careers/apply",
+    "ats": "BambooHR",
+    "company": "(reconstructed)",
+    "field_count": 12,
+    "notes": "Reconstructed from BambooHR's hosted careers form. The real State/Country widgets are decoy selects with a search panel (covered by the accuracy suite); here they are plain selects to test label matching. Date Available and Desired Salary are BambooHR staples.",
+    "fields": [
+      {"type": "text", "id": "firstName", "label": "First Name*", "required": true},
+      {"type": "text", "id": "lastName", "label": "Last Name*", "required": true},
+      {"type": "email", "id": "email", "label": "Email*", "required": true},
+      {"type": "tel", "id": "phone", "label": "Phone Number"},
+      {"type": "text", "id": "streetAddress", "label": "Street Address"},
+      {"type": "text", "id": "city", "label": "City"},
+      {"type": "select-one", "id": "state", "label": "State", "options": ["-Select-", "New Jersey", "New Mexico", "New York"]},
+      {"type": "text", "id": "zip", "label": "ZIP"},
+      {"type": "date", "id": "dateAvailable", "label": "Date Available"},
+      {"type": "text", "id": "desiredPay", "label": "Desired Pay"},
+      {"type": "text", "id": "linkedinUrl", "label": "LinkedIn Url"},
+      {"type": "select-one", "id": "referredBy", "label": "How did you hear about this position?", "options": ["-Select-", "LinkedIn", "Indeed", "Referral", "Other"]}
+    ]
+  },
+
+  "teamtailor_standard_apply": {
+    "url": "https://example.teamtailor.com/jobs/apply",
+    "ats": "Teamtailor",
+    "company": "(reconstructed)",
+    "field_count": 7,
+    "notes": "Reconstructed from Teamtailor's connect/apply form. The privacy-consent checkbox is required by the form but must NEVER be auto-ticked — it is the canonical consent-guard case (its label says Required while the input carries no required attribute).",
+    "fields": [
+      {"type": "text", "id": "candidate_name", "label": "Full name*", "required": true},
+      {"type": "email", "id": "candidate_email", "label": "Email*", "required": true},
+      {"type": "tel", "id": "candidate_phone", "label": "Phone number"},
+      {"type": "file", "id": "candidate_resume", "label": "Resume"},
+      {"type": "text", "id": "candidate_linkedin", "label": "LinkedIn profile"},
+      {"type": "textarea", "id": "candidate_cover_letter", "label": "Cover letter"},
+      {"type": "checkbox", "id": "candidate_consent", "prev_sibling": "Required. I agree to the Privacy Policy and to my personal data being processed for recruitment purposes."}
+    ]
+  },
+
+  "icims_standard_apply": {
+    "url": "https://careers-example.icims.com/jobs/apply",
+    "ats": "iCIMS",
+    "company": "(reconstructed)",
+    "field_count": 11,
+    "notes": "Reconstructed from iCIMS candidate portal forms: combined 'Legal First & Last Name' label (the case that motivated the combined-name rule), Select2-backed selects rendered here as native selects, separate country-code field next to the phone input.",
+    "fields": [
+      {"type": "text", "id": "legal_name", "label": "Legal First & Last Name*", "required": true},
+      {"type": "text", "id": "preferred_name", "label": "Preferred Name"},
+      {"type": "email", "id": "email", "label": "Email Address*", "required": true},
+      {"type": "text", "id": "country_code", "label": "Country Code"},
+      {"type": "tel", "id": "phone", "label": "Phone Number*", "required": true},
+      {"type": "text", "id": "address1", "label": "Address Line 1"},
+      {"type": "text", "id": "city", "label": "City"},
+      {"type": "select-one", "id": "state", "label": "State/Province", "options": ["Please select", "New Jersey", "New York", "Pennsylvania"]},
+      {"type": "text", "id": "zip", "label": "Zip/Postal Code"},
+      {"type": "select-one", "id": "source", "label": "How did you hear about us?", "options": ["Please select", "LinkedIn", "Job Board", "Employee Referral", "Other"]},
+      {"type": "select-one", "id": "previously_employed", "label": "Have you previously been employed by this company?", "options": ["Please select", "Yes", "No"]}
+    ]
   }
 }

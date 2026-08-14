@@ -76,6 +76,14 @@
       { value: addr.country,       patterns: [/\bcountry\b/i] },
       { value: addr.street,        patterns: [/\b(street|address)[\s_-]*(line)?[\s_-]*1?\b/i, /\bstreet[\s_-]*address\b/i, /^address$/i] },
 
+      // "Current location" (Lever, Ashby) — the applicant's own whereabouts,
+      // built from the address so it fills even before any answer is saved.
+      // Must NOT claim "Which location are you applying for?" (Breezy) —
+      // that's the employer's site picker, not the applicant's location.
+      { value: [addr.city, addr.state_full || addr.state].filter(Boolean).join(", "),
+        skipIf: /\b(which|preferred|office|store|branch)[\s_-]*location\b|\blocation\b[^?]{0,40}\bapplying\b|\bapplying\b[^?]{0,40}\blocation\b/i,
+        patterns: [/\b(current|your)[\s_-]*location\b/i] },
+
       { value: p.linkedin,         patterns: [/\blinkedin\b/i] },
       { value: p.portfolio,        patterns: [/\b(portfolio|website|personal[\s_-]*site|homepage|github)\b/i, /\burl\b/i] },
 
@@ -107,7 +115,7 @@
       { value: ans.gender,                   patterns: [/\bgender\b/i, /\bsex\b/i] },
       { value: ans.hispanic_latino,          patterns: [/\bhispanic\b/i, /\blatino\b/i, /\blatinx\b/i] },
       { value: ans.race,                     patterns: [/\brace\b/i, /\bethnicity\b/i, /\bethnic\b/i] },
-      { value: ans.salary_expectation,       patterns: [/\b(salary|compensation|pay)[\s_-]*(expectation|requirement|range|desired)\b/i, /\bdesired[\s_-]*salary\b/i, /\bexpected[\s_-]*salary\b/i] },
+      { value: ans.salary_expectation,       patterns: [/\b(salary|compensation|pay)[\s_-]*(expectation|requirement|range|desired)\b/i, /\bdesired[\s_-]*(salary|pay|compensation|wage)\b/i, /\bexpected[\s_-]*(salary|pay|compensation)\b/i] },
       { value: ans.notice_period,            patterns: [/\b(notice|start)[\s_-]*period\b/i, /\bwhen[\s_-]*can[\s_-]*you[\s_-]*start\b/i, /\bavailability\b/i] },
       { value: ans.esignature,               patterns: [/\b(e[\s_-]*signature|signature|sign[\s_-]*here)\b/i, /\btype[\s_-]*your[\s_-]*name\b/i] },
       { value: ans.willing_to_relocate,      patterns: [/\brelocat/i] },
