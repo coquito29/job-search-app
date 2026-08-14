@@ -6027,11 +6027,22 @@ def test_form_page():
 
 import base64 as _base64
 
+# Minifier for the embedded engine. The inline (CSP-bypass) bookmarklet
+# encodes the WHOLE engine into a javascript: bookmark URL, and iOS Safari
+# mishandles very large bookmarks — minifying halves the engine (≈100KB →
+# ≈48KB) before encoding. Soft dependency: without rjsmin everything still
+# works, just bigger.
+try:
+    from rjsmin import jsmin as _jsmin
+except ImportError:
+    _jsmin = None
+
 _AUTOFILL_JS_PATH = os.path.join(
     os.path.dirname(__file__), "chrome-extension", "autofill.js"
 )
 _AUTOFILL_JS_MTIME = None
 _AUTOFILL_JS_CACHED = None
+_AUTOFILL_JS_MIN_CACHED = None
 
 
 def _get_default_cv_blob(uid):
@@ -6066,7 +6077,7 @@ def _get_default_cv_blob(uid):
 def _read_autofill_js():
     """Cache the autofill.js content keyed on mtime so dev reloads pick up
     edits without an app restart."""
-    global _AUTOFILL_JS_MTIME, _AUTOFILL_JS_CACHED
+    global _AUTOFILL_JS_MTIME, _AUTOFILL_JS_CACHED, _AUTOFILL_JS_MIN_CACHED
     try:
         mtime = os.path.getmtime(_AUTOFILL_JS_PATH)
     except OSError:
@@ -6074,8 +6085,24 @@ def _read_autofill_js():
     if mtime != _AUTOFILL_JS_MTIME:
         with open(_AUTOFILL_JS_PATH, encoding="utf-8") as f:
             _AUTOFILL_JS_CACHED = f.read()
+        _AUTOFILL_JS_MIN_CACHED = None   # re-minify lazily on next request
         _AUTOFILL_JS_MTIME = mtime
     return _AUTOFILL_JS_CACHED or ""
+
+
+def _read_autofill_js_min():
+    """Minified engine, cached alongside the raw copy. Falls back to the raw
+    source when rjsmin isn't installed."""
+    global _AUTOFILL_JS_MIN_CACHED
+    raw = _read_autofill_js()
+    if not raw or _jsmin is None:
+        return raw
+    if _AUTOFILL_JS_MIN_CACHED is None:
+        try:
+            _AUTOFILL_JS_MIN_CACHED = _jsmin(raw)
+        except Exception:
+            _AUTOFILL_JS_MIN_CACHED = raw
+    return _AUTOFILL_JS_MIN_CACHED
 
 
 @app.route("/bookmarklet")
@@ -6218,7 +6245,7 @@ def bookmarklet_run_js():
         return resp
 
     profile = _build_full_profile(uid)
-    engine  = _read_autofill_js()
+    engine  = _read_autofill_js_min()
     if not engine:
         body = 'alert("Job Search Autofill: engine missing on server.");'
         resp = app.make_response((body, 500))
@@ -6351,7 +6378,7 @@ def bookmarklet_inline():
     if err: return err
 
     profile = _build_full_profile(uid)
-    engine  = _read_autofill_js()
+    engine  = _read_autofill_js_min()
     if not engine:
         return ("Autofill engine missing on server", 500)
 
@@ -6396,12 +6423,13 @@ def bookmarklet_inline():
         + invocation
     )
 
-    # Wrap in IIFE then URL-encode for the javascript: URL. quote(safe="")
-    # is paranoid (encodes everything that isn't unreserved) which is what
-    # we want — bookmark URLs go through the address bar parser which is
-    # strict about syntax characters like (, ), ;, =, &.
+    # Wrap in IIFE then URL-encode for the javascript: URL. The safe set
+    # keeps URL-legal punctuation literal — encoding it too roughly doubled
+    # the bookmark size, and iOS Safari mishandles very large bookmarks.
+    # Still encoded: space, ", <, >, #, %, & and \ — the characters address
+    # bar parsers and HTML attributes actually trip over.
     iife = "(()=>{" + full_js + "})()"
-    bookmarklet_url = "javascript:" + quote(iife, safe="")
+    bookmarklet_url = "javascript:" + quote(iife, safe="-._~!$'()*+,;:@/=")
 
     site = "https://job-search-app-9pnx.onrender.com"
 

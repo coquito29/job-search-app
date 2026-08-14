@@ -6,3 +6,4 @@ gunicorn
 anthropic
 psycopg2-binary
 stripe
+rjsmin
