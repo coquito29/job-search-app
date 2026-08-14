@@ -66,6 +66,14 @@ _MSFT_TOKEN_URL  = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
 _MSFT_IMAP_SCOPE = "https://outlook.office.com/IMAP.AccessAsUser.All offline_access"
 
 app = Flask(__name__)
+# Gzip/deflate responses (index.html, bookmarklet JS, JSON) — the bookmarklet
+# script alone drops ~70% on the wire, which matters on mobile data. Soft
+# dependency: without flask-compress everything still works, just bigger.
+try:
+    from flask_compress import Compress
+    Compress(app)
+except ImportError:
+    pass
 # Signed session cookie. Set FLASK_SECRET_KEY in Render env vars so sessions
 # survive deploys; otherwise we burn a random key per process (dev only).
 app.secret_key = os.environ.get("FLASK_SECRET_KEY") or secrets.token_hex(32)
@@ -103,6 +111,16 @@ def _extension_cors(resp):
 @app.route("/api/profile/full", methods=["OPTIONS"])
 def _extension_preflight():
     return ("", 204)
+
+
+@app.after_request
+def _security_headers(resp):
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    resp.headers.setdefault("X-Frame-Options", "DENY")
+    resp.headers.setdefault("Referrer-Policy", "same-origin")
+    if os.environ.get("RENDER"):
+        resp.headers.setdefault("Strict-Transport-Security", "max-age=15552000")
+    return resp
 
 # ── Applications tracker (Postgres on Render, SQLite locally) ────────────────
 # If DATABASE_URL is set (Render auto-injects this when you attach a Postgres
@@ -1416,15 +1434,37 @@ def auth_init():
     return jsonify({"ok": True, "uid": uid})
 
 
+# Passcode brute-force guard. In-memory is fine: one process serves the app,
+# and a restart resetting the counters is acceptable — the window is short.
+_LOGIN_FAILS  = {}    # ip -> [monotonic timestamps of recent failures]
+_LOGIN_WINDOW = 900   # seconds
+_LOGIN_MAX    = 8     # failures per window before lockout
+
+
+def _login_client_ip():
+    fwd = request.headers.get("X-Forwarded-For", "")
+    return (fwd.split(",")[0].strip() if fwd else request.remote_addr) or "?"
+
+
 @app.route("/api/auth/login", methods=["POST"])
 def auth_login():
+    import time as _time
+    ip  = _login_client_ip()
+    now = _time.monotonic()
+    fails = [t for t in _LOGIN_FAILS.get(ip, []) if now - t < _LOGIN_WINDOW]
+    if len(fails) >= _LOGIN_MAX:
+        _LOGIN_FAILS[ip] = fails
+        return jsonify({"error": "Too many attempts — wait 15 minutes and try again."}), 429
     data = request.get_json(force=True) or {}
     passcode = (data.get("passcode") or "").strip()
     uid, pw_hash = _default_user()
     if not pw_hash:
         return jsonify({"error": "No passcode set yet"}), 400
     if not passcode or not check_password_hash(pw_hash, passcode):
+        fails.append(now)
+        _LOGIN_FAILS[ip] = fails
         return jsonify({"error": "Wrong passcode"}), 401
+    _LOGIN_FAILS.pop(ip, None)
     session.permanent = True
     session["uid"] = uid
     return jsonify({"ok": True, "uid": uid})
@@ -2970,6 +3010,17 @@ def autolog_application():
     uid, err = _auth_required()
     if err:
         return _autofill_cors_response(err)
+
+    # Same drive-by guard as /api/autofill: cross-origin callers that aren't
+    # the extension must carry the bookmarklet token, or any page the user
+    # visits could spam fake "applied" rows into the tracker.
+    origin = request.headers.get("Origin", "")
+    own    = request.host_url.rstrip("/")
+    if origin and not origin.startswith("chrome-extension://") and origin.rstrip("/") != own:
+        tok = request.args.get("k", "")
+        if not (tok and secrets.compare_digest(tok, _bookmarklet_token(uid))):
+            return _autofill_cors_response(
+                (jsonify({"error": "bookmarklet outdated — reinstall from /bookmarklet"}), 403))
 
     data = request.get_json(force=True, silent=True) or {}
     url = (data.get("url") or "").strip()
@@ -5000,6 +5051,21 @@ def autofill():
     uid, err = _auth_required()
     if err: return _autofill_cors_response(err)
 
+    # Cross-origin callers must prove they're OUR bookmarklet, not a drive-by
+    # page riding the session cookie: the CORS headers reflect any origin (the
+    # bookmarklet runs on every ATS domain), so without this check any site
+    # the signed-in user visits could POST crafted "fields" and read back
+    # answers grounded in the CV. The extension's background fetch is exempt
+    # (chrome-extension:// origin), as are same-origin calls from the app.
+    origin = request.headers.get("Origin", "")
+    own    = request.host_url.rstrip("/")
+    if origin and not origin.startswith("chrome-extension://") and origin.rstrip("/") != own:
+        tok = request.args.get("k", "")
+        if not (tok and secrets.compare_digest(tok, _bookmarklet_token(uid))):
+            return _autofill_cors_response(
+                (jsonify({"ai_used": False, "fills": [],
+                          "error": "bookmarklet outdated — reinstall it from /bookmarklet"}), 403))
+
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
     if not api_key or not _anthropic:
         return _autofill_cors_response(
@@ -6105,6 +6171,45 @@ def _read_autofill_js_min():
     return _AUTOFILL_JS_MIN_CACHED
 
 
+def _bookmarklet_token(uid):
+    """Per-user secret baked into the bookmarklet URL (?k=...).
+
+    Without it, ANY page the signed-in user visits could inject
+    <script src=".../bookmarklet/run.js"> itself and read the profile, saved
+    answers and CV off the window — the session cookie rides along
+    automatically (SameSite=None). The token never leaves the user's own
+    bookmark, so a drive-by page can't supply it. Stored in
+    profiles.settings so it survives restarts; created on first use."""
+    with _db_conn() as conn:
+        row = conn.execute(
+            "SELECT settings FROM profiles WHERE user_id = ?", (uid,)
+        ).fetchone()
+        settings = {}
+        if row and _row_get(row, "settings"):
+            try:
+                settings = json.loads(_row_get(row, "settings")) or {}
+            except Exception:
+                settings = {}
+        token = settings.get("bookmarklet_token")
+        if token:
+            return token
+        token = secrets.token_urlsafe(24)
+        settings["bookmarklet_token"] = token
+        now = datetime.utcnow().isoformat()
+        if row:
+            conn.execute(
+                "UPDATE profiles SET settings = ?, updated_at = ? WHERE user_id = ?",
+                (json.dumps(settings), now, uid),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO profiles (user_id, summary, skills, settings, updated_at) "
+                "VALUES (?, '', '[]', ?, ?)",
+                (uid, json.dumps(settings), now),
+            )
+    return token
+
+
 @app.route("/bookmarklet")
 def bookmarklet_install():
     """Install page for the mobile autofill bookmarklet. The user lands here
@@ -6117,9 +6222,10 @@ def bookmarklet_install():
     # query string forces a fresh fetch each tap so profile updates take
     # effect immediately.
     site = "https://job-search-app-9pnx.onrender.com"
+    token = _bookmarklet_token(uid)
     bookmarklet = (
         "javascript:(()=>{const s=document.createElement('script');"
-        f"s.src='{site}/bookmarklet/run.js?t='+Date.now();"
+        f"s.src='{site}/bookmarklet/run.js?k={token}&t='+Date.now();"
         "s.onerror=()=>alert('Job Search Autofill: open "
         f"{site}"
         " first and sign in.');"
@@ -6246,6 +6352,21 @@ def bookmarklet_run_js():
         resp.headers["Content-Type"] = "application/javascript; charset=utf-8"
         return resp
 
+    # The session cookie alone is NOT enough: it rides along automatically,
+    # so any drive-by page could inject this script and read the profile off
+    # the window. The ?k token only exists inside the user's own bookmark.
+    token = _bookmarklet_token(uid)
+    supplied = request.args.get("k", "")
+    if not (supplied and secrets.compare_digest(supplied, token)):
+        body = (
+            'alert("Job Search Autofill: this bookmark is outdated. Open '
+            'https://job-search-app-9pnx.onrender.com/bookmarklet and '
+            'reinstall it (takes a minute).");'
+        )
+        resp = app.make_response((body, 200))
+        resp.headers["Content-Type"] = "application/javascript; charset=utf-8"
+        return resp
+
     profile = _build_full_profile(uid)
     engine  = _read_autofill_js_min()
     if not engine:
@@ -6281,7 +6402,7 @@ def bookmarklet_run_js():
   const profile = window.__jt_bookmarklet_profile;
   try {
     const r1 = await window.__jobTrackerAutofill.run(profile, {
-      autologUrl: 'https://job-search-app-9pnx.onrender.com/api/applications/autolog',
+      autologUrl: 'https://job-search-app-9pnx.onrender.com/api/applications/autolog?k=__JT_TOKEN__',
     });
     // Workable-style listings mount the form only after the site's own
     // Apply button is pressed — before that there is literally nothing to
@@ -6300,7 +6421,7 @@ def bookmarklet_run_js():
     let aiStatus = '';   // '', 'skipped', 'network', 'config', 'server'
     if (unfilled.length) {
       try {
-        const ar = await fetch('https://job-search-app-9pnx.onrender.com/api/autofill', {
+        const ar = await fetch('https://job-search-app-9pnx.onrender.com/api/autofill?k=__JT_TOKEN__', {
           method: 'POST', credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -6364,7 +6485,7 @@ def bookmarklet_run_js():
         "window.__jt_bookmarklet_profile = " + json.dumps(profile) + ";\n"
         + cv_js
         + engine + "\n"
-        + invocation
+        + invocation.replace("__JT_TOKEN__", token)
     )
     resp = app.make_response((body, 200))
     resp.headers["Content-Type"]  = "application/javascript; charset=utf-8"
@@ -6419,7 +6540,7 @@ def bookmarklet_inline():
   if (!window.__jobTrackerAutofill) { toast('Autofill engine failed to load', 'err'); return; }
   try {
     const r = await window.__jobTrackerAutofill.run(window.__jt_bookmarklet_profile, {
-      autologUrl: 'https://job-search-app-9pnx.onrender.com/api/applications/autolog',
+      autologUrl: 'https://job-search-app-9pnx.onrender.com/api/applications/autolog?k=__JT_TOKEN__',
     });
     if (!r.total) {
       const applyBtn = [...document.querySelectorAll('button, a, [role="button"]')]
@@ -6441,7 +6562,7 @@ def bookmarklet_inline():
     full_js = (
         "window.__jt_bookmarklet_profile = " + json.dumps(profile) + ";"
         + engine
-        + invocation
+        + invocation.replace("__JT_TOKEN__", _bookmarklet_token(uid))
     )
 
     # Wrap in IIFE then URL-encode for the javascript: URL. The safe set

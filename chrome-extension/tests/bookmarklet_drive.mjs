@@ -80,6 +80,12 @@ const port = server.address().port;
 const browser = await chromium.launch(
   process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {});
 
+// The bookmarklet URL carries a per-user token (?k=) that run.js requires —
+// harvest it from the install page exactly the way a user's bookmark does.
+const installHtml = await (await fetch(`${APP}/bookmarklet`)).text();
+const token = (installHtml.match(/run\.js\?k=([A-Za-z0-9_-]+)/) || [])[1];
+if (!token) { console.error('could not extract bookmarklet token from /bookmarklet'); process.exit(1); }
+
 for (const [key, fx] of Object.entries(FIXTURES)) {
   if (key === '_README') continue;
   if (!(fx.fields || []).length && !(fx.button_chip_questions || []).length) {
@@ -95,12 +101,12 @@ for (const [key, fx] of Object.entries(FIXTURES)) {
       b.addEventListener('click', () => { b.dataset.jtClicked = 'CLICKED'; }));
   });
   // This is exactly what the bookmarklet's javascript: URL does.
-  await page.evaluate((app) => {
+  await page.evaluate(({ app, k }) => {
     const s = document.createElement('script');
-    s.src = app + '/bookmarklet/run.js?t=' + Date.now();
+    s.src = app + '/bookmarklet/run.js?k=' + k + '&t=' + Date.now();
     s.onerror = () => console.log('BOOKMARKLET_SCRIPT_LOAD_FAILED');
     document.head.appendChild(s);
-  }, APP);
+  }, { app: APP, k: token });
   let toast = '(no toast — engine never finished)';
   try {
     await page.waitForSelector('#__jt_bookmarklet_toast', { timeout: 20000 });
