@@ -111,5 +111,28 @@
       {"type": "text", "name": "zip", "placeholder": "Zip/Postal Code*", "required": true},
       {"type": "text", "name": "phone", "placeholder": "Phone*", "required": true}
     ]
+  },
+
+  "workable_apply_modal": {
+    "url": "https://jobs.workable.com/view/apply-modal",
+    "ats": "Workable",
+    "company": "(reconstructed)",
+    "field_count": 13,
+    "notes": "Reconstructed from Workable's standard apply-modal markup plus the engine comments describing patterns seen live (screening radios in legend-less fieldsets with the question in a bare span; 'Current location (city)' input carrying name=address; SVG-fallback noise in custom controls). Complements the behavioural finding above: these fields only exist AFTER the Apply button mounts the modal.",
+    "fields": [
+      {"type": "text", "id": "firstname", "label": "First name *", "required": true},
+      {"type": "text", "id": "lastname", "label": "Last name *", "required": true},
+      {"type": "email", "id": "email", "label": "Email *", "required": true},
+      {"type": "tel", "id": "phone", "label": "Phone *", "required": true},
+      {"type": "text", "id": "headline", "label": "Headline"},
+      {"type": "text", "id": "candidate_address", "name": "address", "label": "Current location (city)"},
+      {"type": "select-one", "id": "country", "label": "Country", "options": ["", "United States", "Canada", "United Kingdom"]},
+      {"type": "file", "id": "resume", "label": "Resume *"},
+      {"type": "textarea", "id": "summary", "label": "Summary"},
+      {"type": "radio", "name": "work_auth", "label": "Yes", "prev_sibling": "Are you legally authorized to work in the United States? SVGs not supported by this browser."},
+      {"type": "radio", "name": "work_auth", "label": "No"},
+      {"type": "radio", "name": "sponsorship", "label": "Yes", "prev_sibling": "Will you now or in the future require sponsorship for employment visa status?"},
+      {"type": "radio", "name": "sponsorship", "label": "No"}
+    ]
   }
 }

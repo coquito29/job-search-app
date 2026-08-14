@@ -6283,6 +6283,17 @@ def bookmarklet_run_js():
     const r1 = await window.__jobTrackerAutofill.run(profile, {
       autologUrl: 'https://job-search-app-9pnx.onrender.com/api/applications/autolog',
     });
+    // Workable-style listings mount the form only after the site's own
+    // Apply button is pressed — before that there is literally nothing to
+    // fill, which used to read as a failure. Say what to do instead.
+    if (!r1.total) {
+      const applyBtn = [...document.querySelectorAll('button, a, [role="button"]')]
+        .some(b => /\\bapply\\b/i.test((b.innerText || b.textContent || '').trim().slice(0, 40)));
+      toast(applyBtn
+        ? "No form on this page yet — tap the site's Apply button to open the application, then tap Autofill again."
+        : 'No form fields found on this page.', 'warn');
+      return;
+    }
     // Phase 2 AI — fetches /api/autofill cross-origin with cookies.
     const unfilled = window.__jobTrackerAutofill.collectUnfilledFields(profile);
     let aiCount  = 0;
@@ -6410,6 +6421,14 @@ def bookmarklet_inline():
     const r = await window.__jobTrackerAutofill.run(window.__jt_bookmarklet_profile, {
       autologUrl: 'https://job-search-app-9pnx.onrender.com/api/applications/autolog',
     });
+    if (!r.total) {
+      const applyBtn = [...document.querySelectorAll('button, a, [role="button"]')]
+        .some(b => /\\bapply\\b/i.test((b.innerText || b.textContent || '').trim().slice(0, 40)));
+      toast(applyBtn
+        ? "No form on this page yet — tap the site's Apply button to open the application, then tap Autofill again."
+        : 'No form fields found on this page.', 'warn');
+      return;
+    }
     toast('Auto-filled ' + r.filled + ' field' + (r.filled === 1 ? '' : 's')
       + ' — review before submitting');
   } catch (e) {

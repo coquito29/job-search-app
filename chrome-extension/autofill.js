@@ -618,7 +618,17 @@
         // Use only the radio's [for] label + parent <label> wrapper — NOT
         // the full walk-up. The walk-up includes the question label which
         // can contain misleading substrings (e.g. "Will you NOW or...").
-        const ownLabel = labelForText(r)
+        //
+        // The ADJACENT sibling label wins over the document-wide [for]
+        // lookup: sloppy forms stamp the same id on every radio in the
+        // group, and getElementById-style resolution then hands every
+        // radio the FIRST label in the document — so a "No" radio reads
+        // as "Yes" and the group never fills.
+        const adjacent = [r.previousElementSibling, r.nextElementSibling]
+          .filter(s => s && s.tagName === "LABEL")
+          .filter(s => { const f = s.getAttribute("for"); return !f || f === r.id; })
+          .map(s => s.textContent).join(" ").trim();
+        const ownLabel = (adjacent || labelForText(r))
           + " " + (r.closest("label")?.textContent || "")
           + " " + (r.value || "");
         if (wordBoundaryRe.test(ownLabel)) {
