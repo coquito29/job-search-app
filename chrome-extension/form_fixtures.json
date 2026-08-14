@@ -92,5 +92,24 @@
     "company": "BES Software",
     "field_count": 0,
     "notes": "BEHAVIOURAL FINDING, not a field capture. The page has an 'Apply now' button and a 'Submit application' button in the DOM, but zero input/select/textarea elements — including hidden ones — until the modal genuinely mounts. No shadow DOM, no iframe. Autofill run before the modal opens finds nothing and reports 0 of 0 fields, which looks like a failure but is a timing problem."
+  },
+
+  "jobvite_ima_group_web_developer": {
+    "url": "https://jobs.jobvite.com/ima-group/job/apply",
+    "ats": "Jobvite",
+    "company": "The IMA Group",
+    "field_count": 9,
+    "notes": "Reconstructed from a live mobile screenshot (2026-08), not a DOM capture. Jobvite renders placeholder-labelled inputs with a trailing required asterisk and no <label> elements; resume upload is a styled SELECT dropdown over a hidden file input; reCAPTCHA present.",
+    "fields": [
+      {"type": "file", "name": "resume", "section": "Add Resume*"},
+      {"type": "text", "name": "firstName", "placeholder": "First Name*", "required": true, "section": "Personal Information"},
+      {"type": "text", "name": "lastName", "placeholder": "Last Name*", "required": true},
+      {"type": "email", "name": "email", "placeholder": "Email*", "required": true},
+      {"type": "text", "name": "address", "placeholder": "Address*", "required": true},
+      {"type": "text", "name": "city", "placeholder": "City*", "required": true},
+      {"type": "select-one", "name": "state", "aria": "State", "options": ["Select an option...", "New Jersey", "New York", "Pennsylvania", "California"]},
+      {"type": "text", "name": "zip", "placeholder": "Zip/Postal Code*", "required": true},
+      {"type": "text", "name": "phone", "placeholder": "Phone*", "required": true}
+    ]
   }
 }
