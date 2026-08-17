@@ -5127,8 +5127,12 @@ def autofill():
 
     try:
         client  = _anthropic.Anthropic(api_key=api_key)
+        # Haiku: field→answer mapping is structured extraction, and this call
+        # sits on the interactive path — the user is staring at a half-filled
+        # form while it runs. Fastest model wins; the writing-quality calls
+        # (cover letter generation) stay on Sonnet.
         message = client.messages.create(
-            model="claude-sonnet-4-6",
+            model="claude-haiku-4-5",
             max_tokens=1500,
             messages=[{"role": "user", "content": prompt}],
         )
@@ -5231,8 +5235,10 @@ Return ONLY valid JSON (no markdown fence, no extra text):
     "<specific edit 3 (optional)>"
   ]
 }}"""
+            # Haiku: picking a letter from a fixed list is selection, not
+            # writing — take the fast model on this user-facing wait.
             msg = client.messages.create(
-                model="claude-sonnet-4-6",
+                model="claude-haiku-4-5",
                 max_tokens=600,
                 messages=[{"role": "user", "content": prompt}],
             )
