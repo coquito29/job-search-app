@@ -1345,6 +1345,53 @@
       backdrop-filter: blur(6px);
     }
     .result-banner:not([style*="display:none"]) { display: flex; }
+
+    /* ── Morning queue ─────────────────────────────────────────────────────
+       Fixed overlay so the queue owns the screen — the whole point is one
+       decision at a time with nothing else competing for attention. */
+    .mq-overlay {
+      position: fixed; inset: 0; z-index: 1080;
+      background: rgba(15, 23, 42, .55);
+      backdrop-filter: blur(3px);
+      align-items: center; justify-content: center;
+      padding: 14px;
+    }
+    .mq-overlay[style*="flex"] { display: flex; }
+    .mq-panel {
+      background: var(--surface, #fff);
+      border-radius: 16px;
+      width: 100%; max-width: 460px;
+      max-height: 92vh; display: flex; flex-direction: column;
+      box-shadow: 0 18px 48px rgba(0,0,0,.32);
+      overflow: hidden;
+    }
+    .mq-head {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 16px; border-bottom: 1px solid var(--border, #e5e7eb);
+    }
+    .mq-progress { font-size: .78rem; font-weight: 700; color: var(--ink-soft, #6b7280); letter-spacing: .02em; }
+    .mq-body { padding: 18px 16px; overflow-y: auto; }
+    .mq-foot {
+      padding: 12px 16px; border-top: 1px solid var(--border, #e5e7eb);
+      display: flex; gap: 10px;
+    }
+    .mq-foot .btn { flex: 1; font-weight: 700; padding: 11px 8px; }
+    .mq-title { font-size: 1.15rem; font-weight: 800; line-height: 1.25; margin: 10px 0 4px; }
+    .mq-co { font-size: .9rem; color: var(--ink-soft, #6b7280); margin-bottom: 12px; }
+    .mq-facts { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+    .mq-fact {
+      font-size: .74rem; font-weight: 600; padding: 4px 9px; border-radius: 999px;
+      background: var(--surface-2, #f3f4f6); color: var(--ink, #374151);
+    }
+    .mq-why {
+      font-size: .8rem; line-height: 1.5; color: var(--ink-soft, #6b7280);
+      background: var(--surface-2, #f8fafc); border-radius: 10px; padding: 10px 12px;
+    }
+    .mq-done { text-align: center; padding: 18px 6px; }
+    .mq-done .bi { font-size: 2.4rem; color: var(--success-500, #16a34a); }
+    body.dark-mode .mq-panel { background: #1e293b; }
+    body.dark-mode .mq-fact,
+    body.dark-mode .mq-why  { background: #0f172a; color: #cbd5e1; }
     .result-banner--saved {
       background: linear-gradient(135deg, #fef6e7 0%, #fdf0d2 100%);
       border-color: #fcd34d;
@@ -1898,11 +1945,19 @@
   <!-- Today's Matches banner — shown when results came from the daily-digest cron -->
   <div id="dailyResultsBanner" class="result-banner result-banner--daily" style="display:none;">
     <span><i class="bi bi-calendar-check me-1"></i><span id="dailyResultsLabel">Today's matches</span></span>
-    <button class="btn btn-sm btn-outline-primary" onclick="searchJobs()"
-            style="font-size:.72rem; padding:2px 8px;" title="Run a fresh Apify search ($1.20)">
-      <i class="bi bi-arrow-clockwise me-1"></i>Refresh now
-    </button>
+    <div class="d-flex gap-1">
+      <button class="btn btn-sm btn-primary" id="startQueueBtn" onclick="openMorningQueue()"
+              style="font-size:.72rem; padding:2px 8px;"
+              title="Review today's matches one at a time">
+        <i class="bi bi-lightning-charge-fill me-1"></i>Morning queue
+      </button>
+      <button class="btn btn-sm btn-outline-primary" onclick="searchJobs()"
+              style="font-size:.72rem; padding:2px 8px;" title="Run a fresh Apify search ($1.20)">
+        <i class="bi bi-arrow-clockwise me-1"></i>Refresh now
+      </button>
+    </div>
   </div>
+
   <div class="results-summary">
     <div class="results-summary-top">
       <span id="resultsSummary">No results yet</span>
@@ -2127,6 +2182,26 @@
 
 <!-- ══ Toast container ═══════════════════════════════════════════════════════ -->
 <div class="toast-container" id="toastContainer"></div>
+
+<!-- ══ Morning queue ═════════════════════════════════════════════════════════
+     Full-screen, one job at a time, off the daily cron run. The scheduled
+     search already picked the matches; this strips out the hunting so each job
+     costs one glance and one tap. Never auto-submits — see openMorningQueue().
+
+     MUST live at top level, alongside the other modals: it started out inside
+     #resultsSection and was invisible whenever another tab was open, because a
+     display:none ancestor removes its whole subtree from rendering no matter
+     what position:fixed says. -->
+<div id="morningQueue" class="mq-overlay" style="display:none;">
+  <div class="mq-panel">
+    <div class="mq-head">
+      <span id="mqProgress" class="mq-progress">—</span>
+      <button class="btn-close" onclick="closeMorningQueue()" aria-label="Close queue"></button>
+    </div>
+    <div id="mqBody" class="mq-body"></div>
+    <div id="mqFoot" class="mq-foot"></div>
+  </div>
+</div>
 
 <!-- ══ Job Detail Modal ══════════════════════════════════════════════════════ -->
 <div class="modal fade" id="jobDetailModal" tabindex="-1" aria-labelledby="jobDetailTitle" aria-hidden="true">
@@ -2607,6 +2682,17 @@ async function loadDailyResultsIfAny() {
       const age = formatAge(ageMs);
       lbl.textContent = `Today's matches · ${jobs.length} jobs · auto-loaded from daily run ${age}`;
       banner.style.display = 'flex';
+      // Show how many of those are actually queueable, so the button says what
+      // it will do rather than promising a review of jobs already applied to.
+      const qBtn = document.getElementById('startQueueBtn');
+      if (qBtn) {
+        const n = jobs.filter(eligibleForQueue).length;
+        qBtn.innerHTML = '<i class="bi bi-lightning-charge-fill me-1"></i>Morning queue'
+                       + (n ? ` (${n})` : '');
+        qBtn.disabled = n === 0;
+        qBtn.title = n ? `Review ${n} fast-apply match${n === 1 ? '' : 'es'} one at a time`
+                       : 'No fast-apply matches left to review today';
+      }
     }
     return true;
   } catch (e) {
@@ -3251,6 +3337,16 @@ async function applyAndLog(index) {
   }
   // Open the apply URL immediately (inside the user click — avoids popup blockers)
   window.open(url, '_blank', 'noopener');
+  await recordApplication(job);
+}
+
+// Everything applyAndLog does EXCEPT opening the tab: optimistic local state,
+// the applied-index that drives dedup, and the server-side tracker POST. Split
+// out so the morning queue can log a job whose tab it opened itself — the
+// window.open has to stay inside its own click handler to dodge popup blockers.
+async function recordApplication(job) {
+  const url = job.url;
+  if (!url) return;
 
   // Optimistic UI: mark applied locally first so the button flips right away
   jobStatuses[url] = 'applied';
@@ -3296,6 +3392,128 @@ async function applyAndLog(index) {
   } catch(e) {
     showToast('Logged locally (server unreachable)', 'warning');
   }
+}
+
+// ── Morning queue ────────────────────────────────────────────────────────────
+// The 9am cron already did the searching. This removes the *hunting*: it walks
+// the day's eligible matches one at a time so each is a glance and a tap.
+//
+// It deliberately does NOT auto-submit. The autofill engine is good but not
+// perfect — this codebase has shipped fixes for cross-filled work history, an
+// unanswered sponsorship radio, and a location filter that ranked a Jordan role
+// first — and an application cannot be un-sent. Wrong answers submitted
+// unattended are silent auto-rejections. The queue keeps the human veto and
+// removes everything around it.
+let queueJobs = [];
+let queueIdx  = 0;
+
+function queueDismissed() {
+  try { return JSON.parse(localStorage.getItem('queue_dismissed') || '{}'); }
+  catch (_) { return {}; }
+}
+
+// Stricter than eligibleForBatch: also drops roles the location filter flagged
+// as non-US, since those can't be worked regardless of how well they score.
+function eligibleForQueue(job) {
+  if (!job || !job.url) return false;
+  if ((job.ats_class || 'unknown') !== 'fast') return false;
+  if (job.loc_class === 'NON_US') return false;
+  if (jobStatuses[job.url] === 'applied') return false;
+  if (applicationFor(job)) return false;
+  if (queueDismissed()[job.url]) return false;
+  return true;
+}
+
+function openMorningQueue() {
+  queueJobs = jobs.filter(eligibleForQueue)
+                  .sort((a, b) => (b.match_pct || 0) - (a.match_pct || 0));
+  queueIdx = 0;
+  document.getElementById('morningQueue').style.display = 'flex';
+  document.body.style.overflow = 'hidden';   // stop the page scrolling behind
+  renderQueueCard();
+}
+
+function closeMorningQueue() {
+  document.getElementById('morningQueue').style.display = 'none';
+  document.body.style.overflow = '';
+  renderJobCards();          // reflect anything applied while the queue was open
+  updateTrackerBadge();
+}
+
+function renderQueueCard() {
+  const body = document.getElementById('mqBody');
+  const foot = document.getElementById('mqFoot');
+  const prog = document.getElementById('mqProgress');
+
+  if (queueIdx >= queueJobs.length) {
+    const done = queueJobs.length;
+    prog.textContent = 'Queue complete';
+    body.innerHTML =
+      '<div class="mq-done">' +
+        '<i class="bi bi-check-circle-fill"></i>' +
+        '<div style="font-weight:800;font-size:1.05rem;margin-top:10px;">' +
+          (done ? "That's today's queue" : 'Nothing to review') +
+        '</div>' +
+        '<div style="font-size:.83rem;color:var(--ink-soft,#6b7280);margin-top:6px;line-height:1.5;">' +
+          (done
+            ? 'Anything you applied to is in the Tracker. Skipped jobs stay out of future queues.'
+            : 'No fast-apply matches left today. Tomorrow’s run lands at 9am.') +
+        '</div>' +
+      '</div>';
+    foot.innerHTML =
+      '<button class="btn btn-primary" onclick="closeMorningQueue()">Done</button>';
+    return;
+  }
+
+  const job = queueJobs[queueIdx];
+  const pct = job.match_pct || 0;
+  const cls = pct >= 70 ? 'match-high' : pct >= 40 ? 'match-good' : 'match-low';
+  const facts = [];
+  if (job.location)                        facts.push(escHtml(job.location));
+  if (job.salary_clean || job.salary)      facts.push(escHtml(job.salary_clean || job.salary));
+  if (job.ats_name)                        facts.push(escHtml(job.ats_name) + ' · Fast');
+  if (job.date_fmt)                        facts.push(escHtml(job.date_fmt));
+
+  prog.textContent = 'Job ' + (queueIdx + 1) + ' of ' + queueJobs.length;
+  body.innerHTML =
+    '<span class="match-badge ' + cls + '">' + pct + '% Match</span>' +
+    '<div class="mq-title">' + escHtml(job.title || 'Untitled role') + '</div>' +
+    '<div class="mq-co">' + escHtml(job.company_name || '') + '</div>' +
+    (facts.length
+      ? '<div class="mq-facts">' + facts.map(f => '<span class="mq-fact">' + f + '</span>').join('') + '</div>'
+      : '') +
+    (job.reason ? '<div class="mq-why">' + escHtml(job.reason) + '</div>' : '');
+  foot.innerHTML =
+    '<button class="btn btn-outline-secondary" onclick="queueSkip()">Skip</button>' +
+    '<button class="btn btn-primary" onclick="queueApply()">Open &amp; log</button>';
+}
+
+// window.open MUST stay directly inside this click handler — deferring it
+// behind an await hands control back to the browser, which then treats the
+// call as an unrequested popup and blocks it (same reason batchApply opens
+// all its tabs synchronously).
+//
+// Its return value is NOT checked: 'noopener' makes window.open return null
+// per spec even on success, so a null test would report every opened tab as
+// blocked. applyAndLog() opens the same way for the same reason.
+function queueApply() {
+  const job = queueJobs[queueIdx];
+  if (!job) return;
+  window.open(job.url, '_blank', 'noopener');
+  recordApplication(job);         // fire-and-forget; the card advances now
+  queueIdx++;
+  renderQueueCard();
+}
+
+function queueSkip() {
+  const job = queueJobs[queueIdx];
+  if (job) {
+    const d = queueDismissed();
+    d[job.url] = new Date().toISOString();
+    localStorage.setItem('queue_dismissed', JSON.stringify(d));
+  }
+  queueIdx++;
+  renderQueueCard();
 }
 
 // ── Batch apply ──────────────────────────────────────────────────────────────
