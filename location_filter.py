@@ -35,6 +35,10 @@ _US_SIGNAL_RE = re.compile(
     r"\bunited states\b|\bu\.?s\.?a\b|\bus[-\s]based\b|\bus[-\s]only\b|"
     r"\bus[-\s]remote\b|\bremote[-,\s]+us\b|\bnorth america\b|\bamericas\b|"
     r"\bpuerto rico\b|\bdistrict of columbia\b|\bwashington,?\s*d\.?c\.?\b|"
+    # US territories — work authorization carries, so these are applyable.
+    # "virgin islands" is guarded because the British ones are not.
+    r"\bamerican samoa\b|\bguam\b|\bnorthern mariana\b|"
+    r"(?<!british )\bvirgin islands\b|"
     r"\bnationwide\b|\bcontinental us\b|\blower 48\b|\bstateside\b|"
     r"\b(?:" + _US_STATES + r")\b"
 )
@@ -59,7 +63,7 @@ _NON_US_COUNTRIES = {
     r"india": "India",
     r"kazakhstan": "Kazakhstan",
     r"canada|ontario, canada|british columbia": "Canada",
-    r"united kingdom|great britain|england|scotland|wales|northern ireland": "UK",
+    r"united kingdom|great britain|england|scotland|wales|northern ireland|uk": "UK",
     r"ireland|eire": "Ireland",
     r"germany|deutschland": "Germany",
     r"france": "France",
@@ -97,7 +101,7 @@ _NON_US_COUNTRIES = {
     r"azerbaijan": "Azerbaijan",
     r"uzbekistan": "Uzbekistan",
     r"israel": "Israel",
-    r"united arab emirates|u\.a\.e": "UAE",
+    r"united arab emirates|u\.a\.e|uae": "UAE",
     r"saudi arabia": "Saudi Arabia",
     r"qatar": "Qatar",
     r"egypt": "Egypt",
@@ -148,13 +152,114 @@ _NON_US_COUNTRIES = {
     r"nicaragua": "Nicaragua",
     r"el salvador": "El Salvador",
     r"dominican republic": "Dominican Republic",
+
+    # ── Second pass (2026-08) ────────────────────────────────────────────────
+    # An Amman, Jordan role topped the results at 22% match because "Jordan"
+    # was missing here: unlisted countries fall through to UNKNOWN, which
+    # carries no penalty, so they sort as if they were domestic. A sweep of 65
+    # countries found 62 unlisted. Ambiguity with US place names is handled for
+    # free — classify_location() checks US signals FIRST and returns on a hit,
+    # so "Lebanon, PA", "Jordan, MN", "Angola, IN" and "Palestine, TX" all
+    # resolve as US before these patterns are ever consulted.
+    #
+    # Deliberately NOT listed:
+    #   georgia — a US state, already matched by _US_STATES, so an entry here
+    #             would be unreachable. Its capital is caught by
+    #             _FOREIGN_CITY_RE below, which runs ahead of the US check.
+    #   jersey  — "Jersey City" is in New Jersey and often written without a
+    #             state code; the island is rare enough not to be worth it.
+
+    # Middle East
+    r"jordan": "Jordan",
+    r"lebanon": "Lebanon",
+    r"kuwait": "Kuwait",
+    r"bahrain": "Bahrain",
+    r"oman": "Oman",
+    r"iraq": "Iraq",
+    r"iran": "Iran",
+    r"syria": "Syria",
+    r"yemen": "Yemen",
+    r"palestine|west bank|gaza": "Palestine",
+
+    # Caucasus, Russia and Central Asia
+    r"russia|russian federation": "Russia",
+    r"afghanistan": "Afghanistan",
+    r"kyrgyzstan": "Kyrgyzstan",
+    r"tajikistan": "Tajikistan",
+    r"turkmenistan": "Turkmenistan",
+
+    # Rest of Asia
+    r"myanmar|burma": "Myanmar",
+    r"laos": "Laos",
+    r"brunei": "Brunei",
+    r"maldives": "Maldives",
+    r"bhutan": "Bhutan",
+
+    # Africa
+    r"senegal": "Senegal",
+    r"cameroon": "Cameroon",
+    r"ivory coast|c\w*te d'?ivoire": "Ivory Coast",
+    r"zambia": "Zambia",
+    r"zimbabwe": "Zimbabwe",
+    r"botswana": "Botswana",
+    r"namibia": "Namibia",
+    r"mozambique": "Mozambique",
+    r"angola": "Angola",
+    r"algeria": "Algeria",
+    r"libya": "Libya",
+    r"sudan": "Sudan",
+    r"somalia": "Somalia",
+    r"mali": "Mali",
+    r"malawi": "Malawi",
+    r"madagascar": "Madagascar",
+    r"mauritius": "Mauritius",
+    r"congo": "Congo",
+    r"gabon": "Gabon",
+    r"benin": "Benin",
+    r"togo": "Togo",
+
+    # Balkans and European micro-states
+    r"kosovo": "Kosovo",
+    r"montenegro": "Montenegro",
+    r"bosnia|herzegovina": "Bosnia",
+    r"macedonia": "North Macedonia",
+    r"andorra": "Andorra",
+    r"monaco": "Monaco",
+    r"liechtenstein": "Liechtenstein",
+    r"san marino": "San Marino",
+    r"gibraltar": "Gibraltar",
+    r"guernsey": "Guernsey",
+    r"isle of man": "Isle of Man",
+
+    # Caribbean and the rest of the Americas
+    r"jamaica": "Jamaica",
+    r"trinidad|tobago": "Trinidad and Tobago",
+    r"barbados": "Barbados",
+    r"bahamas": "Bahamas",
+    r"haiti": "Haiti",
+    r"cuba": "Cuba",
+    r"belize": "Belize",
+    r"guyana": "Guyana",
+    r"suriname": "Suriname",
+    r"british virgin islands": "British Virgin Islands",
+    r"cayman": "Cayman Islands",
+    r"bermuda": "Bermuda",
+    r"aruba": "Aruba",
+    r"cura\w*ao": "Curaçao",
+
+    # Oceania — "american samoa" is a US territory, so require a bare "samoa"
+    r"fiji": "Fiji",
+    r"papua new guinea": "Papua New Guinea",
+    r"(?<!american )samoa": "Samoa",
+    r"tonga": "Tonga",
+    r"vanuatu": "Vanuatu",
 }
 
 _NON_US_REGIONS = {
     r"emea": "EMEA",
     r"apac|asia[-\s]pacific": "APAC",
     r"latam|latin america": "LATAM",
-    r"europe|european union": "Europe",
+    r"europe|european union|eu": "Europe",
     r"middle east": "Middle East",
     r"south america": "South America",
     r"\bafrica\b": "Africa",
@@ -171,17 +276,34 @@ _NON_US_CODE_RE = re.compile(
     r"(?:^|[,(\-/]\s*)(ON|QC|BC|AB|MB|SK|NS|NB|NL|PE|YT|NT|NU)(?![A-Za-z])"
 )
 
+# Cities whose country shares a name with a US state, so the country itself
+# can't be listed above — "Tbilisi, Georgia" would match the state list and
+# read as domestic. Checked BEFORE the US signals; keep this list to names
+# that exist nowhere in the US.
+_FOREIGN_CITY_COMPILED = [
+    (re.compile(r"\b(?:" + pat + r")\b"), label)
+    for pat, label in {
+        r"tbilisi|batumi": "Georgia (country)",
+    }.items()
+]
+
 
 def classify_location(loc):
     """Return ("US" | "NON_US" | "UNKNOWN", country_label_or_None).
 
     A US signal anywhere in the string wins outright — a posting open to both
-    the US and somewhere else is one George can actually apply to.
+    the US and somewhere else is one George can actually apply to. The one
+    exception is _FOREIGN_CITY_RE, checked first: those cities sit in a country
+    whose name IS a US state, so the US check would claim them every time.
     """
     if not loc:
         return "UNKNOWN", None
     raw = str(loc).strip()
     low = raw.lower()
+
+    for rx, label in _FOREIGN_CITY_COMPILED:
+        if rx.search(low):
+            return "NON_US", label
 
     if _US_SIGNAL_RE.search(low) or _US_ABBR_RE.search(raw) or _US_STATE_CODE_RE.search(raw):
         return "US", None
