@@ -1135,7 +1135,11 @@
     // With no label of its own, fall back to the name/id so machine-named
     // boxes like candidate[consent_given] are still caught.
     const basis = own || `${el.name || ""} ${el.id || ""}`;
-    return CONSENT_RE.test(basis) || /\bconsent\b/i.test(`${el.name || ""} ${el.id || ""}`);
+    // Machine names separate words with _ - [ ] rather than spaces, and \b
+    // treats "_" as a word character — /\bconsent\b/ never matches
+    // "candidate_consent". Normalize the separators to spaces first.
+    const machine = `${el.name || ""} ${el.id || ""}`.replace(/[_\-\[\]().]+/g, " ");
+    return CONSENT_RE.test(basis) || /\bconsent\b/i.test(machine);
   }
 
   function qaTokens(s) {
@@ -1536,6 +1540,57 @@
     return filled;
   }
 
+  // ── Greenhouse "value-holder twins" (Pass 1c) ──────────────────────────────
+  // Greenhouse's combobox pattern renders each screener question TWICE: a
+  // visible input[type=text]#question_<id> that carries the label and takes
+  // the typing, and an anonymous input[required] right after it with no id,
+  // name, placeholder, aria-* or label of its own. Greenhouse's validation
+  // reads the anonymous one — so filling only the visible input looks
+  // complete on screen and submits every screener answer EMPTY.
+  //
+  // Mirror each answered control's value into such a twin. The
+  // no-identity-whatsoever requirement is the safety valve: any input a
+  // human could be expected to fill directly carries at least a label or a
+  // name, so the only things we ever touch are these machine value-holders.
+  // Hidden inputs are deliberately excluded — anonymous hidden fields are
+  // honeypots/CSRF tokens and must stay untouched.
+  function hasOwnIdentity(el) {
+    if (el.id || el.name || el.placeholder) return true;
+    for (const a of el.attributes) {
+      if (a.name.startsWith("aria-")) return true;
+    }
+    if (labelForText(el)) return true;
+    let p = el.parentElement;
+    for (let i = 0; i < 3 && p; i++, p = p.parentElement) {
+      if (p.tagName === "LABEL") return true;
+    }
+    return false;
+  }
+
+  function mirrorValueHolderTwins() {
+    let mirrored = 0;
+    const textLike = el =>
+      el.tagName === "TEXTAREA"
+      || (el.tagName === "INPUT" && ["text", "email", "tel", "url", "search", ""].includes(el.type || ""));
+    const controls = querySelectorAllDeep("input, textarea")
+      .filter(el => !el.disabled && !el.readOnly && el.type !== "hidden" && textLike(el));
+
+    for (let i = 1; i < controls.length; i++) {
+      const twin = controls[i];
+      if (!twin.required) continue;             // the value-holder is always required
+      if (String(twin.value || "").trim()) continue;
+      if (hasOwnIdentity(twin)) continue;
+      // The twin immediately follows the visible question input in DOM order.
+      const holder = controls[i - 1];
+      if (!hasOwnIdentity(holder)) continue;    // two anonymous inputs in a row — not the pattern
+      const value = String(holder.value || "").trim();
+      if (!value) continue;
+      setNativeValue(twin, value);
+      mirrored++;
+    }
+    return mirrored;
+  }
+
   async function run(profile, opts) {
     opts = opts || {};
     profile = profile || {};
@@ -1612,6 +1667,12 @@
     // Runs after the single-input rules so it only handles genuine split
     // clusters that Pass 1 left untouched.
     try { filled += fillSplitDates(rules); } catch (_) {}
+
+    // ── Pass 1c: Greenhouse value-holder twins ───────────────────────────────
+    // Runs after every text-filling pass so each answered question input can
+    // be mirrored into the anonymous required input Greenhouse validates.
+    // Runs AGAIN after applyAiFills, for answers the AI phase supplies later.
+    try { filled += mirrorValueHolderTwins(); } catch (_) {}
 
     // ── Pass 2: custom button-radio groups (Ashby) ───────────────────────────
     let buttonGroupTotal = 0;
@@ -1755,7 +1816,11 @@
     for (const el of querySelectorAllDeep('input[type="checkbox"]')) {
       if (el.disabled || el.checked) continue;
       if (!isConsentControl(el)) continue;
-      const text = probeText(el);
+      // Judge "required" from the box's OWN label only. probeText() walks
+      // sideways into neighbouring fields, so an optional opt-in sitting
+      // near any "*"-marked field inherited the star and blocked every
+      // auto-submit on the page (seen on Breezy).
+      const text = ownLabelText(el);
       if (/\brequired\b|\*/i.test(text)) {
         blockers.push(`consent needed: ${fieldLabelFor(el)}`);
       }
@@ -2055,6 +2120,10 @@
         skipped++;
       }
     }
+    // AI answers land in Greenhouse's visible question inputs — mirror them
+    // into their anonymous value-holder twins just like Pass 1c did for the
+    // rule-based fills, or the late answers still submit empty.
+    try { mirrorValueHolderTwins(); } catch (_) {}
     return { applied, skipped };
   }
 

@@ -72,9 +72,12 @@ function buildForm(fixture) {
       section = f.section;
       parts.push(`<h3>${esc(section)}</h3>`);
     }
-    const id = f.id || (f.name ? 'n_' + f.name : 'anon_' + i);
+    // Fields captured with no id/name/label get NO synthetic id — Greenhouse's
+    // value-holder twins are only recognizable by their total lack of identity,
+    // and an invented anon_<i> id would hide them from the engine's Pass 1c.
+    const id = f.id || (f.name ? 'n_' + f.name : (f.label ? 'anon_' + i : ''));
     const attrs = [
-      `id="${esc(id)}"`,
+      id ? `id="${esc(id)}"` : '',
       f.name ? `name="${esc(f.name)}"` : '',
       f.placeholder ? `placeholder="${esc(f.placeholder)}"` : '',
       f.aria ? `aria-label="${esc(f.aria)}"` : '',

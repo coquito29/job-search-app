@@ -333,6 +333,66 @@ const DECOY_SELECT = `
     "submit NOT clicked": [w.document.getElementById("go4").hasAttribute("data-clicked"), false],
   }), { autoSubmit: true });
 
+  // Teamtailor names its privacy box candidate_consent — and "_" is a word
+  // character, so /\bconsent\b/ never matched it. With a non-English label
+  // (CONSENT_RE is English-only) the box went unrecognized entirely and the
+  // form auto-submitted WITHOUT the required consent.
+  await group("Machine-named consent (underscore) still blocks auto-submit", `
+    <form>
+      <label for="fn5">First name</label><input id="fn5" name="first_name" required />
+      <label for="cc">Required. I have read the personal data processing statement</label>
+      <input id="cc" name="candidate_consent" type="checkbox" />
+      <button type="submit" id="go5">Submit application</button>
+    </form>`, (w) => ({
+    "consent left unticked": [w.document.getElementById("cc").checked, false],
+    "submit NOT clicked":    [w.document.getElementById("go5").hasAttribute("data-clicked"), false],
+  }), { autoSubmit: true });
+
+  // Observed on Breezy: an OPTIONAL marketing opt-in sat rows away from a
+  // "Desired Salary*" field whose label has no for= attribute. probeText's
+  // walk-up handed the opt-in that "*", the consent sweep read it as a
+  // required consent box, and no Breezy form could ever auto-submit.
+  await group("Optional opt-in near a starred field doesn't block auto-submit", `
+    <form>
+      <label>Desired Salary*</label>
+      <input id="sal" name="desired_salary" required />
+      <div>
+        <label for="sms">Yes, you can contact me directly about new job opportunities via SMS</label>
+        <input id="sms" name="sms_opt_in" type="checkbox" />
+      </div>
+      <label for="fn6">First Name</label><input id="fn6" name="first_name" required />
+      <button type="submit" id="go6">Submit application</button>
+    </form>`, (w) => ({
+    "opt-in left unticked": [w.document.getElementById("sms").checked, false],
+    "salary filled":        [w.document.getElementById("sal").value !== "", true],
+    "submit clicked":       [w.document.getElementById("go6").hasAttribute("data-clicked"), true],
+  }), { autoSubmit: true });
+
+  // ── Greenhouse value-holder twins ─────────────────────────────────────────
+  // Greenhouse renders each screener question as a visible input with
+  // id=question_<id> carrying the label, followed by an unnamed
+  // input[required] with no label of its own. Greenhouse's validation reads
+  // the unnamed one — filling only the visible input looked complete on
+  // screen and submitted every screener answer empty (observed on Array).
+  await group("Greenhouse value-holder twins mirror the visible answer", `
+    <form>
+      <div><label for="question_1">Do you need sponsorship from an employer to work in the United States?</label>
+        <input type="text" id="question_1" /></div>
+      <div><input type="text" required data-t="twin1" /></div>
+      <div><label for="question_2">Describe your favourite xyzzy protocol quirk?</label>
+        <input type="text" id="question_2" /></div>
+      <div><input type="text" required data-t="twin2" /></div>
+      <div><input type="text" data-t="loner" /></div>
+    </form>`, (w) => {
+    const $ = (t) => w.document.querySelector(`[data-t="${t}"]`);
+    return {
+      "answered question mirrors into its twin": [$("twin1").value, w.document.getElementById("question_1").value],
+      "twin actually holds the answer":          [$("twin1").value, "No"],
+      "unanswered question's twin stays empty":  [$("twin2").value, ""],
+      "anonymous but not required stays empty":  [$("loner").value, ""],
+    };
+  });
+
   // ── Auto-submit safety gates ──────────────────────────────────────────────
   const COMPLETE_FORM = `
     <form>

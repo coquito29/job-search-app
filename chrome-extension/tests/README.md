@@ -26,6 +26,16 @@ Covers:
   ("NJ" → "New Jersey") and exact-match preference over "New Hampshire".
 - **Auto-submit gates.** Off by default; fires only when every required field
   is filled; never fires past a CAPTCHA.
+- **Consent guards, both directions.** A machine-named box (`candidate_consent`
+  — underscores defeat `\b`) still blocks auto-submit even when its label is
+  in a language CONSENT_RE doesn't know; an OPTIONAL opt-in that merely sits
+  near a starred field must NOT block (probeText's walk-up used to hand it
+  the `*`, freezing every Breezy form).
+- **Greenhouse value-holder twins.** Each screener question is a visible
+  `input#question_<id>` plus an unnamed `input[required]` twin that
+  Greenhouse's validation actually reads. Pass 1c mirrors the answer into the
+  twin (and again after `applyAiFills`); anonymous-but-not-required inputs
+  and hidden inputs are never touched.
 
 Expected: all assertions pass, exit 0.
 
