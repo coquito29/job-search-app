@@ -5405,10 +5405,40 @@ function renderPrepQa() {
              style="font-size:.78rem; padding:1px 6px; height:auto;"
              value="${escHtml(v)}"
              onchange="updateQaDefault(${i}, this.value)" />
+      <button class="btn btn-sm btn-outline-danger" title="Remove this answer"
+              style="font-size:.65rem; padding:0 6px; line-height:1.5; flex-shrink:0;"
+              onclick="removeQaDefault(${i})">&times;</button>
     </li>`).join('') + `
+    <li style="flex-direction:column; align-items:stretch; gap:4px;">
+      <div class="d-flex gap-2">
+        <input type="text" id="qaNewQuestion" class="form-control form-control-sm qa-input"
+               style="font-size:.78rem; padding:1px 6px; height:auto;"
+               placeholder="New question — paste it from the form" />
+        <input type="text" id="qaNewAnswer" class="form-control form-control-sm qa-input"
+               style="font-size:.78rem; padding:1px 6px; height:auto; max-width:36%;"
+               placeholder="Answer" />
+        <button class="btn btn-sm btn-outline-primary" style="font-size:.65rem; padding:1px 8px; flex-shrink:0;"
+                onclick="addQaDefault()">Add</button>
+      </div>
+    </li>
+    <li id="qaBulkRow" style="display:none; flex-direction:column; align-items:stretch; gap:4px;">
+      <textarea id="qaBulkText" class="form-control form-control-sm" rows="4"
+                style="font-size:.75rem;"
+                placeholder="One answer per line:\nQuestion :: Answer\n(a TAB between question and answer also works)"></textarea>
+      <div class="d-flex gap-2">
+        <button class="btn btn-sm btn-outline-primary flex-fill" style="font-size:.65rem; padding:1px 6px;"
+                onclick="importQaBulk()">Import</button>
+        <button class="btn btn-sm btn-outline-secondary flex-fill" style="font-size:.65rem; padding:1px 6px;"
+                onclick="toggleQaBulk()">Cancel</button>
+      </div>
+    </li>
     <li style="border-top:1px dashed #dee2e6; padding-top:6px; margin-top:4px;">
       <small class="text-muted">Edits save automatically and sync across devices.</small>
       <button class="btn btn-sm btn-outline-secondary ms-auto"
+              style="font-size:.65rem; padding:1px 6px;" onclick="toggleQaBulk()">
+        Paste many
+      </button>
+      <button class="btn btn-sm btn-outline-secondary"
               style="font-size:.65rem; padding:1px 6px;" onclick="resetQaDefaults()">
         Reset to canonical
       </button>
@@ -5418,6 +5448,56 @@ function renderPrepQa() {
 function updateQaDefault(i, value) {
   if (i < 0 || i >= qaDefaults.length) return;
   qaDefaults[i][1] = value;
+  saveQaToProfile();
+}
+
+// Same question (case-insensitive) updates in place instead of duplicating —
+// the server's autolog merge in app.py uses the same rule.
+function upsertQaDefault(q, a) {
+  const hit = qaDefaults.find(([k]) => String(k).trim().toLowerCase() === q.toLowerCase());
+  if (hit) hit[1] = a; else qaDefaults.push([q, a]);
+}
+
+function addQaDefault() {
+  const qEl = document.getElementById('qaNewQuestion');
+  const aEl = document.getElementById('qaNewAnswer');
+  const q = ((qEl && qEl.value) || '').trim();
+  const a = ((aEl && aEl.value) || '').trim();
+  if (!q || !a) return;
+  upsertQaDefault(q, a);
+  renderPrepQa();
+  saveQaToProfile();
+}
+
+function removeQaDefault(i) {
+  if (i < 0 || i >= qaDefaults.length) return;
+  qaDefaults.splice(i, 1);
+  renderPrepQa();
+  saveQaToProfile();
+}
+
+function toggleQaBulk() {
+  const row = document.getElementById('qaBulkRow');
+  if (row) row.style.display = row.style.display === 'none' ? 'flex' : 'none';
+}
+
+function importQaBulk() {
+  const el = document.getElementById('qaBulkText');
+  if (!el) return;
+  let added = 0;
+  for (const line of el.value.split('\n')) {
+    const sep = line.includes('\t') ? '\t' : '::';
+    const at = line.indexOf(sep);
+    if (at < 1) continue;
+    const q = line.slice(0, at).trim();
+    const a = line.slice(at + sep.length).trim();
+    if (!q || !a) continue;
+    upsertQaDefault(q, a);
+    added++;
+  }
+  if (!added) return;
+  el.value = '';
+  renderPrepQa();   // also hides the bulk row again (display:none default)
   saveQaToProfile();
 }
 
