@@ -371,17 +371,29 @@
       .trim();
   }
 
+  // Parked entirely off the page's canvas (Breezy renders honeypot inputs at
+  // x:-9999). Bots that fill them are auto-rejected, so they must never be
+  // filled, counted, or sent to the AI phase. Positions are viewport-relative,
+  // so add the scroll offset — a legitimate field scrolled above the fold is
+  // NOT offscreen.
+  function isOffscreen(el) {
+    const rect = el.getBoundingClientRect();
+    return rect.right + window.scrollX <= 0 || rect.bottom + window.scrollY <= 0;
+  }
+
   function isFillable(el) {
     if (!el || el.disabled || el.readOnly) return false;
     if (el.type === "hidden" || el.type === "file" || el.type === "submit"
         || el.type === "button" || el.type === "reset" || el.type === "image") return false;
     if (!el.offsetParent && el.type !== "radio" && el.type !== "checkbox") return false;
+    if (isOffscreen(el)) return false;
     return true;
   }
 
   function isVisible(el) {
     if (!el) return false;
     if (el.offsetParent === null && getComputedStyle(el).position !== "fixed") return false;
+    if (isOffscreen(el)) return false;
     const rect = el.getBoundingClientRect();
     return rect.width > 0 && rect.height > 0;
   }
@@ -687,8 +699,13 @@
       if (/yyyy[-\/]?mm[-\/]?dd/i.test(hint)) return v + "-01";
       return v;  // fall back to YYYY-MM
     }
-    // YYYY → leave as-is for year inputs
-    if (/^\d{4}$/.test(v)) return v;
+    // YYYY → native pickers reject a bare year; January is the convention.
+    // Text inputs keep the bare year as-is.
+    if (/^\d{4}$/.test(v)) {
+      if (t === "date")  return v + "-01-01";
+      if (t === "month") return v + "-01";
+      return v;
+    }
     return v;
   }
 
@@ -697,6 +714,10 @@
     if (!normalized) return false;
     if (el.value && el.value.trim()) return false;
     setNativeValue(el, normalized);
+    // Browsers silently discard malformed values on date/month inputs — a
+    // company name landing in a decoy-placeholder date box left value ""
+    // while we counted and marked it as filled. Trust the DOM, not the set.
+    if (!el.value || !el.value.trim()) return false;
     return true;
   }
 
@@ -1165,7 +1186,7 @@
   // ("LinkedIn") that can't apply to a Yes/No radio. Returning one guess meant
   // the field was abandoned; the caller can now fall through to the next
   // candidate (the built-in over-18 → "Yes") and actually fill it.
-  function lookupQACandidates(rawText, qaDefaults) {
+  function lookupQACandidates(rawText, qaDefaults, savedOnly) {
     const text = String(rawText || "").toLowerCase();
     if (!text) return [];
     const out = [];
@@ -1205,9 +1226,12 @@
         for (const [, v] of scored) push(v);
       }
     }
-    // Tier 3 — built-in last-resort.
-    for (const [re, value] of BUILT_IN_QA) {
-      if (re.test(text)) push(value);
+    // Tier 3 — built-in last-resort. Skipped when the caller needs an answer
+    // the USER actually gave (consent boxes) rather than a sensible guess.
+    if (!savedOnly) {
+      for (const [re, value] of BUILT_IN_QA) {
+        if (re.test(text)) push(value);
+      }
     }
     return out.slice(0, 6);
   }
@@ -1346,7 +1370,7 @@
   async function expandRepeatingSections(profile) {
     const eduCount  = (profile.education       || []).length;
     const workCount = (profile.work_experience || []).length;
-    if (eduCount < 2 && workCount < 2) return 0;
+    if (eduCount < 1 && workCount < 1) return 0;
 
     let totalClicks = 0;
     const candidates = Array.from(document.querySelectorAll('button, [role="button"], a'))
@@ -1357,35 +1381,60 @@
         return ADD_BTN_RE.test(t);
       });
 
-    for (const btn of candidates) {
-      // Determine the section by looking at the button's context
-      const ancestor = btn.closest("fieldset, section, [class*='card'], [class*='section'], [class*='education'], [class*='work'], [class*='experience'], form");
-      const context = ((ancestor && ancestor.textContent) || "").toLowerCase().slice(0, 1000);
-      const isEdu  = /\b(education|school|university|college|degree|graduat)\b/.test(context);
-      const isWork = /\b(work[\s_-]*(experience|history)|employment[\s_-]*history|previous[\s_-]*(employer|job|position))\b/.test(context);
-      const target = isEdu ? eduCount : isWork ? workCount : 0;
-      if (target < 2) continue;
-
-      // Count existing rows for this section by scanning indexed input names
-      const re = isEdu
+    // Rendered-row count for a section: indexed input names when the ATS
+    // uses them, else visible anchor fields (Company / School placeholders).
+    // Breezy renders ZERO rows until Add is clicked — the old "assume one
+    // pre-rendered row" fallback left every Breezy section a row short.
+    const countRows = (isEdu) => {
+      const nameRe = isEdu
         ? /\b(?:education|school)[\[_.]+(\d+)/i
         : /\b(?:work_experience|work|employment|experience|job)[\[_.]+(\d+)/i;
-      const rows = new Set();
-      for (const inp of ancestor ? ancestor.querySelectorAll("input, select, textarea") : []) {
-        const name = (inp.name || inp.id || "");
-        const m = name.match(re);
-        if (m) rows.add(parseInt(m[1], 10));
+      const anchorRe = isEdu ? EDU_ANCHOR_RE : WORK_ANCHOR_RE;
+      const idx = new Set();
+      let anchors = 0;
+      for (const inp of document.querySelectorAll("input")) {
+        const m = (inp.name || inp.id || "").match(nameRe);
+        if (m) idx.add(parseInt(m[1], 10));
+        // Date inputs can carry decoy placeholders (Breezy stamps "Company"
+        // on its date boxes) — never count them as row anchors.
+        if (/^(date|month|file|radio|checkbox)$/.test(inp.type || "")) continue;
+        if (!isVisible(inp)) continue;
+        if (anchorRe.test(`${inp.placeholder || ""} | ${inp.name || ""} | ${inp.id || ""}`)) anchors++;
       }
-      // Fall back to counting visible row containers if no indexed inputs found yet
-      const startRows = rows.size || 1;
-      const need = Math.max(0, target - startRows);
+      return Math.max(idx.size, anchors);
+    };
 
-      for (let i = 0; i < need && i < 5; i++) {
-        try { btn.click(); } catch (_) {}
+    for (const btn of candidates) {
+      // The button's own text names its section ("Add Position", "Add
+      // Education") — trust that first. Ancestor context is only a fallback
+      // for bare "Add another" buttons: the nearest ancestor is often a tiny
+      // footer div with no section words at all (Breezy's .section-footer),
+      // which used to classify NEITHER section and skip the form entirely.
+      const btnText = cleanText(btn.innerText || btn.textContent || "").toLowerCase();
+      let isEdu  = /\b(education|school|college|university|degree)\b/.test(btnText);
+      let isWork = !isEdu && /\b(position|job|work|employment|experience|role)\b/.test(btnText);
+      if (!isEdu && !isWork) {
+        const ancestor = btn.closest("fieldset, section, [class*='card'], [class*='section'], [class*='education'], [class*='work'], [class*='experience'], form");
+        const context = ((ancestor && ancestor.textContent) || "").toLowerCase().slice(0, 1000);
+        isEdu  = /\b(education|school|university|college|degree|graduat)\b/.test(context);
+        isWork = !isEdu && /\b(work[\s_-]*(experience|history)|employment[\s_-]*history|previous[\s_-]*(employer|job|position))\b/.test(context);
+      }
+      if (!isEdu && !isWork) continue;
+      const target = isEdu ? eduCount : workCount;
+      if (target < 1) continue;
+
+      // Click until the section holds one row per profile entry. Re-counting
+      // after every click self-corrects for ATSes that pre-render a blank
+      // row; bailing when a click adds nothing prevents runaway loops.
+      for (let guard = 0; guard < 6; guard++) {
+        const have = countRows(isEdu);
+        if (have >= target) break;
+        try { btn.click(); } catch (_) { break; }
         totalClicks++;
         // Wait briefly for the new row's DOM to render. ATSes are typically
         // React-based and re-render in <50ms, but slower frameworks need more.
         await new Promise(r => setTimeout(r, 300));
+        if (countRows(isEdu) <= have) break;
       }
     }
     return totalClicks;
@@ -1637,11 +1686,21 @@
     // ── Pass 1: native inputs ────────────────────────────────────────────────
     for (const el of fields) {
       if (handledByRow.has(el)) continue;
-      // Consent is the applicant's to give. Never tick a privacy-policy /
-      // terms agreement or a marketing opt-in on their behalf — those are
-      // legal and commercial choices, not data entry. They're surfaced as
-      // auto-submit blockers instead (see validateBeforeSubmit).
+      // Consent is the applicant's to give. Rules, built-ins, and the AI
+      // never tick a privacy-policy / terms / marketing box on their behalf —
+      // those are legal and commercial choices, not data entry. The ONE
+      // exception: an explicit answer the user SAVED for this question
+      // ("Do you agree to receive text messages?" → Yes) is the applicant
+      // giving that consent once for every form. A saved "No" or no match
+      // leaves the box alone and it surfaces as an auto-submit blocker.
       if ((el.type === "checkbox" || el.type === "radio") && isConsentControl(el)) {
+        if (el.type === "checkbox" && !el.checked) {
+          const saved = lookupQACandidates(probeText(el), profile.qa_defaults, true);
+          if (saved.length && normalizeYesNo(saved[0]) === "yes") {
+            simulateClick(el);
+            if (el.checked) filled++;
+          }
+        }
         continue;
       }
       if (el.type === "radio" && el.name) {
@@ -1714,7 +1773,7 @@
     // no CAPTCHA is on screen — otherwise we hand back the blocker list and
     // leave the form for the user.
     let autoSubmit = { submitted: false, blockers: [] };
-    try { autoSubmit = maybeAutoSubmit(opts); } catch (e) {
+    try { autoSubmit = await maybeAutoSubmit(opts); } catch (e) {
       autoSubmit = { submitted: false, blockers: ["auto-submit error: " + e.message] };
     }
 
@@ -1868,9 +1927,26 @@
     return cleanText(raw).slice(0, 60) || "field";
   }
 
+  // Visible form-rejection messages an ATS shows AFTER its own client-side
+  // validation runs — attribute-level checks can all pass and the submit
+  // still bounce (Breezy validates in Angular, not via required attrs).
+  const FORM_ERROR_RE = /\b(contains errors|please (agree|correct|fix|complete)|is required|required field|fix the (errors|highlighted)|field is missing)\b/i;
+
+  function visibleFormErrors() {
+    const seen = new Set();
+    const out = [];
+    for (const el of document.querySelectorAll(
+        "[class*='error' i], [role='alert'], .help-block, .invalid-feedback")) {
+      if (!isVisible(el)) continue;
+      const t = cleanText(el.innerText || "").slice(0, 80);
+      if (t && FORM_ERROR_RE.test(t) && !seen.has(t)) { seen.add(t); out.push(t); }
+    }
+    return out;
+  }
+
   // Click Submit only when validation passes. Opt-in via opts.autoSubmit.
   // Returns { submitted, blockers }.
-  function maybeAutoSubmit(opts) {
+  async function maybeAutoSubmit(opts) {
     if (!opts || !opts.autoSubmit) return { submitted: false, blockers: [] };
     const { ok, blockers } = validateBeforeSubmit();
     if (!ok) return { submitted: false, blockers };
@@ -1878,6 +1954,16 @@
     if (!btn) return { submitted: false, blockers: ["no submit button found"] };
     if (btn.disabled) return { submitted: false, blockers: ["submit button is disabled"] };
     simulateClick(btn);
+    // The ATS's own validation gets the last word: give it a moment, then
+    // look for a visible rejection banner. Reporting "submitted" while the
+    // form is still on screen with errors poisons the tracker with
+    // applications that never happened.
+    await new Promise(r => setTimeout(r, 1500));
+    const errors = visibleFormErrors();
+    if (errors.length) {
+      return { submitted: false,
+               blockers: errors.slice(0, 12).map(t => "rejected by form: " + t) };
+    }
     return { submitted: true, blockers: [] };
   }
 
@@ -1909,19 +1995,36 @@
       btn.__jt_autolog_armed = true;
       btn.addEventListener("click", () => {
         try {
-          fetch(opts.autologUrl, {
-            method: "POST",
-            credentials: "include",
-            keepalive: true,
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              url:        location.href,
-              page_title: (document.title || "").slice(0, 240),
-              h1:         (document.querySelector("h1")?.innerText || "").slice(0, 240),
-              hostname:   location.hostname,
-              source:     "autofill",
-            }),
-          }).catch(() => {});
+          // Don't log on the click itself — the ATS's validation may still
+          // bounce the submit (the "Applied but never applied" badge bug).
+          // Log when the page navigates away (a successful multi-page
+          // submit; keepalive survives the unload), or after a beat with no
+          // visible rejection banner (a successful SPA submit).
+          let logged = false;
+          const send = () => {
+            if (logged) return;
+            logged = true;
+            fetch(opts.autologUrl, {
+              method: "POST",
+              credentials: "include",
+              keepalive: true,
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                url:        location.href,
+                page_title: (document.title || "").slice(0, 240),
+                h1:         (document.querySelector("h1")?.innerText || "").slice(0, 240),
+                hostname:   location.hostname,
+                source:     "autofill",
+              }),
+            }).catch(() => {});
+          };
+          window.addEventListener("pagehide", send, { once: true });
+          setTimeout(() => {
+            try {
+              if (visibleFormErrors().length) return; // bounced — not applied
+            } catch (_) {}
+            send();
+          }, 1800);
         } catch (_) {}
       }, { capture: true, once: true });
     }
