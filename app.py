@@ -288,6 +288,21 @@ def _init_applications_db():
                 created_at    TEXT NOT NULL DEFAULT ''
             )
         """)
+        # Ghost-job detection: one row per title|company fingerprint ever seen
+        # in search/digest results. distinct_posts counts how many different
+        # "posted" dates the same fingerprint has shown up with — a listing
+        # that keeps getting re-dated is the classic ghost-job signature.
+        conn.execute(f"""
+            CREATE TABLE IF NOT EXISTS job_sightings (
+                {id_col},
+                fp             TEXT UNIQUE NOT NULL,
+                first_seen     TEXT NOT NULL,
+                last_seen      TEXT NOT NULL,
+                sightings      INTEGER NOT NULL DEFAULT 1,
+                distinct_posts INTEGER NOT NULL DEFAULT 1,
+                last_posted    TEXT
+            )
+        """)
 
     # Idempotent migrations. Each in its own connection so a "column exists"
     # error doesn't poison the broader CREATE TABLE transaction on Postgres.
@@ -755,6 +770,82 @@ def _days_since_posted(posted):
         return 999
 
 
+def _sighting_fp(job):
+    """Same title|company normalization the dedup pass uses, so one job maps
+    to one fingerprint everywhere."""
+    t = re.sub(r'\s+', ' ', (job.get("title") or "").lower().strip())[:60]
+    c = re.sub(r'\s+', ' ', (job.get("company_name") or "").lower().strip())[:30]
+    return f"{t}|{c}" if t and c else None
+
+
+def _flag_reposts(jobs):
+    """Record every fetched job in job_sightings and annotate each job with
+    repost history (repost_posts = distinct posted-dates seen for this
+    title|company, first_seen_days = how long ago we first saw it).
+    score_job turns those into ghost-job penalties. Best-effort: any DB
+    hiccup skips safety annotation rather than breaking search."""
+    now = datetime.utcnow()
+    now_iso = now.isoformat()
+    try:
+        with _db_conn() as conn:
+            for job in jobs:
+                fp = _sighting_fp(job)
+                if not fp:
+                    continue
+                posted = str(job.get("posted") or "")[:32]
+                row = conn.execute(
+                    "SELECT first_seen, sightings, distinct_posts, last_posted "
+                    "FROM job_sightings WHERE fp = ?", (fp,)).fetchone()
+                if not row:
+                    try:
+                        conn.execute(
+                            "INSERT INTO job_sightings "
+                            "(fp, first_seen, last_seen, sightings, distinct_posts, last_posted) "
+                            "VALUES (?, ?, ?, 1, 1, ?)",
+                            (fp, now_iso, now_iso, posted))
+                    except Exception:
+                        pass  # concurrent insert of same fp — harmless
+                    continue
+                distinct = _row_get(row, "distinct_posts") or 1
+                last_posted = _row_get(row, "last_posted") or ""
+                if posted and last_posted and posted != last_posted:
+                    distinct += 1
+                conn.execute(
+                    "UPDATE job_sightings SET last_seen = ?, sightings = ?, "
+                    "distinct_posts = ?, last_posted = ? WHERE fp = ?",
+                    (now_iso, (_row_get(row, "sightings") or 1) + 1,
+                     distinct, posted or last_posted, fp))
+                first_seen = _row_get(row, "first_seen") or now_iso
+                try:
+                    age_days = (now - datetime.fromisoformat(first_seen)).days
+                except Exception:
+                    age_days = 0
+                job["repost_posts"] = distinct
+                job["first_seen_days"] = age_days
+    except Exception as e:
+        print(f"[safety] repost tracking skipped: {e}")
+
+
+# Scam red flags. Legit career-site postings essentially never contain these;
+# each one is a documented job-scam pattern (FTC/BBB employment-fraud lists).
+# Patterns run against lowercased title+description. Penalties stack (capped
+# in score_job) so one weak signal dings the score while two+ bury the job.
+SCAM_SIGNALS = [
+    (re.compile(r"\b(telegram|whats\s?app|google\s+(?:chat|hangouts?))\b.{0,60}\b(interview|chat|contact|message|text)"), -60, "Chat-app interview"),
+    (re.compile(r"\b(interview|contact|apply|reach\s+(?:out|us))\b.{0,60}\b(telegram|whats\s?app|google\s+(?:chat|hangouts?))\b"), -60, "Chat-app interview"),
+    (re.compile(r"\b(cashier'?s?\s+check|certified\s+check|(?:mail|send)\s+you\s+a\s+check|deposit\s+the\s+check)\b"), -60, "Check-cashing signal"),
+    (re.compile(r"\b(western\s+union|moneygram|money\s+order)\b"), -45, "Wire-transfer signal"),
+    (re.compile(r"\b(re-?ship(?:ping|per)?|package\s+(?:forwarding|inspector|processor)|parcel\s+forwarding)\b"), -60, "Reshipping scam signal"),
+    (re.compile(r"\b(?:startup|start-up|training|registration|application|onboarding)\s+fee\b"), -50, "Upfront fee"),
+    (re.compile(r"\bpay\s+for\s+(?:your\s+)?(?:own\s+)?(?:equipment|training|software|starter\s+kit)\b"), -45, "Pay-to-start"),
+    (re.compile(r"\b(?:paid|payment|salary|compensation)\s+in\s+(?:bitcoin|crypto(?:currency)?|usdt)\b"), -45, "Crypto pay"),
+    (re.compile(r"\b(?:ssn|social\s+security\s+number|bank\s+(?:account|details|info))\b.{0,60}\b(?:before|prior\s+to|to\s+apply|to\s+get\s+started)\b"), -50, "Asks for SSN/bank info early"),
+    (re.compile(r"\b[a-z0-9._%+-]+@(?:gmail|yahoo|hotmail|aol)\.com\b"), -25, "Personal-email contact"),
+    (re.compile(r"\b(?:commission\s+only|unlimited\s+earning\s+potential|be\s+your\s+own\s+boss)\b"), -35, "MLM/commission language"),
+    (re.compile(r"\b(?:daily\s+pay(?:out)?|get\s+paid\s+(?:daily|same\s+day)|same[- ]day\s+pay)\b"), -20, "Daily-pay lure"),
+]
+
+
 def score_job(job, profile):
     title = (job.get("title", "") or "").lower()
     desc  = (job.get("description", "") or "").lower()
@@ -776,10 +867,18 @@ def score_job(job, profile):
     elif years_req == 3: exp_bonus =  0
     else:                exp_bonus = max(-45, -9 * (years_req - 3))
     days_old = job.get("days_old", 999)
+    stale_label = None
     if   days_old <= 1:  fresh_bonus = 12
     elif days_old <= 3:  fresh_bonus =  8
     elif days_old <= 7:  fresh_bonus =  5
     elif days_old <= 14: fresh_bonus =  2
+    elif days_old >= 999: fresh_bonus = 0   # unknown posted date — don't punish
+    elif days_old > 60:
+        fresh_bonus = -15
+        stale_label = f"Stale ({days_old}d) — possible ghost"
+    elif days_old > 30:
+        fresh_bonus = -8
+        stale_label = f"Stale ({days_old}d old)"
     else:                fresh_bonus =  0
     hire_up = [
         ("entry level",8),("junior",8),("associate",6),
@@ -919,6 +1018,36 @@ def score_job(job, profile):
         block_labels.append(
             f"Non-US ({loc_country})" if loc_country else "Non-US location")
 
+    # Scam red flags: penalties stack across distinct signals but are capped
+    # so a single false positive (e.g. a legit small shop with a gmail contact)
+    # dings rather than buries. Two or more real signals push the job to the
+    # bottom of the list AND light up red pills on the card.
+    scam_penalty = 0
+    scam_labels  = []
+    for pat, pts, lbl in SCAM_SIGNALS:
+        if pat.search(combo) and lbl not in scam_labels:
+            scam_penalty += pts
+            scam_labels.append(lbl)
+    scam_penalty = max(scam_penalty, -90)
+    if scam_labels:
+        block_labels.extend(f"🚩 {l}" for l in scam_labels[:3])
+
+    # Ghost-job signals from the sightings tracker (_flag_reposts annotates
+    # these before scoring; absent keys = tracker unavailable = no penalty).
+    repost_posts    = job.get("repost_posts", 1)
+    first_seen_days = job.get("first_seen_days", 0)
+    ghost_penalty = 0
+    if repost_posts >= 2:
+        ghost_penalty = -15
+        block_labels.append(f"Reposted ×{repost_posts} — possible ghost")
+    elif days_old <= 7 and first_seen_days > 21:
+        # Claims to be fresh, but we first saw this exact title+company weeks
+        # ago — the posting is being re-dated to look new.
+        ghost_penalty = -12
+        block_labels.append("Re-dated posting — possible ghost")
+    if stale_label:
+        block_labels.append(stale_label)
+
     # Boosts for things directly in George's profile
     fit_bonus = 0
     fit_labels = []
@@ -943,7 +1072,8 @@ def score_job(job, profile):
             if lbl: fit_labels.append(lbl)
 
     total = (skill_score + ratio_bonus + exp_bonus + fresh_bonus
-             + hire_bonus + ats_bonus + block_bonus + fit_bonus)
+             + hire_bonus + ats_bonus + block_bonus + fit_bonus
+             + scam_penalty + ghost_penalty)
     top   = len(profile.skills) * 3 + 80
     pct   = min(100, max(0, int((total / max(top, 1)) * 100)))
 
@@ -966,6 +1096,9 @@ def score_job(job, profile):
         reasons.insert(0, f"{ats_name or 'Easy'} fast apply")
     elif ats_class == "walled":
         reasons.insert(0, f"{ats_name or 'ATS'} (account wall)")
+    if scam_labels:
+        reasons.insert(0, "🚩 Scam signals — do not apply" if len(scam_labels) >= 2
+                          else "🚩 Possible scam signal — verify before applying")
     if block_labels:
         reasons.append("⚠ " + " + ".join(list(dict.fromkeys(block_labels))[:2]))
     if not reasons:
@@ -984,6 +1117,7 @@ def score_job(job, profile):
         "blockers":       block_labels,
         "fits":           fit_labels,
         "loc_class":      loc_class,
+        "scam_flags":     scam_labels,
     }
 
 
@@ -2389,6 +2523,10 @@ def search_jobs():
     remote_jobs = [j for j in all_jobs if is_remote_job(j)]
     total_remote = len(remote_jobs)
 
+    # Annotate repost/ghost history from the sightings tracker (must run
+    # before scoring — score_job reads the annotations)
+    _flag_reposts(remote_jobs)
+
     # Score and sort
     profile = UserProfile(summary="", skills=skills, no_go_terms=NO_GO_TERMS)
     scored = []
@@ -2403,7 +2541,12 @@ def search_jobs():
     # George cannot take them, so a strong skills match is beside the point.
     # They are kept in the list rather than dropped, so a mislabeled location
     # never silently costs a real job.
-    scored.sort(key=lambda j: (j.get("loc_class") == "NON_US", -j["match_pct"]))
+    # Scam-flagged jobs sort below everything else too — kept visible (with
+    # red pills) rather than dropped, so a false positive never silently
+    # costs a real job, but they can't outrank anything safe.
+    scored.sort(key=lambda j: (bool(j.get("scam_flags")),
+                               j.get("loc_class") == "NON_US",
+                               -j["match_pct"]))
     top = scored[:TOP_JOBS_LIMIT]
 
     return jsonify({
@@ -2649,13 +2792,20 @@ def daily_digest():
     remote_jobs = [j for j in all_jobs if is_remote_job(j)]
     for job in remote_jobs:
         job["days_old"] = _days_since_posted(job.get("posted"))
+    # Repost/ghost annotations before scoring (score_job reads them)
+    _flag_reposts(remote_jobs)
+    for job in remote_jobs:
         job.update(score_job(job, profile))
         job["salary_clean"] = _clean_salary(job.get("salary", ""))
         job["date_fmt"]     = fmt_date(job.get("posted"))
-    # Same ordering rule as /api/search: non-US roles go last regardless of
-    # score. The digest is where this mattered most -- it was surfacing Poland,
-    # Malta, Romania and India roles at the top every morning.
-    remote_jobs.sort(key=lambda j: (j.get("loc_class") == "NON_US", -j["match_pct"]))
+    # Same ordering rule as /api/search: non-US roles and scam-flagged jobs go
+    # last regardless of score. The digest is where this mattered most -- it
+    # was surfacing Poland, Malta, Romania and India roles at the top every
+    # morning, and the digest email is where a scam listing would be most
+    # likely to get a blind click.
+    remote_jobs.sort(key=lambda j: (bool(j.get("scam_flags")),
+                                    j.get("loc_class") == "NON_US",
+                                    -j["match_pct"]))
 
     # Drop jobs already in the applications tracker (by URL or company|title
     # fingerprint) — every digest slot should be a job you can still apply to.
