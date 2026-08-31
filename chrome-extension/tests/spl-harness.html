@@ -6,6 +6,12 @@
 <style>
   body { font: 14px/1.5 system-ui, sans-serif; max-width: 720px; margin: 24px auto; }
   spl-form-field { display: block; margin: 10px 0; }
+  /* Custom elements default to display:inline, which collapses the shadow
+     listbox to width 0 — and the engine's isVisible() rightly refuses to
+     click a 0-width option. The real SPL components render block-level with
+     visible dropdowns, so the mock must too (this styling gap was why the
+     COMMITTED checks failed since the harness was created). */
+  spl-input, spl-autocomplete { display: block; }
   #results { background: #f6f8fa; border: 1px solid #ddd; padding: 12px; white-space: pre-wrap; }
   #decoy { border: 1px dashed #c00; padding: 6px; margin: 12px 0; }
 </style>
@@ -112,6 +118,11 @@ class SplAutocomplete extends HTMLElement {
       if (this.listbox) return;
       const lb = document.createElement("ul");
       lb.setAttribute("role", "listbox");
+      // The real SPL listbox ships its own internal styles and renders as a
+      // visible block; a bare <ul> in an unstyled shadow root collapses to
+      // width 0 here, and the engine (correctly) refuses to click invisible
+      // options. Style the mock like the real thing.
+      lb.style.cssText = "display:block;width:280px;margin:0;padding:4px;list-style:none;background:#fff;border:1px solid #ccc;";
       for (const t of [q, q + " Ltd", "Unrelated Suggestion"]) {
         const li = document.createElement("li");
         li.setAttribute("role", "option");
