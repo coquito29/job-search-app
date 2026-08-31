@@ -19,6 +19,11 @@
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg) return;
+  if (msg.type === "autopilotRunNow") {
+    autopilotRun("manual");
+    sendResponse({ started: true });
+    return;
+  }
   if (msg.type === "aiFill") {
     aiFillRequest(msg)
       .then(r => sendResponse(r))
@@ -128,4 +133,182 @@ async function getCvRequest({ appUrl }) {
   };
   await chrome.storage.local.set({ cvCache: entry });
   return { b64: entry.b64, filename: entry.filename, mime: entry.mime };
+}
+
+// ── Autopilot: daily auto-apply ─────────────────────────────────────────────
+// A daily alarm pulls the day's queue from the server (/api/autopilot/queue —
+// only safe, fast-ATS, unseen jobs come back), opens each in a background
+// tab, asks the content script to fill + submitIfComplete(), reports every
+// outcome to /api/autopilot/report, and posts a summary notification.
+// Runs whenever Chrome is open at alarm time; a missed alarm fires on the
+// next browser start. Toggle + "Run now" live in the popup.
+
+const AUTOPILOT_ALARM   = "autopilot-daily";
+const AUTOPILOT_HOUR    = 9;    // fire at 09:30 local
+const AUTOPILOT_MINUTE  = 30;
+const TAB_LOAD_TIMEOUT  = 45_000;   // page load wait
+const TAB_SETTLE_MS     = 5_000;    // extra beat for SPA form render
+const FILL_TIMEOUT      = 180_000;  // fill + AI + submit, per job
+const MAX_REVIEW_TABS   = 5;        // needs-review tabs kept open for the user
+
+function scheduleAutopilotAlarm() {
+  const next = new Date();
+  next.setHours(AUTOPILOT_HOUR, AUTOPILOT_MINUTE, 0, 0);
+  if (next.getTime() <= Date.now()) next.setDate(next.getDate() + 1);
+  chrome.alarms.create(AUTOPILOT_ALARM, {
+    when: next.getTime(),
+    periodInMinutes: 24 * 60,
+  });
+}
+chrome.runtime.onInstalled.addListener(scheduleAutopilotAlarm);
+chrome.runtime.onStartup.addListener(scheduleAutopilotAlarm);
+
+chrome.alarms.onAlarm.addListener(alarm => {
+  if (alarm.name === AUTOPILOT_ALARM) autopilotRun("scheduled");
+});
+
+let apRunning = false;
+
+async function autopilotRun(trigger) {
+  if (apRunning) return;
+  apRunning = true;
+  // MV3 service workers idle out after ~30s; a periodic no-op API call keeps
+  // this worker alive across the multi-minute run.
+  const keepalive = setInterval(() => chrome.runtime.getPlatformInfo(() => {}), 20_000);
+  try {
+    const { appUrl, profile, autopilotEnabled } =
+      await chrome.storage.local.get(["appUrl", "profile", "autopilotEnabled"]);
+    if (trigger === "scheduled" && autopilotEnabled === false) return; // default ON
+    if (!appUrl || !profile) {
+      notifySummary("Autopilot can't run", "Open the extension popup and sign in to your job app first.");
+      return;
+    }
+    const base = appUrl.replace(/\/+$/, "");
+
+    let queue = [];
+    try {
+      const res = await fetch(base + "/api/autopilot/queue?cap=20", {
+        credentials: "include", headers: { "Accept": "application/json" },
+      });
+      if (res.status === 401) {
+        notifySummary("Autopilot: signed out", "Your app session expired — open the app and enter your passcode, then run autopilot again.");
+        return;
+      }
+      const body = await res.json();
+      queue = Array.isArray(body.jobs) ? body.jobs : [];
+    } catch (e) {
+      notifySummary("Autopilot: queue fetch failed", String(e.message || e).slice(0, 120));
+      return;
+    }
+    if (!queue.length) {
+      if (trigger === "manual") notifySummary("Autopilot", "No eligible jobs in today's queue — everything safe is already applied or attempted.");
+      await chrome.storage.local.set({ lastAutopilotRun: {
+        at: Date.now(), submitted: 0, review: 0, failed: 0, empty: true } });
+      return;
+    }
+
+    let submitted = 0, review = 0, failed = 0, reviewTabs = 0;
+    for (const job of queue) {
+      const outcome = await attemptJob(job);
+      if (outcome.result === "submitted") submitted++;
+      else if (outcome.result === "needs_review") review++;
+      else failed++;
+
+      // Keep a few needs-review tabs open so the morning starts with the
+      // forms already filled; close everything else.
+      const keepOpen = outcome.result === "needs_review" && reviewTabs < MAX_REVIEW_TABS;
+      if (keepOpen) reviewTabs++;
+      else if (outcome.tabId != null) {
+        try { await chrome.tabs.remove(outcome.tabId); } catch (_) {}
+      }
+
+      try {
+        await fetch(base + "/api/autopilot/report", {
+          method: "POST", credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            url: job.url, title: job.title, company: job.company,
+            result: outcome.result, detail: outcome.detail || "",
+            filled: outcome.filled || 0, total: outcome.total || 0,
+          }),
+        });
+      } catch (_) { /* report is best-effort; attempt table catches up next run */ }
+    }
+
+    await chrome.storage.local.set({ lastAutopilotRun: {
+      at: Date.now(), submitted, review, failed } });
+    notifySummary(
+      `Autopilot: ${submitted} submitted`,
+      `${review} left open for review, ${failed} failed. Details in the app's tracker.`);
+  } finally {
+    clearInterval(keepalive);
+    apRunning = false;
+  }
+}
+
+// Open one job in a background tab, drive the content script, classify the
+// outcome. Always resolves — never throws.
+async function attemptJob(job) {
+  let tab = null;
+  try {
+    tab = await chrome.tabs.create({ url: job.url, active: false });
+  } catch (e) {
+    return { result: "error", detail: "tab open failed: " + (e.message || e), tabId: null };
+  }
+  const tabId = tab.id;
+
+  const loaded = await new Promise(resolve => {
+    const timer = setTimeout(() => { cleanup(); resolve(false); }, TAB_LOAD_TIMEOUT);
+    function onUpdated(id, info) {
+      if (id === tabId && info.status === "complete") { cleanup(); resolve(true); }
+    }
+    function onRemoved(id) {
+      if (id === tabId) { cleanup(); resolve(false); }
+    }
+    function cleanup() {
+      clearTimeout(timer);
+      chrome.tabs.onUpdated.removeListener(onUpdated);
+      chrome.tabs.onRemoved.removeListener(onRemoved);
+    }
+    chrome.tabs.onUpdated.addListener(onUpdated);
+    chrome.tabs.onRemoved.addListener(onRemoved);
+    // The tab may already be complete by the time listeners attach.
+    chrome.tabs.get(tabId, t => {
+      if (!chrome.runtime.lastError && t && t.status === "complete") { cleanup(); resolve(true); }
+    });
+  });
+  if (!loaded) return { result: "timeout", detail: "page did not finish loading", tabId };
+
+  await new Promise(r => setTimeout(r, TAB_SETTLE_MS));
+
+  const reply = await new Promise(resolve => {
+    const timer = setTimeout(() => resolve(null), FILL_TIMEOUT);
+    try {
+      chrome.tabs.sendMessage(tabId, { type: "autopilotGo" }, r => {
+        clearTimeout(timer);
+        // lastError fires when no frame answered (no form on page).
+        if (chrome.runtime.lastError) resolve(undefined);
+        else resolve(r);
+      });
+    } catch (_) { clearTimeout(timer); resolve(undefined); }
+  });
+
+  if (reply === null)      return { result: "timeout", detail: "fill/submit timed out", tabId };
+  if (!reply)              return { result: "no_form", detail: "no application form detected", tabId };
+  return {
+    result: reply.result || "error",
+    detail: reply.detail || "",
+    filled: reply.filled || 0,
+    total:  reply.total  || 0,
+    tabId,
+  };
+}
+
+function notifySummary(title, message) {
+  try {
+    chrome.notifications.create({
+      type: "basic", iconUrl: "icons/icon-128.png",
+      title, message,
+    });
+  } catch (_) {}
 }

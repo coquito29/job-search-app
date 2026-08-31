@@ -60,15 +60,15 @@
   // Full pipeline: CV globals → Phase 1 rules → Phase 2 AI. Mirrors what the
   // popup's "Autofill this tab" button does, so auto and manual behave the same.
   async function runFullAutofill(trigger) {
-    if (runInFlight) return;
+    if (runInFlight) return null;
     if (!window.__jobTrackerAutofill) {
       if (trigger === "manual") notify("Autofill engine not loaded.", "err");
-      return;
+      return null;
     }
     const { profile, appUrl } = await getStored(["profile", "appUrl"]);
     if (!profile) {
       if (trigger === "manual") notify("No profile cached. Open the extension popup to sign in.", "err");
-      return;
+      return null;
     }
     runInFlight = true;
     try {
@@ -120,9 +120,45 @@
       } else if (trigger === "manual" && window === window.top) {
         notify(`No matching fields found (${r1.total} scanned).${aiReason ? " AI: " + aiReason : ""}`, "warn");
       }
+      return { filled: combined, aiFilled, total: r1.total || 0 };
     } finally {
       runInFlight = false;
     }
+  }
+
+  // ── Autopilot (background-tab auto-apply) ─────────────────────────────────
+  // Full pipeline + submitIfComplete(). Only the frame that actually holds an
+  // application-shaped form answers; frames without one return no response so
+  // the background worker's sendMessage resolves from the right frame.
+  function hasApplicationForm() {
+    if (document.querySelector('input[type="file"]')) return true;
+    if (document.querySelector('input[type="email"], input[autocomplete="email"]')) return true;
+    return document.querySelectorAll(
+      'input[type="text"], input:not([type]), textarea').length >= 3;
+  }
+
+  async function runAutopilot() {
+    // The per-URL auto-run may already be mid-flight (it fires ~900ms after
+    // form detection). Let it finish, then run again — the engine skips
+    // fields that already hold values, so the second pass is cheap.
+    for (let waited = 0; runInFlight && waited < 60_000; waited += 500) {
+      await new Promise(r => setTimeout(r, 500));
+    }
+    const stats = await runFullAutofill("autopilot");
+    if (!stats) {
+      return { result: "error", detail: "engine not loaded or signed out", filled: 0, total: 0 };
+    }
+    let sub = { submitted: false, blockers: ["engine has no submit support"] };
+    if (window.__jobTrackerAutofill && window.__jobTrackerAutofill.submitIfComplete) {
+      try { sub = await window.__jobTrackerAutofill.submitIfComplete(); }
+      catch (e) { sub = { submitted: false, blockers: ["submit error: " + (e.message || e)] }; }
+    }
+    return {
+      result: sub.submitted ? "submitted" : "needs_review",
+      detail: (sub.blockers || []).slice(0, 6).join("; ").slice(0, 400),
+      filled: stats.filled || 0,
+      total:  stats.total  || 0,
+    };
   }
 
   // Collect answers the user typed by hand (fields the engine missed) and
@@ -195,6 +231,13 @@
   // Message from the popup ("Autofill current tab" button) — kept for
   // back-compat; the popup path injects and drives the engine itself.
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+    if (msg && msg.type === "autopilotGo") {
+      if (!hasApplicationForm()) return false;  // let a frame WITH the form answer
+      runAutopilot()
+        .then(sendResponse)
+        .catch(e => sendResponse({ result: "error", detail: e.message || String(e) }));
+      return true;  // async response
+    }
     if (msg && msg.type === "autofill" && msg.profile) {
       Promise.resolve(
         window.__jobTrackerAutofill

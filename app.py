@@ -288,6 +288,23 @@ def _init_applications_db():
                 created_at    TEXT NOT NULL DEFAULT ''
             )
         """)
+        # Autopilot: one row per auto-apply attempt (submitted or not), so the
+        # queue never re-serves a job we already tried and the user can audit
+        # what the robot did overnight.
+        conn.execute(f"""
+            CREATE TABLE IF NOT EXISTS autopilot_attempts (
+                {id_col},
+                user_id      INTEGER NOT NULL,
+                url          TEXT NOT NULL,
+                title        TEXT,
+                company      TEXT,
+                result       TEXT NOT NULL,
+                detail       TEXT,
+                filled       INTEGER,
+                total        INTEGER,
+                attempted_at TEXT NOT NULL
+            )
+        """)
         # Ghost-job detection: one row per title|company fingerprint ever seen
         # in search/digest results. distinct_posts counts how many different
         # "posted" dates the same fingerprint has shown up with — a listing
@@ -3227,6 +3244,121 @@ def autolog_application():
         "ats":      ats,
         "ok":       True,
     }))
+
+
+# ── Autopilot: daily auto-apply via the Chrome extension ─────────────────────
+# The extension's background worker calls /queue each morning, opens each job
+# in a background tab, runs the fill engine + submitIfComplete(), then POSTs
+# the outcome to /report. Server-side responsibilities: pick only SAFE,
+# fast-apply jobs from the latest digest, never serve the same URL twice,
+# and log submitted jobs into the applications tracker.
+
+AUTOPILOT_RESULTS = ("submitted", "needs_review", "error", "timeout", "no_form")
+
+
+@app.route("/api/autopilot/queue", methods=["GET"])
+def autopilot_queue():
+    uid, err = _auth_required()
+    if err: return err
+    try:    cap = max(1, min(20, int(request.args.get("cap", 20))))
+    except Exception: cap = 20
+    try:    min_match = max(0, min(100, int(request.args.get("min_match", 35))))
+    except Exception: min_match = 35
+
+    with _db_conn() as conn:
+        row = conn.execute(
+            "SELECT jobs, run_at FROM daily_searches WHERE user_id = ? "
+            "ORDER BY run_at DESC LIMIT 1", (uid,)).fetchone()
+        app_rows = conn.execute(
+            "SELECT url FROM applications WHERE user_id = ?", (uid,)).fetchall()
+        tried_rows = conn.execute(
+            "SELECT url FROM autopilot_attempts WHERE user_id = ?", (uid,)).fetchall()
+    if not row:
+        return jsonify({"jobs": [], "reason": "no digest run yet"})
+
+    skip = {(_row_get(r, "url") or "").strip() for r in app_rows}
+    skip |= {(_row_get(r, "url") or "").strip() for r in tried_rows}
+    skip.discard("")
+
+    try:
+        digest_jobs = json.loads(_row_get(row, "jobs") or "[]")
+    except Exception:
+        digest_jobs = []
+
+    queue = []
+    for j in digest_jobs:
+        # Hard safety gate: only clean, fast-apply, US-eligible jobs. Scam
+        # flags, blockers (clearance/language/CS role/ghost), walled ATSes
+        # and anything below the match floor never reach the robot — those
+        # stay in the app for human review.
+        if j.get("ats_class") != "fast":            continue
+        if j.get("scam_flags"):                     continue
+        if j.get("blockers"):                       continue
+        if j.get("loc_class") == "NON_US":          continue
+        if (j.get("match_pct") or 0) < min_match:   continue
+        u = (j.get("url") or "").strip()
+        if not u or u in skip:                      continue
+        queue.append({
+            "url":       u,
+            "title":     j.get("title") or "",
+            "company":   j.get("company_name") or "",
+            "ats":       j.get("ats_name") or "",
+            "match_pct": j.get("match_pct") or 0,
+        })
+        if len(queue) >= cap:
+            break
+
+    return jsonify({"jobs": queue, "digest_run_at": _row_get(row, "run_at")})
+
+
+@app.route("/api/autopilot/report", methods=["POST"])
+def autopilot_report():
+    uid, err = _auth_required()
+    if err: return err
+    data = request.get_json(force=True, silent=True) or {}
+    url = (data.get("url") or "").strip()
+    result = (data.get("result") or "").strip()
+    if not url or result not in AUTOPILOT_RESULTS:
+        return jsonify({"error": f"url and result ({'/'.join(AUTOPILOT_RESULTS)}) required"}), 400
+
+    title   = (data.get("title") or "").strip()[:200]
+    company = (data.get("company") or "").strip()[:200]
+    detail  = (data.get("detail") or "").strip()[:500]
+    try:    filled = int(data.get("filled") or 0)
+    except Exception: filled = 0
+    try:    total = int(data.get("total") or 0)
+    except Exception: total = 0
+
+    now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    applied_id = None
+    with _db_conn() as conn:
+        conn.execute(
+            """INSERT INTO autopilot_attempts
+               (user_id, url, title, company, result, detail, filled, total, attempted_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (uid, url, title, company, result, detail, filled, total, now))
+        if result == "submitted":
+            # Same dedupe rule as autolog: never double-log or clobber a row
+            # the user has since moved to "Interviewing".
+            existing = conn.execute(
+                "SELECT id FROM applications WHERE user_id = ? AND url = ? LIMIT 1",
+                (uid, url)).fetchone()
+            if existing:
+                applied_id = _row_get(existing, "id")
+            else:
+                ats = _infer_ats_from_hostname(url)
+                cur = conn.execute(
+                    """INSERT INTO applications
+                       (user_id, company, title, url, ats, location, salary,
+                        source, status, notes, applied_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?)
+                       RETURNING id""",
+                    (uid, company or "(unknown company)", title or "(unknown role)",
+                     url, ats, "autopilot", "Applied",
+                     f"Autopilot: filled {filled}/{total} fields", now, now))
+                r = cur.fetchone()
+                applied_id = _row_get(r, "id") if r is not None else None
+    return jsonify({"ok": True, "application_id": applied_id})
 
 
 @app.route("/api/applications/<int:app_id>", methods=["PATCH"])

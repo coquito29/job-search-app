@@ -37,6 +37,16 @@
       Only submits if every required field is filled and there's no CAPTCHA.
     </p>
     <button id="autofill"     type="button" class="primary">Autofill this tab</button>
+    <label class="toggle-line">
+      <input id="autopilot-toggle" type="checkbox" checked>
+      Daily autopilot (9:30 AM auto-apply)
+    </label>
+    <p class="muted" style="margin-top:-4px">
+      Applies to up to 20 safe, fast-apply jobs from the daily digest.
+      Forms it can't finish stay open for your review.
+    </p>
+    <button id="autopilot-run" type="button">Run autopilot now</button>
+    <p class="muted" id="autopilot-status">Autopilot: never run</p>
     <button id="refresh"      type="button">Refresh profile</button>
     <button id="signout"      type="button" class="ghost">Sign out</button>
   </section>

@@ -95,6 +95,23 @@ async function init() {
   const { autoSubmitEnabled } = await new Promise(res =>
     chrome.storage.local.get("autoSubmitEnabled", res));
   $("auto-submit-toggle").checked = autoSubmitEnabled === true;
+  // Autopilot defaults ON (George's call, 2026-08-31): daily 9:30 batch
+  // auto-apply of safe fast-ATS digest jobs, submitting whatever validates.
+  const { autopilotEnabled, lastAutopilotRun } = await new Promise(res =>
+    chrome.storage.local.get(["autopilotEnabled", "lastAutopilotRun"], res));
+  $("autopilot-toggle").checked = autopilotEnabled !== false;
+  renderAutopilotStatus(lastAutopilotRun);
+}
+
+function renderAutopilotStatus(run) {
+  const el = $("autopilot-status");
+  if (!el) return;
+  if (!run || !run.at) { el.textContent = "Autopilot: never run"; return; }
+  const when = new Date(run.at).toLocaleString([], {
+    month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  el.textContent = run.empty
+    ? `Autopilot: ${when} — queue was empty`
+    : `Autopilot: ${when} — ${run.submitted || 0} submitted, ${run.review || 0} to review, ${run.failed || 0} failed`;
 }
 
 $("auto-fill-toggle").addEventListener("change", (e) => {
@@ -103,6 +120,17 @@ $("auto-fill-toggle").addEventListener("change", (e) => {
 
 $("auto-submit-toggle").addEventListener("change", (e) => {
   chrome.storage.local.set({ autoSubmitEnabled: e.target.checked });
+});
+
+$("autopilot-toggle").addEventListener("change", (e) => {
+  chrome.storage.local.set({ autopilotEnabled: e.target.checked });
+});
+
+$("autopilot-run").addEventListener("click", () => {
+  chrome.runtime.sendMessage({ type: "autopilotRunNow" }, () => {
+    const el = $("autopilot-status");
+    if (el) el.textContent = "Autopilot: running… (watch for the summary notification)";
+  });
 });
 
 $("signin").addEventListener("click", async () => {
