@@ -151,7 +151,12 @@ const CATCHUP_DELAY_MIN = 2;    // settle after browser start before catching up
 const TAB_LOAD_TIMEOUT  = 45_000;   // page load wait
 const TAB_SETTLE_MS     = 5_000;    // extra beat for SPA form render
 const FILL_TIMEOUT      = 180_000;  // fill + AI + submit, per job
-const MAX_REVIEW_TABS   = 5;        // needs-review tabs kept open for the user
+// Every ATS form tested on 2026-08-31 (BambooHR ×2, Ashby ×2) carries a
+// visible CAPTCHA, so "needs review" is the NORMAL outcome, not the
+// exception: autopilot fills the application completely and the user only
+// ticks the box and submits. Closing those tabs threw away finished work —
+// keep the whole day's batch open.
+const MAX_REVIEW_TABS   = 20;       // filled applications left open to finish
 
 // Today's 09:30 as a timestamp.
 function todaysSlot() {
