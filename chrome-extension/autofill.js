@@ -43,7 +43,11 @@
       // being filled with the applicant's own name, which reads as a fake
       // self-referral. Same for emergency contacts and manager/supervisor.
       { value: p.full_name,
-        skipIf: /\b(referr?(ed|al)|referred[\s_-]*by|emergency[\s_-]*contact|supervisor|manager'?s?[\s_-]*name|reference'?s?[\s_-]*name|next[\s_-]*of[\s_-]*kin|spouse|guardian)\b/i,
+        // "References (Name, Company, and Contact Info)" got the applicant's
+        // own name (seen live on dfn.bamboohr.com 2026-08-31): the old
+        // `reference's name` alternative never matched the bare plural, so
+        // match `reference`/`references` on their own.
+        skipIf: /\b(referr?(ed|al)|references?|referred[\s_-]*by|emergency[\s_-]*contact|supervisor|manager'?s?[\s_-]*name|next[\s_-]*of[\s_-]*kin|spouse|guardian)\b/i,
         patterns: [/^name$/i, /\byour[\s_-]*name\b/i, /\bname\b/i] },
 
       { value: p.email,            patterns: [/\bemail\b/i, /\be-?mail[\s_-]*address\b/i] },

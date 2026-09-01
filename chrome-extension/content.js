@@ -137,6 +137,47 @@
       'input[type="text"], input:not([type]), textarea').length >= 3;
   }
 
+  // Many ATSes (BambooHR, Lever, Recruitee…) render the job DESCRIPTION at the
+  // posting URL and only reveal the application form after an "Apply" click.
+  // Without this, autopilot opened those pages, saw no form and reported
+  // no_form — never even attempting jobs it could have filled. Verified on
+  // ebq.bamboohr.com 2026-08-31: one click turns 1 field into 21.
+  const APPLY_TEXT_RE =
+    /^(apply|apply\s+now|apply\s+for\s+this\s+job|apply\s+here|apply\s+to\s+this\s+job|start\s+(your\s+)?application|begin\s+application|application)$/i;
+
+  function isVisibleEl(el) {
+    if (!el || !el.offsetParent) return false;
+    const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0;
+  }
+
+  function findApplyButton() {
+    for (const el of document.querySelectorAll(
+        'button, a, [role="button"], input[type="button"]')) {
+      const t = (el.innerText || el.value || "").replace(/\s+/g, " ").trim();
+      if (!t || t.length > 40) continue;
+      if (!APPLY_TEXT_RE.test(t)) continue;
+      if (!isVisibleEl(el)) continue;
+      return el;
+    }
+    return null;
+  }
+
+  // Only ever called when NO form is on the page, so there is nothing this
+  // click could submit — it can only reveal one.
+  async function revealApplicationForm(maxWaitMs) {
+    if (hasApplicationForm()) return true;
+    const btn = findApplyButton();
+    if (!btn) return false;
+    try { btn.click(); } catch (_) { return false; }
+    const start = Date.now();
+    while (Date.now() - start < (maxWaitMs || 12000)) {
+      await new Promise(r => setTimeout(r, 400));
+      if (hasApplicationForm()) return true;
+    }
+    return false;
+  }
+
   async function runAutopilot() {
     // The per-URL auto-run may already be mid-flight (it fires ~900ms after
     // form detection). Let it finish, then run again — the engine skips
@@ -232,11 +273,23 @@
   // back-compat; the popup path injects and drives the engine itself.
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (msg && msg.type === "autopilotGo") {
-      if (!hasApplicationForm()) return false;  // let a frame WITH the form answer
-      runAutopilot()
+      if (hasApplicationForm()) {
+        runAutopilot()
+          .then(sendResponse)
+          .catch(e => sendResponse({ result: "error", detail: e.message || String(e) }));
+        return true;  // async response
+      }
+      // No form here. In the TOP frame, try revealing one behind an "Apply"
+      // button before giving up; sub-frames stay quiet so the frame that
+      // actually holds the form is the one that answers.
+      if (window !== window.top || !findApplyButton()) return false;
+      revealApplicationForm()
+        .then(ok => ok
+          ? runAutopilot()
+          : { result: "no_form", detail: "apply button did not reveal a form", filled: 0, total: 0 })
         .then(sendResponse)
         .catch(e => sendResponse({ result: "error", detail: e.message || String(e) }));
-      return true;  // async response
+      return true;
     }
     if (msg && msg.type === "autofill" && msg.profile) {
       Promise.resolve(
