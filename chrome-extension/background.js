@@ -337,8 +337,45 @@ async function attemptJob(job) {
     } catch (_) { clearTimeout(timer); resolve(undefined); }
   });
 
-  if (reply === null)      return { result: "timeout", detail: "fill/submit timed out", tabId };
-  if (!reply)              return { result: "no_form", detail: "no application form detected", tabId };
+  if (reply === null) return { result: "timeout", detail: "fill/submit timed out", tabId };
+
+  // No frame answered. On ATSes whose "Apply" is a LINK rather than an
+  // inline reveal (Jobvite, and Lever/Workday-style flows), the click
+  // navigates the tab and destroys the frame that was going to reply — so
+  // the application page we actually want is now loaded and nobody has been
+  // asked about it. Give the new page a chance and ask again, once.
+  // A page can also answer "no_form" a moment before its Apply link
+  // navigates, so retry on that too — same situation, different timing.
+  if (!reply || reply.result === "no_form") {
+    const movedTo = await tabUrl(tabId);
+    if (movedTo && movedTo !== job.url) {
+      await new Promise(r => setTimeout(r, TAB_SETTLE_MS));
+      const second = await new Promise(resolve => {
+        const t = setTimeout(() => resolve(null), FILL_TIMEOUT);
+        try {
+          chrome.tabs.sendMessage(tabId, { type: "autopilotGo", job }, r => {
+            clearTimeout(t);
+            resolve(chrome.runtime.lastError ? undefined : r);
+          });
+        } catch (_) { clearTimeout(t); resolve(undefined); }
+      });
+      if (second) {
+        return {
+          result: second.result || "error",
+          detail: second.detail || "",
+          filled: second.filled || 0,
+          total:  second.total  || 0,
+          tabId,
+        };
+      }
+      return { result: "no_form", detail: "apply link navigated, still no form", tabId };
+    }
+    return reply
+      ? { result: "no_form", detail: reply.detail || "no application form detected",
+          filled: reply.filled || 0, total: reply.total || 0, tabId }
+      : { result: "no_form", detail: "no application form detected", tabId };
+  }
+
   return {
     result: reply.result || "error",
     detail: reply.detail || "",
@@ -346,6 +383,14 @@ async function attemptJob(job) {
     total:  reply.total  || 0,
     tabId,
   };
+}
+
+function tabUrl(tabId) {
+  return new Promise(resolve => {
+    try {
+      chrome.tabs.get(tabId, t => resolve(chrome.runtime.lastError ? null : (t && t.url) || null));
+    } catch (_) { resolve(null); }
+  });
 }
 
 async function reportLateSubmit({ url, title, company }) {
