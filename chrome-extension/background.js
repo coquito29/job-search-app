@@ -24,6 +24,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     sendResponse({ started: true });
     return;
   }
+  if (msg.type === "autopilotLateSubmit") {
+    // A page auto-submitted after the user ticked its CAPTCHA, minutes after
+    // the run reported needs_review. Upgrade it to submitted so the tracker
+    // reflects what actually went out.
+    reportLateSubmit(msg)
+      .then(r => sendResponse(r))
+      .catch(e => sendResponse({ ok: false, error: e.message || String(e) }));
+    return true;
+  }
   if (msg.type === "aiFill") {
     aiFillRequest(msg)
       .then(r => sendResponse(r))
@@ -319,7 +328,7 @@ async function attemptJob(job) {
   const reply = await new Promise(resolve => {
     const timer = setTimeout(() => resolve(null), FILL_TIMEOUT);
     try {
-      chrome.tabs.sendMessage(tabId, { type: "autopilotGo" }, r => {
+      chrome.tabs.sendMessage(tabId, { type: "autopilotGo", job }, r => {
         clearTimeout(timer);
         // lastError fires when no frame answered (no form on page).
         if (chrome.runtime.lastError) resolve(undefined);
@@ -337,6 +346,18 @@ async function attemptJob(job) {
     total:  reply.total  || 0,
     tabId,
   };
+}
+
+async function reportLateSubmit({ url, title, company }) {
+  const { appUrl } = await chrome.storage.local.get("appUrl");
+  if (!appUrl || !url) return { ok: false, error: "no appUrl" };
+  const res = await fetch(appUrl.replace(/\/+$/, "") + "/api/autopilot/report", {
+    method: "POST", credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url, title: title || "", company: company || "",
+                           result: "submitted", detail: "submitted after CAPTCHA tick" }),
+  });
+  return { ok: res.ok, status: res.status };
 }
 
 function notifySummary(title, message) {

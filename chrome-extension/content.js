@@ -178,7 +178,7 @@
     return false;
   }
 
-  async function runAutopilot() {
+  async function runAutopilot(job) {
     // The per-URL auto-run may already be mid-flight (it fires ~900ms after
     // form detection). Let it finish, then run again — the engine skips
     // fields that already hold values, so the second pass is cheap.
@@ -194,12 +194,113 @@
       try { sub = await window.__jobTrackerAutofill.submitIfComplete(); }
       catch (e) { sub = { submitted: false, blockers: ["submit error: " + (e.message || e)] }; }
     }
+
+    // Blocked ONLY by a CAPTCHA? Then the application is otherwise complete
+    // and the user's whole job is ticking one box. Watch for that tick and
+    // submit the moment it lands, so they never have to hunt for the Submit
+    // button — one interaction per job instead of two plus a scroll.
+    if (!sub.submitted && isCaptchaOnly(sub.blockers)) {
+      armCaptchaAutoSubmit(job);
+      return {
+        result: "needs_review",
+        detail: "ready — waiting for you to tick the CAPTCHA (auto-submits after)",
+        filled: stats.filled || 0,
+        total:  stats.total  || 0,
+      };
+    }
+
     return {
       result: sub.submitted ? "submitted" : "needs_review",
       detail: (sub.blockers || []).slice(0, 6).join("; ").slice(0, 400),
       filled: stats.filled || 0,
       total:  stats.total  || 0,
     };
+  }
+
+  // ── CAPTCHA-tick → auto-submit ─────────────────────────────────────────────
+  // Every ATS form tested carries a CAPTCHA, so this is the normal endgame:
+  // everything else is filled, and a human tick is the only missing input.
+  // We never solve or bypass the challenge — we just stop making the user
+  // click Submit afterwards.
+  function isCaptchaOnly(blockers) {
+    const b = blockers || [];
+    return b.length > 0 && b.every(x => /captcha/i.test(x));
+  }
+
+  function captchaToken() {
+    for (const sel of ['#g-recaptcha-response',
+                       'textarea[name="g-recaptcha-response"]',
+                       'textarea[name="h-captcha-response"]',
+                       'input[name="cf-turnstile-response"]',
+                       'input[name="cf-chl-widget-response"]']) {
+      for (const el of document.querySelectorAll(sel)) {
+        if (el && String(el.value || "").trim()) return true;
+      }
+    }
+    return false;
+  }
+
+  function readyBanner(text, tone) {
+    let el = document.getElementById("jt-ready-banner");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "jt-ready-banner";
+      el.style.cssText = `
+        position: fixed; top: 0; left: 0; right: 0; z-index: 2147483647;
+        padding: 11px 16px; text-align: center;
+        font: 600 14px/1.4 system-ui, -apple-system, sans-serif;
+        box-shadow: 0 2px 10px rgba(0,0,0,.2);`;
+      document.documentElement.appendChild(el);
+    }
+    el.style.background = tone === "done" ? "#198754" : "#0d6efd";
+    el.style.color = "#fff";
+    el.textContent = text;
+    return el;
+  }
+
+  function armCaptchaAutoSubmit(job) {
+    if (window.__jtCaptchaWatch) return;
+    window.__jtCaptchaWatch = true;
+
+    readyBanner("✅ Application filled and ready — just tick the “I’m not a robot” box. It submits itself.");
+
+    // Bring the challenge into view so it's the first thing seen.
+    setTimeout(() => {
+      const cap = document.querySelector(
+        'iframe[src*="recaptcha"], iframe[src*="hcaptcha"], iframe[src*="turnstile"], .g-recaptcha, .h-captcha');
+      if (cap) try { cap.scrollIntoView({ block: "center", behavior: "smooth" }); } catch (_) {}
+    }, 600);
+
+    const started = Date.now();
+    const timer = setInterval(async () => {
+      if (shutdownIfOrphaned()) { clearInterval(timer); return; }
+      if (Date.now() - started > 45 * 60_000) { clearInterval(timer); return; }  // give up after 45m
+      if (!captchaToken()) return;
+
+      clearInterval(timer);
+      readyBanner("Submitting your application…");
+      let ok = false, why = "";
+      try {
+        const res = await window.__jobTrackerAutofill.submitIfComplete();
+        ok = !!(res && res.submitted);
+        why = (res && (res.blockers || []).join("; ")) || "";
+      } catch (e) { why = e.message || String(e); }
+
+      if (ok) {
+        readyBanner("✅ Application submitted. You can close this tab.", "done");
+        // The background worker already reported needs_review, so tell the
+        // server this one actually went out or the tracker stays wrong.
+        sendMessage({
+          type: "autopilotLateSubmit",
+          url: location.href,
+          title: (job && job.title) || (document.querySelector("h1")?.innerText || "").slice(0, 120),
+          company: (job && job.company) || "",
+        });
+      } else {
+        readyBanner("Couldn't submit automatically — please click Submit yourself. " + why.slice(0, 90));
+        try { window.__jobTrackerAutofill.findSubmitButton()?.scrollIntoView({ block: "center" }); } catch (_) {}
+      }
+    }, 1000);
   }
 
   // Collect answers the user typed by hand (fields the engine missed) and
@@ -274,7 +375,7 @@
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (msg && msg.type === "autopilotGo") {
       if (hasApplicationForm()) {
-        runAutopilot()
+        runAutopilot(msg.job)
           .then(sendResponse)
           .catch(e => sendResponse({ result: "error", detail: e.message || String(e) }));
         return true;  // async response
@@ -285,7 +386,7 @@
       if (window !== window.top || !findApplyButton()) return false;
       revealApplicationForm()
         .then(ok => ok
-          ? runAutopilot()
+          ? runAutopilot(msg.job)
           : { result: "no_form", detail: "apply button did not reveal a form", filled: 0, total: 0 })
         .then(sendResponse)
         .catch(e => sendResponse({ result: "error", detail: e.message || String(e) }));

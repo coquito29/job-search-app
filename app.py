@@ -3454,11 +3454,36 @@ def autopilot_report():
     now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
     applied_id = None
     with _db_conn() as conn:
-        conn.execute(
-            """INSERT INTO autopilot_attempts
-               (user_id, url, title, company, result, detail, filled, total, attempted_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (uid, url, title, company, result, detail, filled, total, now))
+        # A job reported needs_review can later come back as submitted, when
+        # the user ticks its CAPTCHA and the page auto-submits. Upgrade that
+        # row instead of inserting a second one, so one job stays one row and
+        # the daily counts don't read "1 submitted, 1 needs review" for it.
+        upgraded = False
+        if result == "submitted":
+            prior = conn.execute(
+                "SELECT id, result, filled, total FROM autopilot_attempts "
+                "WHERE user_id = ? AND url = ? ORDER BY id DESC LIMIT 1",
+                (uid, url)).fetchone()
+            if prior is not None:
+                # Already recorded as submitted — idempotent no-op. Inserting
+                # again would overstate "applied today" on the status strip.
+                if (_row_get(prior, "result") or "") == "submitted":
+                    upgraded = True
+                else:
+                    conn.execute(
+                        "UPDATE autopilot_attempts SET result = ?, detail = ?, "
+                        "filled = ?, total = ?, attempted_at = ? WHERE id = ?",
+                        (result, detail,
+                         filled or _row_get(prior, "filled") or 0,
+                         total or _row_get(prior, "total") or 0,
+                         now, _row_get(prior, "id")))
+                    upgraded = True
+        if not upgraded:
+            conn.execute(
+                """INSERT INTO autopilot_attempts
+                   (user_id, url, title, company, result, detail, filled, total, attempted_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (uid, url, title, company, result, detail, filled, total, now))
         if result == "submitted":
             # Same dedupe rule as autolog: never double-log or clobber a row
             # the user has since moved to "Interviewing".
