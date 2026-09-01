@@ -3262,8 +3262,13 @@ def autopilot_queue():
     if err: return err
     try:    cap = max(1, min(20, int(request.args.get("cap", 20))))
     except Exception: cap = 20
-    try:    min_match = max(0, min(100, int(request.args.get("min_match", 35))))
-    except Exception: min_match = 35
+    # 25, not 35: the scoring formula is conservative (a clean, well-matched
+    # entry job lands around 30-65%), and on real digest days the best US
+    # fast-apply job can sit near 30% — a 35 floor starved the queue to zero
+    # (seen 2026-08-31). The hard safety gates below do the real filtering;
+    # the floor only exists to skip keyword-noise matches.
+    try:    min_match = max(0, min(100, int(request.args.get("min_match", 25))))
+    except Exception: min_match = 25
 
     with _db_conn() as conn:
         row = conn.execute(
