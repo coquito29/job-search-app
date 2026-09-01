@@ -3311,6 +3311,25 @@ def autopilot_queue():
     return jsonify({"jobs": queue, "digest_run_at": _row_get(row, "run_at")})
 
 
+@app.route("/api/autopilot/attempts", methods=["GET"])
+def autopilot_attempts():
+    """Recent auto-apply attempts for the site's Autopilot panel — newest
+    first, includes failures so the user can see what the robot skipped."""
+    uid, err = _auth_required()
+    if err: return err
+    try:    limit = max(1, min(200, int(request.args.get("limit", 50))))
+    except Exception: limit = 50
+    with _db_conn() as conn:
+        rows = conn.execute(
+            "SELECT url, title, company, result, detail, filled, total, attempted_at "
+            "FROM autopilot_attempts WHERE user_id = ? "
+            "ORDER BY attempted_at DESC, id DESC LIMIT ?", (uid, limit)).fetchall()
+    return jsonify({"attempts": [
+        {k: _row_get(r, k) for k in
+         ("url", "title", "company", "result", "detail", "filled", "total", "attempted_at")}
+        for r in rows]})
+
+
 @app.route("/api/autopilot/report", methods=["POST"])
 def autopilot_report():
     uid, err = _auth_required()

@@ -2072,6 +2072,26 @@
     </div>
   </div>
 
+  <!-- Autopilot log — what the extension's daily auto-apply did, incl. skips -->
+  <div class="section-card" id="autopilotSection" style="margin-top:8px;margin-bottom:8px;">
+    <div class="d-flex align-items-center justify-content-between gap-2 mb-2">
+      <div class="card-title" style="margin:0;">
+        <i class="bi bi-robot text-primary"></i>
+        Autopilot
+        <span class="badge bg-primary ms-1" id="autopilotCount" style="font-size:.65rem;">0</span>
+      </div>
+      <button class="btn btn-sm btn-outline-primary" onclick="loadAutopilotLog(true)">
+        <i class="bi bi-arrow-clockwise me-1"></i>Refresh
+      </button>
+    </div>
+    <div id="autopilotSummaryLine" style="font-size:.75rem;color:var(--ink-muted);margin-bottom:6px;"></div>
+    <div id="autopilotList" style="font-size:.85rem;color:#6c757d;">
+      The Chrome extension applies to up to 20 safe jobs daily at 9:30 AM.
+      Every attempt shows here — submitted, left for review, or failed.
+      Loading…
+    </div>
+  </div>
+
   <div id="trackerList"></div>
 </div>
 
@@ -3126,7 +3146,65 @@ function filterTracker(f) {
   renderTrackerTab();
 }
 
+// ── Autopilot log ────────────────────────────────────────────────────────────
+// Read-only view of autopilot_attempts so the user can see what the
+// extension's daily auto-apply did without opening the extension popup.
+let autopilotLoadedAt = 0;
+
+async function loadAutopilotLog(force) {
+  if (!force && Date.now() - autopilotLoadedAt < 60_000) return; // 1-min cache
+  const listEl = document.getElementById('autopilotList');
+  const sumEl  = document.getElementById('autopilotSummaryLine');
+  const cntEl  = document.getElementById('autopilotCount');
+  try {
+    const res = await fetch('/api/autopilot/attempts?limit=60', { credentials: 'include' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const { attempts } = await res.json();
+    autopilotLoadedAt = Date.now();
+    if (!attempts || !attempts.length) {
+      listEl.innerHTML = `No runs yet. The extension runs daily at 9:30 AM when Chrome is open —
+        or click the extension icon and hit <strong>Run autopilot now</strong> to start one.`;
+      sumEl.textContent = '';
+      cntEl.textContent = '0';
+      return;
+    }
+    const today = new Date().toISOString().slice(0, 10);
+    const todays = attempts.filter(a => (a.attempted_at || '').startsWith(today));
+    const nSub = todays.filter(a => a.result === 'submitted').length;
+    const nRev = todays.filter(a => a.result === 'needs_review').length;
+    sumEl.textContent = todays.length
+      ? `Today: ${nSub} submitted · ${nRev} need review · ${todays.length - nSub - nRev} failed/skipped`
+      : `No run yet today. Last activity: ${new Date(attempts[0].attempted_at).toLocaleString()}`;
+    cntEl.textContent = String(attempts.filter(a => a.result === 'submitted').length);
+    const resStyle = {
+      submitted:    'background:#dcfce7;color:#14532d;',
+      needs_review: 'background:#fef9c3;color:#713f12;',
+      error:        'background:#fee2e2;color:#7f1d1d;',
+      timeout:      'background:#fee2e2;color:#7f1d1d;',
+      no_form:      'background:#e9ecef;color:#6c757d;',
+    };
+    const resLabel = {
+      submitted: 'Submitted ✓', needs_review: 'Needs review',
+      error: 'Failed', timeout: 'Timed out', no_form: 'No form found',
+    };
+    listEl.innerHTML = attempts.map(a => {
+      const when = a.attempted_at ? new Date(a.attempted_at).toLocaleString([], { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }) : '';
+      const fillTxt = a.total ? ` · ${a.filled}/${a.total} fields` : '';
+      return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px dashed var(--border-soft);">
+        <span style="font-size:.65rem;font-weight:700;padding:2px 7px;border-radius:999px;white-space:nowrap;${resStyle[a.result] || ''}">${resLabel[a.result] || escHtml(a.result || '')}</span>
+        <a href="${escHtml(a.url || '#')}" target="_blank" rel="noopener" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink);text-decoration:none;">
+          ${escHtml(a.title || '(untitled)')}${a.company ? ' — ' + escHtml(a.company) : ''}
+        </a>
+        <span style="font-size:.7rem;color:var(--ink-muted);white-space:nowrap;">${when}${fillTxt}</span>
+      </div>${a.result === 'needs_review' && a.detail ? `<div style="font-size:.7rem;color:#b45309;padding:0 0 4px 2px;">↳ ${escHtml(a.detail)}</div>` : ''}`;
+    }).join('');
+  } catch (e) {
+    listEl.textContent = 'Could not load autopilot log: ' + (e.message || e);
+  }
+}
+
 function renderTrackerTab() {
+  loadAutopilotLog(false);
   const list    = document.getElementById('trackerList');
   const summary = document.getElementById('trackerSummary');
   const statsEl = document.getElementById('trackerStats');
