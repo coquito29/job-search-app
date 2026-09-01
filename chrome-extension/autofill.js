@@ -1804,6 +1804,15 @@
     const RESUME_RE = /\b(resume|cv|curriculum[\s_-]*vitae|upload[\s_-]*(your[\s_-]*)?(resume|cv|file))\b|\battach[\s_-]*(your[\s_-]*)?(resume|cv|file)\b/i;
     // Never auto-attach the CV to slots meant for something else.
     const NOT_RESUME_RE = /\b(cover[\s_-]*letter|portfolio|transcript|photo|avatar|head[\s_-]*shot|certificate|reference)\b/i;
+    // Ashby puts TWO file inputs on an application: a convenience parser at
+    // the top ("Autofill from resume - Upload your resume here to autofill key
+    // application fields") and the real slot lower down, id="_systemfield_resume".
+    // The helper's own copy says "resume" three times, so RESUME_RE matched it
+    // first and the CV went into the parser while the required Resume field
+    // stayed empty -- every Ashby run came back "required file: Resume"
+    // (C1 and Cyberhaven, 2026-09-01). Feeding the parser is also destructive:
+    // it rewrites fields the rule passes already filled correctly.
+    const AUTOFILL_HELPER_RE = /\bauto[\s_-]*fill\b|\bprefill\b|\bparse[sd]?\b/i;
 
     // BambooHR (and SmartRecruiters) give EVERY file slot the same useless
     // identity — aria-label "file-input", no name, no id, identical accept
@@ -1815,31 +1824,56 @@
     // walk up a few ancestors — crossing shadow boundaries — and take the
     // nearest ancestor whose text is small enough to describe just this
     // field rather than the whole form.
+    // Which slot a control belongs to, read off the DOM around it.
+    //
+    // Taking the nearest non-empty ancestor (the previous rule) does not work
+    // on BambooHR: the two innermost wrappers of BOTH file inputs say only
+    // "Choose File / No file selected", so cover letter and resume were
+    // indistinguishable and first-match took the cover-letter slot -- the very
+    // thing that rule was added to prevent. The heading sits two levels up.
+    // Verified on ebq.bamboohr.com 2026-09-01: depth 0-1 "Choose File...",
+    // depth 2 "Resume* Choose File*...", depth 3 holds both slots at only 110
+    // characters, so a length cap alone would not separate them either.
+    //
+    // So: climb until the text actually NAMES a slot and stop there, keeping
+    // the last short text as a fallback. Bailing out once the text has grown
+    // past a field's worth stops it swallowing neighbouring controls.
+    const SLOT_ID_RE = /\b(resume|cv|curriculum[\s_-]*vitae|cover[\s_-]*letter|portfolio|transcript|photo|certificate|reference)\b/i;
     function slotContext(el) {
       let node = el.parentElement || (el.getRootNode() && el.getRootNode().host) || null;
-      for (let d = 0; d < 6 && node; d++) {
+      let best = "";
+      for (let d = 0; d < 8 && node; d++) {
         const t = cleanText(node.innerText || "");
-        // NEAREST non-empty ancestor wins. Climbing past it reaches a
-        // container holding BOTH slots ("Cover Letter Resume*"), which
-        // would tar the resume slot with the cover-letter word and leave
-        // the CV unattached entirely.
-        if (t) return t.length <= 120 ? t : "";
+        if (t) {
+          if (t.length > 160) break;
+          best = t;
+          if (SLOT_ID_RE.test(t)) return t;
+        }
         node = node.parentElement || (node.getRootNode && node.getRootNode().host) || null;
       }
-      return "";
+      return best;
     }
 
-    let resumeInput = null;
-    const candidates = [];
+    // Ranked, not first-match. The field's OWN identity beats the words near
+    // it, because surrounding copy is what the Ashby helper hijacks.
+    let byIdentity = null;          // name/id says resume  (Ashby: _systemfield_resume)
+    const byContext = [];           // nearby heading says resume  (BambooHR)
+    const rest = [];                // nothing excluded it
     for (const el of fileInputs) {
-      const haystack = `${el.name || ""} ${el.id || ""} ${probeText(el)} ${el.accept || ""} ${slotContext(el)}`;
+      // Underscores and hyphens are word characters, so "_systemfield_resume"
+      // has no  before "resume" and RESUME_RE misses it. Split them.
+      const own = `${el.name || ""} ${el.id || ""}`.replace(/[_\-]+/g, " ");
+      const ctx = slotContext(el);
+      const haystack = `${own} ${probeText(el)} ${el.accept || ""} ${ctx}`;
       if (NOT_RESUME_RE.test(haystack)) continue;
-      if (RESUME_RE.test(haystack)) { resumeInput = el; break; }
-      candidates.push(el);
+      if (AUTOFILL_HELPER_RE.test(ctx)) continue;
+      if (!byIdentity && RESUME_RE.test(own)) { byIdentity = el; continue; }
+      if (RESUME_RE.test(haystack)) { byContext.push(el); continue; }
+      rest.push(el);
     }
-    // Still ambiguous: take the first slot nothing excluded. Safe now that
-    // the cover-letter slot is recognised by its heading.
-    if (!resumeInput && candidates.length) resumeInput = candidates[0];
+    // BambooHR gives every slot the same empty identity, so it falls through to
+    // byContext and the heading walk above still decides it.
+    const resumeInput = byIdentity || byContext[0] || rest[0] || null;
     if (!resumeInput) return 0;
     // Skip if a file is already attached
     if (resumeInput.files && resumeInput.files.length > 0) return 0;
