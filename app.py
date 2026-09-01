@@ -791,6 +791,21 @@ def fetch_apify_jobs(skills, token, limit=300, time_range="7d"):
 
 def _parse_years_required(text):
     text = text.lower()
+
+    # "Must be at least 18 years of age" is an eligibility line, not an
+    # experience requirement. Left in, it parsed as 18 years and pinned
+    # exp_bonus to its -45 floor (Southwest Airlines, 2026-09-01). Strip age
+    # phrases before any pattern below sees the text.
+    text = re.sub(r'\b(?:at\s+least\s+|minimum\s+(?:of\s+)?)?\d{1,2}\s*'
+                  r'years?\s+(?:of\s+)?age\b', ' ', text)
+
+    # Postings spell the numeral and repeat it in parentheses -- "Four (4)
+    # years of ... experience". Every pattern below wants "4 years", and "4)"
+    # broke all of them, so a four-year job parsed as 0 and collected the +14
+    # entry-level bonus (Health First, 2026-09-01). Unwrap bare parenthesised
+    # numerals so the patterns see the digit.
+    text = re.sub(r'\(\s*(\d{1,2})\s*\)', r' \1 ', text)
+
     patterns = [
         r'(\d+)\+\s*years?\s+(?:of\s+)?(?:experience|exp\b)',
         r'(\d+)\s*[-–]\s*\d+\s+years?\s+(?:of\s+)?(?:experience|exp\b)',
@@ -798,6 +813,11 @@ def _parse_years_required(text):
         r'at\s+least\s+(\d+)\s+years?',
         r'(\d+)\s+years?\s+(?:of\s+)?(?:relevant\s+|professional\s+)?(?:experience|exp\b)',
         r'(\d+)\s+years?\s+(?:work(?:ing)?\s+)?experience',
+        # "4 years of customer service or call center IT support experience" --
+        # a qualifier sits between the years and the word "experience", which
+        # the two patterns above cannot span. Bounded and lazy so it cannot
+        # leap across sentences.
+        r'(\d+)\s*\+?\s*years?\s+(?:of\s+)?[a-z0-9 ,/&+-]{0,60}?experience',
     ]
     found = []
     for pat in patterns:
@@ -1063,6 +1083,22 @@ def score_job(job, profile):
     if CS_TITLE_RE.search(title_lc) and not TECH_TITLE_RE.search(title_lc):
         block_bonus += -40
         block_labels.append("Customer service role")
+
+    # The title rule above is blind to descriptions on purpose, but a job can
+    # be a call centre job behind a clean IT title. "End User Support Analyst
+    # II - Service Desk" topped the 2026-09-01 digest at 31% and turned out to
+    # be a "call center-based environment" asking for "Four (4) years of
+    # customer service or call center IT support experience". These patterns
+    # describe the JOB as a call centre, which the "provide excellent customer
+    # service" boilerplate the comment above warns about never does.
+    CALL_CENTER_DESC_RE = re.compile(
+        r"call\s*cent(?:er|re)[-\s]based"
+        r"|(?:in|within)\s+a\s+call\s*cent(?:er|re)\s+(?:environment|setting)"
+        r"|years?\s+of\s+customer\s+service\s+or\s+call\s*cent(?:er|re)"
+        r"|call\s*cent(?:er|re)\s+experience\s+(?:is\s+)?required")
+    if "Customer service role" not in block_labels and CALL_CENTER_DESC_RE.search(combo):
+        block_bonus += -40
+        block_labels.append("Call center role")
 
     # Work eligibility by location. Remote != US-remote: the digest kept
     # surfacing Poznan, Malta, Bucharest and Bengaluru roles that are perfectly
@@ -3408,11 +3444,32 @@ def autopilot_status():
     broken. Cheap enough to call on every page load."""
     uid, err = _auth_required()
     if err: return err
-    today = datetime.utcnow().strftime("%Y-%m-%d")
+
+    # The strip says "today", so the day boundary has to be the USER's, not the
+    # server's. attempted_at is UTC and Render runs UTC, so a run at 11:35 PM
+    # local on 2026-08-31 landed at 03:35Z on 2026-09-01 and was still being
+    # reported as "today" at lunchtime the next day. The browser sends its
+    # own offset (JS getTimezoneOffset(): minutes to ADD to local to reach UTC).
+    try:    tz_offset = int(request.args.get("tz_offset", 0))
+    except Exception: tz_offset = 0
+    tz_offset = max(-840, min(840, tz_offset))
+    now_local = datetime.utcnow() - timedelta(minutes=tz_offset)
+    day_start = (now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+                 + timedelta(minutes=tz_offset))
+    since = day_start.strftime("%Y-%m-%dT%H:%M:%SZ")
+
     with _db_conn() as conn:
         rows = conn.execute(
             "SELECT result, attempted_at FROM autopilot_attempts "
-            "WHERE user_id = ? AND attempted_at >= ?", (uid, today)).fetchall()
+            "WHERE user_id = ? AND attempted_at >= ?", (uid, since)).fetchall()
+        # The filled-but-unfinished applications, so the UI can link straight
+        # back to them. They used to exist only as open browser tabs, and once
+        # those were closed the work was unreachable -- the queue never
+        # re-serves a URL that is already in autopilot_attempts.
+        pending = conn.execute(
+            "SELECT url, title, company, detail, filled, total, attempted_at "
+            "FROM autopilot_attempts WHERE user_id = ? AND result = 'needs_review' "
+            "ORDER BY attempted_at DESC, id DESC LIMIT 20", (uid,)).fetchall()
         last = conn.execute(
             "SELECT attempted_at FROM autopilot_attempts WHERE user_id = ? "
             "ORDER BY attempted_at DESC, id DESC LIMIT 1", (uid,)).fetchone()
@@ -3427,6 +3484,11 @@ def autopilot_status():
             "other":        sum(1 for r in results if r not in ("submitted", "needs_review")),
             "total":        len(results),
         },
+        "pending": [
+            {k: _row_get(r, k) for k in
+             ("url", "title", "company", "detail", "filled", "total", "attempted_at")}
+            for r in pending],
+        "day_start_utc":   since,
         "last_attempt_at": _row_get(last, "attempted_at") if last else None,
         "digest_run_at":   _row_get(digest, "run_at") if digest else None,
         "email_error":     (_row_get(digest, "email_error") if digest else None) or None,

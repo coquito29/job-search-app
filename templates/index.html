@@ -705,6 +705,66 @@
     .job-card.match-good  { border-left-color: #eab308; }
     .job-card.match-low   { border-left-color: var(--border-strong); }
 
+    /* ── Verdict pill ───────────────────────────────────────────────────
+       The card used to lead with "31% Match", which is the least readable
+       thing on it: the denominator grows with the skill list, so a good job
+       lands in the teens. This says what to DO instead, and the percentage
+       moves down beside the bar where it reads as a ranking hint. */
+    .verdict {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: .72rem; font-weight: 700; letter-spacing: .01em;
+      padding: 3px 10px; border-radius: var(--r-pill); white-space: nowrap;
+    }
+    .verdict-ready   { background: var(--success-50);   color: var(--success-700); }
+    .verdict-warn    { background: var(--warn-50);      color: var(--warn-700); }
+    .verdict-blocked { background: var(--danger-50);    color: var(--danger-700); }
+    .verdict-manual  { background: var(--brand-50);     color: var(--brand-600); }
+    .verdict-done    { background: var(--surface-soft); color: var(--ink-muted); }
+    body.dark-mode .verdict-ready   { background: rgba(34,197,94,.16);  color: #86efac; }
+    body.dark-mode .verdict-warn    { background: rgba(234,179,8,.16);  color: #fde68a; }
+    body.dark-mode .verdict-blocked { background: rgba(220,38,38,.18);  color: #fca5a5; }
+    body.dark-mode .verdict-manual  { background: rgba(77,159,255,.14); color: #93c5fd; }
+    body.dark-mode .verdict-done    { background: rgba(255,255,255,.06); color: var(--ink-muted); }
+
+    /* Percentage + reason on one quiet line under the bar. */
+    .job-scoreline {
+      display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap;
+      font-size: .74rem; color: var(--ink-muted); margin-top: 4px;
+    }
+    .job-scoreline .pct { font-weight: 700; color: var(--ink); }
+    .job-cv {
+      font-size: .74rem; color: var(--ink-muted);
+      margin-top: 6px; display: flex; align-items: center; gap: 5px;
+    }
+    .job-cv strong { color: var(--ink); font-weight: 600; }
+    .job-applied-note {
+      font-size: .74rem; margin-top: 6px;
+      color: var(--warn-700); display: flex; align-items: center; gap: 5px;
+    }
+    body.dark-mode .job-applied-note { color: #fcd34d; }
+
+    .search-toggle {
+      display: flex; align-items: center; gap: 10px; width: 100%;
+      background: none; border: 0; padding: 0; text-align: left;
+      color: inherit;
+    }
+    .search-toggle .card-title { flex: none; }
+    .search-toggle-hint {
+      flex: 1; font-size: .76rem; color: var(--ink-muted); font-weight: 500;
+    }
+    .search-toggle i.bi-chevron-up,
+    .search-toggle i.bi-chevron-down { color: var(--ink-faint); font-size: .8rem; }
+    #searchBody.is-collapsed { display: none; }
+
+    .job-action-quiet {
+      color: var(--ink-muted);
+      background: none;
+      border: 0;
+      font-weight: 600;
+      padding: 4px 8px;
+    }
+    .job-action-quiet:hover { color: var(--brand-500); background: var(--tint-brand-soft); }
+
     .match-badge {
       font-size: .72rem;
       font-weight: 700;
@@ -1093,6 +1153,46 @@
     .source-badge-error { opacity: .45; }
 
     /* ══ Dark mode overrides ═══════════════════════════════ */
+    /* ── Today tab ──────────────────────────────────────────────────────
+       Uses the token set rather than literal hex, so dark mode needs no
+       parallel rules and the type scale matches the rest of the app. */
+    .today-icon     { font-size: 1.6rem; line-height: 1; }
+    .today-headline { font-size: 1.02rem; font-weight: 600; line-height: 1.35;
+                      color: var(--ink-strong); }
+    .today-sub      { font-size: .82rem; color: var(--ink-muted); margin-top: 3px; }
+
+    .today-stats {
+      display: flex; flex-wrap: wrap; gap: 12px 26px;
+      margin-top: 11px; padding-top: 10px;
+      border-top: 1px solid var(--border);
+    }
+    .today-stat-label {
+      font-size: .68rem; color: var(--ink-faint);
+      text-transform: uppercase; letter-spacing: .04em;
+    }
+    .today-stat-value { font-size: .84rem; font-weight: 600; color: var(--ink); }
+
+    .today-pending-row {
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+      padding: 9px 0; border-top: 1px solid var(--border);
+    }
+    .today-pending-row:first-child { border-top: 0; }
+    .today-pending-main   { flex: 1; min-width: 190px; }
+    .today-pending-title  { font-size: .88rem; font-weight: 600; color: var(--ink-strong); }
+    .today-pending-meta   { font-size: .75rem; color: var(--ink-muted); }
+    .today-pending-detail { font-size: .75rem; color: var(--warn-500); margin-top: 2px; }
+
+    .today-empty-title { font-weight: 600; margin-top: 8px; color: var(--ink-strong); }
+    .today-empty-hint  { font-size: .83rem; color: var(--ink-muted); margin-top: 4px; }
+
+    /* Phones: the stat row is the only thing that needs help — four columns
+       of label+value get cramped below ~380px. */
+    @media (max-width: 420px) {
+      .today-stats { gap: 10px 18px; }
+      .today-headline { font-size: .96rem; }
+      .app-header .subtitle { display: none; }
+    }
+
     body.dark-mode {
       color: var(--ink);
     }
@@ -1713,51 +1813,79 @@
 
 <!-- ══ Tab bar ═══════════════════════════════════════════════════════════════ -->
 <div class="step-bar" id="stepBar">
-  <div class="step-item active" id="step3Indicator" data-tab="search" onclick="showTab('search')">
-    <i class="bi bi-search"></i>Search
+  <div class="step-item active" id="stepTodayIndicator" data-tab="today" onclick="showTab('today')">
+    <i class="bi bi-sun"></i>Today
+    <span class="badge bg-warning text-dark ms-1" id="todayBadge" style="display:none;">0</span>
   </div>
-  <div class="step-item" id="step4Indicator" data-tab="results" onclick="showTab('results')">
-    <i class="bi bi-list-ul"></i>Results
+  <div class="step-item" id="step4Indicator" data-tab="jobs" onclick="showTab('jobs')">
+    <i class="bi bi-list-ul"></i>Jobs
   </div>
   <div class="step-item" id="step5Indicator" data-tab="tracker" onclick="showTab('tracker')">
     <i class="bi bi-bookmark-check"></i>Tracker
     <span class="badge bg-primary ms-1" id="trackerBadge">0</span>
   </div>
-  <div class="step-item" id="step7Indicator" data-tab="stats" onclick="showTab('stats')">
-    <i class="bi bi-bar-chart-fill"></i>Stats
-  </div>
   <div class="step-item" id="step2Indicator" data-tab="setup" onclick="showTab('setup')">
     <i class="bi bi-sliders"></i>Setup
     <span class="badge bg-success ms-1" id="cvCountBadge">0</span>
   </div>
-  <div class="step-item" id="step6Indicator" onclick="window.location.href='/checkout'">
-    <i class="bi bi-calendar-check"></i>Plan
-  </div>
+  <!-- Retired tabs. Search folded into Jobs, Stats into Tracker, and Plan was
+       a duplicate of "Plan & billing" in the account menu. Kept as hidden
+       stubs so nothing that still looks them up by id throws. -->
   <div class="step-item d-none" id="step1Indicator"></div>
+  <div class="step-item d-none" id="step3Indicator"></div>
+  <div class="step-item d-none" id="step6Indicator"></div>
+  <div class="step-item d-none" id="step7Indicator"></div>
 </div>
 
-<!-- ══ Autopilot status strip ════════════════════════════════════════════════
-     Always visible under the tab bar so "did the robot apply for me today?"
-     is answered on page load, without digging into the Tracker tab. -->
-<div id="autopilotStrip" style="display:none;margin:8px 0;padding:9px 13px;border-radius:10px;
-     font-size:.82rem;align-items:center;gap:9px;flex-wrap:wrap;">
-  <span id="autopilotStripIcon" style="font-size:1rem;"></span>
-  <span id="autopilotStripText" style="flex:1;min-width:180px;"></span>
-  <button id="autopilotRunBtn" class="btn btn-sm btn-primary" style="display:none;font-size:.72rem;padding:3px 11px;"
-          onclick="runAutopilotFromSite()">
-    <i class="bi bi-lightning-charge-fill me-1"></i>Run autopilot now
-  </button>
-  <button class="btn btn-sm btn-outline-primary" style="font-size:.72rem;padding:2px 9px;"
-          onclick="showTab('tracker'); setTimeout(() => document.getElementById('autopilotSection')?.scrollIntoView({behavior:'smooth', block:'center'}), 250);">
-    See details
-  </button>
-</div>
-<div id="digestEmailWarn" style="display:none;margin:8px 0;padding:9px 13px;border-radius:10px;
-     font-size:.8rem;background:#fef3c7;color:#92400e;border:1px solid #fde68a;">
-  <i class="bi bi-envelope-exclamation me-1"></i>
-  <strong>Digest email isn't sending.</strong>
-  <span id="digestEmailWarnDetail"></span>
-  Job searching still works normally — only the email is affected.
+<!-- ══ Today ════════════════════════════════════════════════════════════════
+     The landing tab. One card that answers "what do I do right now?", the
+     list of applications waiting on a human, and anything that is broken.
+     This replaces two banners that used to stack above every other tab. -->
+<div id="todaySection">
+
+  <div class="section-card" id="todayCard" style="margin-bottom:10px;">
+    <div class="d-flex align-items-start gap-3 flex-wrap">
+      <span id="todayIcon" class="today-icon">🤖</span>
+      <div style="flex:1;min-width:220px;">
+        <div id="todayHeadline" class="today-headline">Loading…</div>
+        <div id="todaySubline" class="today-sub"></div>
+      </div>
+      <div class="d-flex gap-1 flex-wrap">
+        <button id="autopilotRunBtn" class="btn btn-sm btn-primary" style="display:none;font-size:.75rem;"
+                onclick="runAutopilotFromSite()">
+          <i class="bi bi-lightning-charge-fill me-1"></i>Run autopilot now
+        </button>
+        <button class="btn btn-sm btn-outline-primary" style="font-size:.75rem;" onclick="showTab('jobs')">
+          View jobs
+        </button>
+      </div>
+    </div>
+    <div id="todayStats" class="today-stats"></div>
+  </div>
+
+  <!-- Applications autopilot filled but could not submit. These used to live
+       only as open browser tabs; once those closed the work was unreachable,
+       because the queue never re-serves a URL already in autopilot_attempts. -->
+  <div class="section-card" id="todayPendingCard" style="display:none;margin-bottom:10px;">
+    <div style="margin-bottom:8px;">
+      <div style="font-weight:600;color:var(--ink-strong);">
+        Filled and waiting on you
+        <span class="badge bg-warning text-dark ms-1" id="todayPendingCount">0</span>
+      </div>
+      <div class="today-sub">
+        Autopilot completed these forms. Open one, clear what it lists, and it submits itself.
+      </div>
+    </div>
+    <div id="todayPendingList"></div>
+  </div>
+
+  <div id="digestEmailWarn" style="display:none;margin:8px 0;padding:9px 13px;border-radius:10px;
+       font-size:.8rem;background:#fef3c7;color:#92400e;border:1px solid #fde68a;">
+    <i class="bi bi-envelope-exclamation me-1"></i>
+    <strong>Digest email isn't sending.</strong>
+    <span id="digestEmailWarnDetail"></span>
+    Job searching still works normally — only the email is affected.
+  </div>
 </div>
 
 <!-- ══ Section 1: Token ══════════════════════════════════════════════════════ -->
@@ -1889,7 +2017,16 @@
 
 <!-- ══ Section 3: Search ═════════════════════════════════════════════════════ -->
 <div id="searchSection" class="section-card">
-  <div class="card-title"><i class="bi bi-search"></i> Search Jobs</div>
+  <!-- Collapsible: with results already on screen, opening Jobs should show
+       jobs. The form is one click away instead of 250px of scroll. -->
+  <button type="button" class="search-toggle" id="searchToggle"
+          onclick="toggleSearchForm()" aria-expanded="true" aria-controls="searchBody">
+    <span class="card-title" style="margin:0;"><i class="bi bi-search"></i> Search Jobs</span>
+    <span class="search-toggle-hint" id="searchToggleHint"></span>
+    <i class="bi bi-chevron-up" id="searchToggleIcon"></i>
+  </button>
+
+  <div id="searchBody">
 
   <!-- Time Range -->
   <div class="mb-3">
@@ -1932,7 +2069,7 @@
   <div class="external-search-bar" style="margin-top:14px; padding-top:12px; border-top:1px solid #e9ecef;">
     <div style="font-size:.78rem; font-weight:600; color:#495057; margin-bottom:6px;">
       <i class="bi bi-box-arrow-up-right me-1"></i>Also search externally
-      <span style="font-weight:400; color:#6c757d; font-size:.72rem;">(opens with your skills)</span>
+      <span style="font-weight:400; color:var(--ink-muted); font-size:.72rem;">(opens with your skills)</span>
     </div>
     <div class="d-flex flex-wrap gap-2">
       <button class="btn btn-sm ext-btn ext-linkedin" onclick="openExternalSearch('linkedin')">
@@ -1952,6 +2089,8 @@
       </button>
     </div>
   </div>
+
+  </div><!-- /#searchBody -->
 </div>
 
 <!-- ══ Section 4: Results ════════════════════════════════════════════════════ -->
@@ -1982,7 +2121,7 @@
     </div>
   </div>
 
-  <div class="results-summary">
+  <div class="results-summary" id="resultsChrome">
     <div class="results-summary-top">
       <span id="resultsSummary">No results yet</span>
       <!-- Batch apply: opens the top N fast-apply jobs at once so the
@@ -2047,6 +2186,16 @@
     <span id="salaryFilterCount" style="font-size:.75rem; color:#6c757d; margin-left:auto;"></span>
   </div>
   <div id="jobsList"></div>
+  <div id="jobsEmpty" class="section-card" style="display:none;text-align:center;padding:26px 18px;">
+    <div style="font-size:1.7rem;line-height:1;">🔍</div>
+    <div class="today-empty-title">No jobs loaded</div>
+    <div class="today-empty-hint">
+      The daily search runs each morning. Run one now to fill this list.
+    </div>
+    <button class="btn btn-sm btn-primary" style="margin-top:12px;" onclick="searchJobs()">
+      <i class="bi bi-search me-1"></i>Search now
+    </button>
+  </div>
 </div>
 
 <!-- ══ Section 5: Tracker ════════════════════════════════════════════════════ -->
@@ -2738,6 +2887,12 @@ async function loadDailyResultsIfAny() {
                        : 'No fast-apply matches left to review today';
       }
     }
+    todayDigest = {
+      run_at:        data.run_at,
+      total_fetched: data.total_fetched || 0,
+      total_remote:  allJobs.length,
+    };
+    refreshToday();
     return true;
   } catch (e) {
     return false;
@@ -3228,46 +3383,165 @@ document.addEventListener('DOMContentLoaded', () => {
   window.postMessage({ __jtBridge: 'ping' }, window.location.origin);
 });
 
-// ── Autopilot status strip ───────────────────────────────────────────────────
-// Answers "did the robot apply for me today?" on page load, above the tabs.
-async function refreshAutopilotStrip() {
-  const strip = document.getElementById('autopilotStrip');
-  const icon  = document.getElementById('autopilotStripIcon');
-  const text  = document.getElementById('autopilotStripText');
-  const warn  = document.getElementById('digestEmailWarn');
-  if (!strip) return;
+// ── Today ───────────────────────────────────────────────────────────────────
+// Renders the Today tab: one headline about what autopilot did, the numbers
+// behind it, and every application still waiting on a human.
+let todayDigest = null;
+// Last /api/autopilot/status payload, so the stat row can be redrawn when the
+// job list arrives without firing the request again.
+let lastTodayStatus = null;
+
+// Mirrors the server's /api/autopilot/queue gate so "apply-ready" on this card
+// means exactly what the robot will attempt, not something looser.
+function applyReady(job) {
+  if (!eligibleForQueue(job)) return false;
+  if ((job.blockers   || []).length) return false;
+  if ((job.scam_flags || []).length) return false;
+  return true;
+}
+
+// "2:14 PM" today, "yesterday 11:35 PM", "Aug 28 9:12 AM" beyond that. The
+// strip used to print a bare date, which is how last night's 11:35 PM run
+// spent the next day claiming to have happened this morning.
+// Local midnight, expressed as the UTC stamp attempted_at is stored in.
+function localDayStartUtc() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d.toISOString().slice(0, 19) + 'Z';
+}
+
+function fmtWhen(iso) {
+  if (!iso) return '';
+  const d = new Date(/[Z+]/.test(iso) ? iso : iso + 'Z');
+  if (isNaN(d.getTime())) return '';
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const now  = new Date();
+  const yest = new Date(now); yest.setDate(yest.getDate() - 1);
+  if (d.toDateString() === now.toDateString())  return time;
+  if (d.toDateString() === yest.toDateString()) return 'yesterday ' + time;
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + time;
+}
+
+// The numbers behind the headline, so the card is checkable rather than just
+// reassuring. Separate from refreshToday() because the job list usually lands
+// after the status call, and redrawing this must not cost another request.
+function renderTodayStats() {
+  const stats = document.getElementById('todayStats');
+  if (!stats) return;
+  const s = lastTodayStatus;
+  if (!s) { stats.style.display = 'none'; return; }
+  // Count over allJobs, not the filtered view: the freshness/ATS chips are a
+  // browsing choice, and this row should describe the day, not the filter.
+  // todayDigest is only set when the digest was fetched this load, so fall
+  // back to what is in memory -- results restored from the local cache take
+  // that path and used to leave this row half empty.
+  const pool  = (typeof allJobs !== 'undefined' && allJobs) ? allJobs : [];
+  const cells = [];
+  const runAt = (todayDigest && todayDigest.run_at) || s.digest_run_at;
+  if (runAt) {
+    cells.push(['Search', fmtWhen(runAt)
+      + (todayDigest ? ` · ${todayDigest.total_fetched} fetched` : '')]);
+  }
+  if (pool.length) {
+    cells.push(['Matches', `${pool.length} kept`]);
+    cells.push(['Apply-ready', `${pool.filter(applyReady).length}`]);
+  }
+  const t = s.today || {};
+  if (t.total) cells.push(['Attempts today', `${t.total}`]);
+  stats.innerHTML = cells.map(([k, v]) =>
+    `<div><div class="today-stat-label">${escHtml(k)}</div>`
+    + `<div class="today-stat-value">${escHtml(v)}</div></div>`).join('');
+  stats.style.display = cells.length ? 'flex' : 'none';
+}
+
+async function refreshToday() {
+  const headline = document.getElementById('todayHeadline');
+  if (!headline) return;
   let s;
   try {
-    const res = await fetch('/api/autopilot/status', { credentials: 'include' });
-    if (!res.ok) return;               // signed out — stay hidden
+    // The day boundary has to be the user's, not the UTC server's.
+    const res = await fetch('/api/autopilot/status?tz_offset=' + new Date().getTimezoneOffset(),
+                            { credentials: 'include' });
+    if (!res.ok) throw new Error('status ' + res.status);
     s = await res.json();
-  } catch (_) { return; }
-
-  const t = s.today || {};
-  let bg, fg, mark, msg;
-  if (t.submitted > 0) {
-    bg = '#dcfce7'; fg = '#14532d'; mark = '✅';
-    msg = `<strong>Autopilot applied to ${t.submitted} job${t.submitted === 1 ? '' : 's'} for you today.</strong>`
-        + (t.needs_review ? ` ${t.needs_review} form${t.needs_review === 1 ? '' : 's'} still open for you to finish.` : '');
-  } else if (t.needs_review > 0) {
-    bg = '#fef9c3'; fg = '#713f12'; mark = '⏳';
-    msg = `<strong>Autopilot filled ${t.needs_review} application${t.needs_review === 1 ? '' : 's'}</strong> but couldn't finish them — they're open in your browser tabs.`;
-  } else if (t.total > 0) {
-    bg = '#fee2e2'; fg = '#7f1d1d'; mark = '⚠️';
-    msg = `<strong>Autopilot ran but applied to nothing today</strong> (${t.total} attempt${t.total === 1 ? '' : 's'} — the listings were dead or blocked).`;
-  } else {
-    bg = '#e7f1ff'; fg = '#0a3d8f'; mark = '🤖';
-    const last = s.last_attempt_at ? new Date(s.last_attempt_at).toLocaleDateString() : null;
-    msg = `<strong>Autopilot hasn't run yet today.</strong> It runs automatically at 9:30 AM when Chrome is open`
-        + (last ? ` · last ran ${escHtml(last)}.` : '.');
+  } catch (_) {
+    // Don't leave the card reading "Loading…" forever. An expired session is
+    // the common cause, and it is fixable — say so.
+    headline.textContent = "Can't reach autopilot status.";
+    const sub0 = document.getElementById('todaySubline');
+    if (sub0) sub0.textContent = 'Your session may have expired — reload and enter your passcode.';
+    const ic0 = document.getElementById('todayIcon');
+    if (ic0) ic0.textContent = '🔌';
+    return;
   }
-  strip.style.background = bg;
-  strip.style.color = fg;
-  icon.textContent = mark;
-  text.innerHTML = msg;
-  strip.style.display = 'flex';
 
-  if (s.email_error) {
+  lastTodayStatus = s;
+  const t       = s.today || {};
+  const pending = Array.isArray(s.pending) ? s.pending : [];
+  const icon    = document.getElementById('todayIcon');
+  const sub     = document.getElementById('todaySubline');
+
+  let mark, msg, note;
+  if (t.submitted > 0) {
+    mark = '✅';
+    msg  = `Autopilot applied to ${t.submitted} job${t.submitted === 1 ? '' : 's'} for you today.`;
+    note = pending.length ? `${pending.length} more filled and waiting below.` : '';
+  } else if (t.needs_review > 0) {
+    mark = '⏳';
+    msg  = `Autopilot filled ${t.needs_review} application${t.needs_review === 1 ? '' : 's'} today.`;
+    note = 'None could be submitted on their own — they are listed below.';
+  } else if (t.total > 0) {
+    mark = '⚠️';
+    msg  = 'Autopilot ran today but landed nothing.';
+    note = `${t.total} attempt${t.total === 1 ? '' : 's'} — the listings were dead or blocked.`;
+  } else {
+    mark = '🤖';
+    msg  = 'Autopilot has not run yet today.';
+    note = 'It runs at 9:30 AM when Chrome is open'
+         + (s.last_attempt_at ? ` · last attempt ${escHtml(fmtWhen(s.last_attempt_at))}.` : '.');
+  }
+  if (icon) icon.textContent = mark;
+  headline.textContent = msg;
+  if (sub) sub.innerHTML = note;
+
+  renderTodayStats();
+
+  // Filled-but-unsubmitted applications, as links. Before this they existed
+  // only as open browser tabs, and closing one lost the work for good.
+  const card = document.getElementById('todayPendingCard');
+  const list = document.getElementById('todayPendingList');
+  const cnt  = document.getElementById('todayPendingCount');
+  if (card && list) {
+    if (pending.length) {
+      if (cnt) cnt.textContent = pending.length;
+      list.innerHTML = pending.map(a => {
+        const filled = (a.total ? `${a.filled}/${a.total} fields` : `${a.filled || 0} fields`);
+        return `<div class="today-pending-row">
+          <div class="today-pending-main">
+            <div class="today-pending-title">${escHtml(a.title || 'Application')}</div>
+            <div class="today-pending-meta">
+              ${escHtml(a.company || '')} · ${escHtml(filled)} · ${escHtml(fmtWhen(a.attempted_at))}
+            </div>
+            ${a.detail ? `<div class="today-pending-detail">↳ ${escHtml(a.detail)}</div>` : ''}
+          </div>
+          <a class="btn btn-sm btn-outline-primary" style="font-size:.74rem;flex:none;"
+             href="${escHtml(a.url)}" target="_blank" rel="noopener">Open</a>
+        </div>`;
+      }).join('');
+      card.style.display = '';
+    } else {
+      card.style.display = 'none';
+    }
+  }
+
+  const badge = document.getElementById('todayBadge');
+  if (badge) {
+    badge.textContent = pending.length;
+    badge.style.display = pending.length ? '' : 'none';
+  }
+
+  const warn = document.getElementById('digestEmailWarn');
+  if (s.email_error && warn) {
     const isAuth = /5\.7\.8|BadCredentials|Username and Password not accepted/i.test(s.email_error);
     document.getElementById('digestEmailWarnDetail').textContent = isAuth
       ? ' Google rejected the saved app password — generate a new one and update GMAIL_APP_PASSWORD on Render. '
@@ -3276,6 +3550,57 @@ async function refreshAutopilotStrip() {
   } else if (warn) {
     warn.style.display = 'none';
   }
+}
+
+// Old name, still called from the autopilot run button.
+const refreshAutopilotStrip = refreshToday;
+
+// Filters, sort buttons and Batch apply are controls for a list. With no list
+// they were still drawn above the words "No results yet", which read as a
+// broken page rather than an empty one.
+// Collapsed state is remembered, but the default depends on whether there is
+// anything to look at: with results loaded the form is noise, without them it
+// is the only thing to do.
+function setSearchFormOpen(open) {
+  const body = document.getElementById('searchBody');
+  const icon = document.getElementById('searchToggleIcon');
+  const btn  = document.getElementById('searchToggle');
+  const hint = document.getElementById('searchToggleHint');
+  if (!body) return;
+  body.classList.toggle('is-collapsed', !open);
+  if (icon) icon.className = 'bi bi-chevron-' + (open ? 'up' : 'down');
+  if (btn)  btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  if (hint) hint.textContent = open ? '' : 'Run a new search';
+}
+
+// Only an explicit click is a preference. Persisting inside setSearchFormOpen
+// meant the very first call -- made before the job list had loaded, so the
+// form was correctly open -- was saved as a choice and pinned it open forever.
+function toggleSearchForm() {
+  const body = document.getElementById('searchBody');
+  if (!body) return;
+  const open = body.classList.contains('is-collapsed');
+  setSearchFormOpen(open);
+  try { localStorage.setItem('search_form_open', open ? '1' : '0'); } catch (e) {}
+}
+
+function syncSearchForm() {
+  const has = (typeof jobs !== 'undefined' && jobs) ? jobs.length > 0 : false;
+  let pref = null;
+  try { pref = localStorage.getItem('search_form_open'); } catch (e) {}
+  setSearchFormOpen(pref === null ? !has : pref === '1');
+}
+
+function syncResultsChrome() {
+  const has     = (typeof jobs !== 'undefined' && jobs) ? jobs.length > 0 : false;
+  const chrome  = document.getElementById('resultsChrome');
+  const salary  = document.getElementById('salaryFilterBar');
+  const empty   = document.getElementById('jobsEmpty');
+  if (chrome) chrome.style.display = has ? '' : 'none';
+  if (salary && !has) salary.style.display = 'none';
+  if (empty)  empty.style.display = (!has && currentTab === 'jobs') ? '' : 'none';
+  syncSearchForm();
+  renderTodayStats();
 }
 
 // ── Autopilot log ────────────────────────────────────────────────────────────
@@ -3300,8 +3625,11 @@ async function loadAutopilotLog(force) {
       cntEl.textContent = '0';
       return;
     }
-    const today = new Date().toISOString().slice(0, 10);
-    const todays = attempts.filter(a => (a.attempted_at || '').startsWith(today));
+    // attempted_at is UTC. Matching on the UTC calendar date is what made an
+    // 11:51 PM run show up in the next day's "Today:" line all afternoon --
+    // the same bug the status endpoint had. Compare against local midnight.
+    const since  = localDayStartUtc();
+    const todays = attempts.filter(a => (a.attempted_at || '') >= since);
     const nSub = todays.filter(a => a.result === 'submitted').length;
     const nRev = todays.filter(a => a.result === 'needs_review').length;
     sumEl.textContent = todays.length
@@ -3328,7 +3656,7 @@ async function loadAutopilotLog(force) {
           ${escHtml(a.title || '(untitled)')}${a.company ? ' — ' + escHtml(a.company) : ''}
         </a>
         <span style="font-size:.7rem;color:var(--ink-muted);white-space:nowrap;">${when}${fillTxt}</span>
-      </div>${a.result === 'needs_review' && a.detail ? `<div style="font-size:.7rem;color:#b45309;padding:0 0 4px 2px;">↳ ${escHtml(a.detail)}</div>` : ''}`;
+      </div>${a.result === 'needs_review' && a.detail ? `<div style="font-size:.7rem;color:var(--warn-500);padding:0 0 4px 2px;">↳ ${escHtml(a.detail)}</div>` : ''}`;
     }).join('');
   } catch (e) {
     listEl.textContent = 'Could not load autopilot log: ' + (e.message || e);
@@ -4171,6 +4499,7 @@ function renderResults(data) {
   section.style.display = 'block';
   document.getElementById('trackerSection').style.display = 'none';
   document.getElementById('salaryMinInput').value = '';  // reset salary filter
+  syncResultsChrome();
 
   summary.textContent =
     `Showing ${data.total_shown} jobs · ${data.total_remote} remote from ${data.total_fetched} fetched`;
@@ -4226,6 +4555,32 @@ function renderResults(data) {
   renderJobCards();
 }
 
+// One plain-language answer to "can I act on this?", in priority order.
+// Everything it reports was already on the card as separate badges that the
+// reader had to assemble for themselves.
+function jobVerdict(job, prior, status) {
+  if (prior || status === 'applied') {
+    const when = prior ? formatAppliedDate(prior.applied_at) : '';
+    return { tone: 'done', icon: 'check2-circle', label: 'Applied' + (when ? ' ' + when : '') };
+  }
+  const flags = Array.isArray(job.scam_flags) ? job.scam_flags : [];
+  if (flags.length) {
+    return { tone: 'blocked', icon: 'exclamation-octagon-fill',
+             label: String(flags[0]).replace(/^\uD83D\uDEA9\s*/, '') };
+  }
+  const blockers = Array.isArray(job.blockers) ? job.blockers : [];
+  if (blockers.length) {
+    return { tone: 'blocked', icon: 'slash-circle-fill',
+             label: blockers[0] + (blockers.length > 1 ? ' +' + (blockers.length - 1) : '') };
+  }
+  const cls = job.ats_class || 'unknown';
+  if (cls === 'blocked') return { tone: 'blocked', icon: 'slash-circle-fill', label: "Can't autofill" };
+  if (cls === 'walled')  return { tone: 'warn', icon: 'lock-fill',
+                                  label: job.ats_name ? job.ats_name + ' account needed' : 'Account needed' };
+  if (cls === 'fast')    return { tone: 'ready', icon: 'lightning-charge-fill', label: 'Ready to apply' };
+  return { tone: 'manual', icon: 'box-arrow-up-right', label: 'Apply on company site' };
+}
+
 function renderJobCards() {
   const list = document.getElementById('jobsList');
   list.innerHTML = '';
@@ -4241,8 +4596,6 @@ function renderJobCards() {
   jobs.forEach((job, i) => {
     const pct      = job.match_pct || 0;
     const matchCls = pct >= 70 ? 'match-high' : pct >= 40 ? 'match-good' : 'match-low';
-    const hireCls  = hireClass(job);
-    const hireLabel = hireLabel_str(job);
     const sal      = job.salary_clean || '';
     const date     = job.date_fmt || '';
     const status   = jobStatuses[job.url] || 'not_applied';
@@ -4271,16 +4624,18 @@ function renderJobCards() {
 
     const card = document.createElement('div');
     card.className = `job-card ${matchCls}`;
+    const v = jobVerdict(job, prior, status);
+    // match_why already ends with a duplicate of the blocker warning; the
+    // verdict pill owns that now, so trim the tail.
+    const why = (job.match_why || '').replace(/\s*·?\s*⚠.*$/, '').trim();
+
     card.innerHTML = `
       <div class="d-flex align-items-start justify-content-between gap-2">
         <div class="d-flex flex-wrap align-items-center gap-2">
-          <span class="match-badge ${matchCls}">${pct}% Match</span>
-          ${hireLabel ? `<span class="hire-badge ${hireCls}">${hireLabel}</span>` : ''}
-          ${status !== 'not_applied' ? `<span style="font-size:.7rem; color:#6c757d;"><span class="${dotCls}"></span>${statusLabel}</span>` : ''}
+          <span class="verdict verdict-${v.tone}"><i class="bi bi-${v.icon}"></i>${escHtml(v.label)}</span>
         </div>
         <div class="d-flex align-items-center gap-1">
-          ${atsLabel ? `<span class="ats-badge ats-${atsCls}" title="${escHtml(atsLabel)}"><i class="bi bi-${atsIcon}"></i>${escHtml(atsLabel)}</span>` : ''}
-          ${srcName ? `<span class="source-badge source-${srcCls}">${escHtml(srcName)}</span>` : ''}
+          ${atsLabel && v.tone !== 'done' ? `<span class="ats-badge ats-${atsCls}" title="${escHtml(atsLabel)}"><i class="bi bi-${atsIcon}"></i>${escHtml(atsLabel)}</span>` : ''}
           <button class="bookmark-btn ${status === 'favourite' ? 'bookmarked' : ''}"
                   onclick="quickBookmark(${i}, event)"
                   title="${status === 'favourite' ? 'Remove from saved' : 'Save job'}">
@@ -4298,28 +4653,31 @@ function renderJobCards() {
       <div class="match-bar-wrap">
         <div class="match-bar-fill ${matchCls}" style="width:${pct}%"></div>
       </div>
-      ${job.match_why ? `<div class="job-why"><i class="bi bi-lightning-fill me-1"></i>${escHtml(job.match_why)}</div>` : ''}
-      ${blockers.length ? `<div style="margin-top:4px;">${blockers.map(b => `<span class="blocker-pill">${escHtml(b)}</span>`).join('')}</div>` : ''}
+      <div class="job-scoreline">
+        <span class="pct">${pct}% match</span>${why ? `<span>${escHtml(why)}</span>` : ''}
+      </div>
+      ${blockers.length > 1 ? `<div style="margin-top:5px;">${blockers.slice(1).map(b => `<span class="blocker-pill">${escHtml(b)}</span>`).join('')}</div>` : ''}
       ${prior
-        ? `<div class="job-why" style="background:#fef3c7; color:#92400e;">
-             <i class="bi bi-check2-circle me-1"></i>Already applied ${escHtml(priorTxt)}${prior.status && prior.status !== 'Applied' ? ` · ${escHtml(prior.status)}` : ''}
+        ? `<div class="job-applied-note">
+             <i class="bi bi-check2-circle"></i>Applied ${escHtml(priorTxt)}${prior.status && prior.status !== 'Applied' ? ` · ${escHtml(prior.status)}` : ''}
            </div>`
-        : `<div class="job-why" style="background:#eef2ff; color:#3730a3;">
-             <i class="bi bi-file-earmark-person me-1"></i>CV: <strong>${escHtml(cvHint)}</strong>
+        : `<div class="job-cv">
+             <i class="bi bi-file-earmark-person"></i>CV: <strong>${escHtml(cvHint)}</strong>
            </div>`}
       <div class="job-actions">
-        <button class="btn btn-outline-primary btn-sm" onclick="showJobDetail(${i}); event.stopPropagation();">
-          <i class="bi bi-info-circle me-1"></i>Details
+        <button class="btn btn-sm job-action-quiet" onclick="showJobDetail(${i}); event.stopPropagation();">
+          Details
         </button>
-        <button class="btn btn-outline-success btn-sm" onclick="openPrepPanel(${i}); event.stopPropagation();">
-          <i class="bi bi-file-earmark-text me-1"></i>Prep
+        <button class="btn btn-sm job-action-quiet" onclick="openPrepPanel(${i}); event.stopPropagation();">
+          Prep
         </button>
         ${prior || status === 'applied'
-          ? `<button class="btn btn-success btn-sm" disabled>
-               <i class="bi bi-check2-circle me-1"></i>Applied${prior ? ' ' + escHtml(priorTxt) : ''}
+          ? `<button class="btn btn-sm btn-outline-secondary" disabled>
+               <i class="bi bi-check2-circle me-1"></i>Applied
              </button>`
-          : `<button class="btn btn-dark btn-sm" onclick="applyAndLog(${i}); event.stopPropagation();">
-               <i class="bi bi-box-arrow-up-right me-1"></i>Apply & Log
+          : `<button class="btn btn-sm ${v.tone === 'blocked' ? 'btn-outline-secondary' : 'btn-primary'}"
+                     onclick="applyAndLog(${i}); event.stopPropagation();">
+               Apply <i class="bi bi-arrow-right ms-1"></i>
              </button>`}
       </div>`;
 
@@ -4829,20 +5187,26 @@ function updateStepIndicators() {}
 // Results were all in the DOM at once on one ~7,000px page, so pressing
 // "Search" just scrolled you past the API-key box. Each tab now owns its
 // sections and everything else is taken out of the flow.
+// Four tabs, not six. Search and Results were two tabs for one activity, so
+// they share the Jobs tab; Stats is application analytics, so it sits under
+// Tracker; Plan was a link duplicating the account menu and is gone.
 const TAB_SECTIONS = {
-  search:  ['searchSection'],
-  results: ['resultsSection'],
-  tracker: ['trackerSection'],
-  stats:   ['statsSection'],
+  today:   ['todaySection'],
+  jobs:    ['searchSection', 'resultsSection'],
+  tracker: ['trackerSection', 'statsSection'],
   setup:   ['tokenSection', 'cvSection', 'workHistorySection'],
 };
-const ALL_TAB_SECTIONS = ['tokenSection', 'cvSection', 'workHistorySection',
-                          'searchSection', 'resultsSection', 'trackerSection',
-                          'statsSection'];
-let currentTab = 'search';
+// Plenty of call sites still say showTab('results') / ('search') / ('stats').
+// Point the old names at their new homes instead of chasing every caller.
+const TAB_ALIASES = { search: 'jobs', results: 'jobs', stats: 'tracker' };
+const ALL_TAB_SECTIONS = ['todaySection', 'tokenSection', 'cvSection',
+                          'workHistorySection', 'searchSection',
+                          'resultsSection', 'trackerSection', 'statsSection'];
+let currentTab = 'today';
 
 function showTab(name) {
-  if (!TAB_SECTIONS[name]) name = 'search';
+  name = TAB_ALIASES[name] || name;
+  if (!TAB_SECTIONS[name]) name = 'today';
   currentTab = name;
   // Toggle a class, not inline display. Several places set
   // resultsSection.style.display = 'block' when data arrives, and on load that
@@ -4865,30 +5229,19 @@ function showTab(name) {
   if (btn) btn.classList.add('active');
   window.scrollTo(0, 0);
   try { localStorage.setItem('job_search_tab', name); } catch (e) {}
-  if (name === 'tracker') renderTrackerTab();
-  if (name === 'stats')   loadStats();
+  syncResultsChrome();
+  if (name === 'today')   refreshToday();
+  if (name === 'tracker') { renderTrackerTab(); loadStats(); }
 }
 
 // Land on Search, except when the last visit ended somewhere else.
 document.addEventListener('DOMContentLoaded', () => {
-  let last = 'search';
-  try { last = localStorage.getItem('job_search_tab') || 'search'; } catch (e) {}
+  let last = 'today';
+  try { last = localStorage.getItem('job_search_tab') || 'today'; } catch (e) {}
   showTab(last);
-  // Autopilot strip is tab-independent — it sits under the tab bar and
-  // answers "did it apply for me today?" no matter where you land.
-  refreshAutopilotStrip();
-});
-
-// Override Results step click to restore results view
-document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('step4Indicator').addEventListener('click', () => {
-    document.getElementById('trackerSection').style.display = 'none';
-    if (jobs.length > 0) {
-      document.getElementById('resultsSection').style.display = 'block';
-    }
-    updateStepIndicators();
-    showTab('results');
-  });
+  // showTab('today') refreshes on its own; this covers landing on another tab,
+  // where the Today badge still has to be right.
+  if (last !== 'today') refreshToday();
 });
 
 function showToast(message, type) {
