@@ -338,6 +338,9 @@ def _init_applications_db():
         "ALTER TABLE users ADD COLUMN monthly_quota_used INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE users ADD COLUMN quota_reset_at TEXT",
         "ALTER TABLE users ADD COLUMN is_founder INTEGER NOT NULL DEFAULT 0",
+        # Set when the digest's search succeeded but SMTP delivery failed, so
+        # the site can warn that the Gmail app password needs regenerating.
+        "ALTER TABLE daily_searches ADD COLUMN email_error TEXT",
     ):
         try:
             with _db_conn() as conn:
@@ -2989,7 +2992,29 @@ def daily_digest():
             server.login(gmail_user, gmail_pass)
             server.sendmail(gmail_user, digest_to, msg.as_string())
     except Exception as e:
-        return jsonify({"sent": False, "error": str(e)}), 500
+        # The SEARCH already succeeded and was saved above — only delivery
+        # failed. Returning 500 here made a working digest look completely
+        # broken to the cron and hid the job counts from the caller (seen
+        # 2026-08-31: an expired Gmail app password reported as total
+        # failure while the site and autopilot had fresh jobs all along).
+        # Record it so the site can warn about the stale credential.
+        print(f"[digest] email delivery failed: {e}")
+        try:
+            with _db_conn() as conn:
+                conn.execute(
+                    "UPDATE daily_searches SET email_error = ? "
+                    "WHERE user_id = ? AND run_at = ?",
+                    (str(e)[:400], 1, now_iso))
+        except Exception as e2:
+            print(f"[digest] could not record email_error: {e2}")
+        return jsonify({
+            "sent": False,
+            "email_error": str(e),
+            "search_ok": True,
+            "jobs_found": len(top_jobs),
+            "skipped_already_applied": skipped_applied,
+            "note": "Search succeeded and was saved — only email delivery failed.",
+        }), 200
 
     return jsonify({"sent": True, "jobs_emailed": len(top_jobs),
                     "skipped_already_applied": skipped_applied, "to": digest_to})
@@ -3372,6 +3397,38 @@ def autopilot_attempts():
         {k: _row_get(r, k) for k in
          ("url", "title", "company", "result", "detail", "filled", "total", "attempted_at")}
         for r in rows]})
+
+
+@app.route("/api/autopilot/status", methods=["GET"])
+def autopilot_status():
+    """One-call summary for the site's header strip: what autopilot did today,
+    how many jobs are still queued, and whether digest email delivery is
+    broken. Cheap enough to call on every page load."""
+    uid, err = _auth_required()
+    if err: return err
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    with _db_conn() as conn:
+        rows = conn.execute(
+            "SELECT result, attempted_at FROM autopilot_attempts "
+            "WHERE user_id = ? AND attempted_at >= ?", (uid, today)).fetchall()
+        last = conn.execute(
+            "SELECT attempted_at FROM autopilot_attempts WHERE user_id = ? "
+            "ORDER BY attempted_at DESC, id DESC LIMIT 1", (uid,)).fetchone()
+        digest = conn.execute(
+            "SELECT run_at, email_error FROM daily_searches WHERE user_id = ? "
+            "ORDER BY run_at DESC LIMIT 1", (uid,)).fetchone()
+    results = [(_row_get(r, "result") or "") for r in rows]
+    return jsonify({
+        "today": {
+            "submitted":    sum(1 for r in results if r == "submitted"),
+            "needs_review": sum(1 for r in results if r == "needs_review"),
+            "other":        sum(1 for r in results if r not in ("submitted", "needs_review")),
+            "total":        len(results),
+        },
+        "last_attempt_at": _row_get(last, "attempted_at") if last else None,
+        "digest_run_at":   _row_get(digest, "run_at") if digest else None,
+        "email_error":     (_row_get(digest, "email_error") if digest else None) or None,
+    })
 
 
 @app.route("/api/autopilot/report", methods=["POST"])

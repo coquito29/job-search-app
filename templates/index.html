@@ -1736,6 +1736,26 @@
   <div class="step-item d-none" id="step1Indicator"></div>
 </div>
 
+<!-- ══ Autopilot status strip ════════════════════════════════════════════════
+     Always visible under the tab bar so "did the robot apply for me today?"
+     is answered on page load, without digging into the Tracker tab. -->
+<div id="autopilotStrip" style="display:none;margin:8px 0;padding:9px 13px;border-radius:10px;
+     font-size:.82rem;align-items:center;gap:9px;flex-wrap:wrap;">
+  <span id="autopilotStripIcon" style="font-size:1rem;"></span>
+  <span id="autopilotStripText" style="flex:1;min-width:180px;"></span>
+  <button class="btn btn-sm btn-outline-primary" style="font-size:.72rem;padding:2px 9px;"
+          onclick="showTab('tracker'); setTimeout(() => document.getElementById('autopilotSection')?.scrollIntoView({behavior:'smooth', block:'center'}), 250);">
+    See details
+  </button>
+</div>
+<div id="digestEmailWarn" style="display:none;margin:8px 0;padding:9px 13px;border-radius:10px;
+     font-size:.8rem;background:#fef3c7;color:#92400e;border:1px solid #fde68a;">
+  <i class="bi bi-envelope-exclamation me-1"></i>
+  <strong>Digest email isn't sending.</strong>
+  <span id="digestEmailWarnDetail"></span>
+  Job searching still works normally — only the email is affected.
+</div>
+
 <!-- ══ Section 1: Token ══════════════════════════════════════════════════════ -->
 <div id="tokenSection" class="section-card">
   <div class="card-title"><i class="bi bi-key-fill"></i> API Keys</div>
@@ -3144,6 +3164,56 @@ function filterTracker(f) {
   const el = document.getElementById('trackerFilter' + map[f]);
   if (el) el.classList.add('active');
   renderTrackerTab();
+}
+
+// ── Autopilot status strip ───────────────────────────────────────────────────
+// Answers "did the robot apply for me today?" on page load, above the tabs.
+async function refreshAutopilotStrip() {
+  const strip = document.getElementById('autopilotStrip');
+  const icon  = document.getElementById('autopilotStripIcon');
+  const text  = document.getElementById('autopilotStripText');
+  const warn  = document.getElementById('digestEmailWarn');
+  if (!strip) return;
+  let s;
+  try {
+    const res = await fetch('/api/autopilot/status', { credentials: 'include' });
+    if (!res.ok) return;               // signed out — stay hidden
+    s = await res.json();
+  } catch (_) { return; }
+
+  const t = s.today || {};
+  let bg, fg, mark, msg;
+  if (t.submitted > 0) {
+    bg = '#dcfce7'; fg = '#14532d'; mark = '✅';
+    msg = `<strong>Autopilot applied to ${t.submitted} job${t.submitted === 1 ? '' : 's'} for you today.</strong>`
+        + (t.needs_review ? ` ${t.needs_review} form${t.needs_review === 1 ? '' : 's'} still open for you to finish.` : '');
+  } else if (t.needs_review > 0) {
+    bg = '#fef9c3'; fg = '#713f12'; mark = '⏳';
+    msg = `<strong>Autopilot filled ${t.needs_review} application${t.needs_review === 1 ? '' : 's'}</strong> but couldn't finish them — they're open in your browser tabs.`;
+  } else if (t.total > 0) {
+    bg = '#fee2e2'; fg = '#7f1d1d'; mark = '⚠️';
+    msg = `<strong>Autopilot ran but applied to nothing today</strong> (${t.total} attempt${t.total === 1 ? '' : 's'} — the listings were dead or blocked).`;
+  } else {
+    bg = '#e7f1ff'; fg = '#0a3d8f'; mark = '🤖';
+    const last = s.last_attempt_at ? new Date(s.last_attempt_at).toLocaleDateString() : null;
+    msg = `<strong>Autopilot hasn't run yet today.</strong> It runs automatically at 9:30 AM when Chrome is open`
+        + (last ? ` · last ran ${escHtml(last)}.` : '.');
+  }
+  strip.style.background = bg;
+  strip.style.color = fg;
+  icon.textContent = mark;
+  text.innerHTML = msg;
+  strip.style.display = 'flex';
+
+  if (s.email_error) {
+    const isAuth = /5\.7\.8|BadCredentials|Username and Password not accepted/i.test(s.email_error);
+    document.getElementById('digestEmailWarnDetail').textContent = isAuth
+      ? ' Google rejected the saved app password — generate a new one and update GMAIL_APP_PASSWORD on Render. '
+      : ' ' + String(s.email_error).slice(0, 120) + ' ';
+    warn.style.display = 'block';
+  } else if (warn) {
+    warn.style.display = 'none';
+  }
 }
 
 // ── Autopilot log ────────────────────────────────────────────────────────────
@@ -4742,6 +4812,9 @@ document.addEventListener('DOMContentLoaded', () => {
   let last = 'search';
   try { last = localStorage.getItem('job_search_tab') || 'search'; } catch (e) {}
   showTab(last);
+  // Autopilot strip is tab-independent — it sits under the tab bar and
+  // answers "did it apply for me today?" no matter where you land.
+  refreshAutopilotStrip();
 });
 
 // Override Results step click to restore results view
