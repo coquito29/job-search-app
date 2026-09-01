@@ -1743,6 +1743,10 @@
      font-size:.82rem;align-items:center;gap:9px;flex-wrap:wrap;">
   <span id="autopilotStripIcon" style="font-size:1rem;"></span>
   <span id="autopilotStripText" style="flex:1;min-width:180px;"></span>
+  <button id="autopilotRunBtn" class="btn btn-sm btn-primary" style="display:none;font-size:.72rem;padding:3px 11px;"
+          onclick="runAutopilotFromSite()">
+    <i class="bi bi-lightning-charge-fill me-1"></i>Run autopilot now
+  </button>
   <button class="btn btn-sm btn-outline-primary" style="font-size:.72rem;padding:2px 9px;"
           onclick="showTab('tracker'); setTimeout(() => document.getElementById('autopilotSection')?.scrollIntoView({behavior:'smooth', block:'center'}), 250);">
     See details
@@ -3165,6 +3169,64 @@ function filterTracker(f) {
   if (el) el.classList.add('active');
   renderTrackerTab();
 }
+
+// ── Extension bridge ─────────────────────────────────────────────────────────
+// The extension's bridge.js content script runs on this origin and relays a
+// "start a run" request to its background worker, so autopilot can be
+// launched from the site instead of only from the extension popup.
+let extensionPresent = false;
+let extensionVersion = '';
+
+window.addEventListener('message', (ev) => {
+  if (ev.source !== window || ev.origin !== window.location.origin) return;
+  const d = ev.data;
+  if (!d || typeof d !== 'object') return;
+
+  if (d.__jtBridge === 'present') {
+    extensionPresent = true;
+    extensionVersion = d.version || '';
+    const btn = document.getElementById('autopilotRunBtn');
+    if (btn) btn.style.display = 'inline-block';
+  }
+
+  if (d.__jtBridge === 'autopilotStarted') {
+    const btn = document.getElementById('autopilotRunBtn');
+    if (d.ok) {
+      showToast('Autopilot started — tabs will open as it applies. This can take a few minutes.', 'success');
+      // Poll while the run works through the queue.
+      let ticks = 0;
+      const poll = setInterval(async () => {
+        ticks++;
+        await refreshAutopilotStrip();
+        autopilotLoadedAt = 0;                 // bust the log cache
+        if (document.getElementById('autopilotList')) loadAutopilotLog(true);
+        if (ticks >= 30) clearInterval(poll);  // ~5 minutes
+      }, 10000);
+    } else {
+      showToast('Could not start autopilot: ' + (d.error || 'unknown error')
+                + '. Try the extension popup.', 'warning');
+    }
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-lightning-charge-fill me-1"></i>Run autopilot now'; }
+  }
+});
+
+function runAutopilotFromSite() {
+  const btn = document.getElementById('autopilotRunBtn');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Starting…'; }
+  window.postMessage({ __jtBridge: 'runAutopilot' }, window.location.origin);
+  // If the extension never answers, re-enable so the button isn't stuck.
+  setTimeout(() => {
+    if (btn && btn.disabled) {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-lightning-charge-fill me-1"></i>Run autopilot now';
+    }
+  }, 8000);
+}
+
+// Ask the bridge to announce itself (it may have loaded before this script).
+document.addEventListener('DOMContentLoaded', () => {
+  window.postMessage({ __jtBridge: 'ping' }, window.location.origin);
+});
 
 // ── Autopilot status strip ───────────────────────────────────────────────────
 // Answers "did the robot apply for me today?" on page load, above the tabs.

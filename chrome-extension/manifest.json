@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Job Tracker Autofill",
-  "version": "0.17.1",
+  "version": "0.17.2",
   "description": "Autofill ATS application forms from your job-tracker profile. Rules cover identity / contact / address / EEO / button-radio chips, plus Google-Places location autocomplete, SmartRecruiters oneclick-ui shadow-DOM components, and AI-filled custom free-text questions when the server has ANTHROPIC_API_KEY set.",
   "permissions": [
     "storage",
@@ -75,6 +75,18 @@
       ],
       "run_at": "document_idle",
       "all_frames": true
+    },
+    {
+      "matches": [
+        "https://job-search-app-9pnx.onrender.com/*",
+        "http://localhost:5000/*",
+        "http://127.0.0.1:5000/*"
+      ],
+      "js": [
+        "bridge.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
     }
   ],
   "web_accessible_resources": [
