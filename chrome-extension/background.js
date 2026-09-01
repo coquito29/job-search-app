@@ -144,14 +144,23 @@ async function getCvRequest({ appUrl }) {
 // next browser start. Toggle + "Run now" live in the popup.
 
 const AUTOPILOT_ALARM   = "autopilot-daily";
+const AUTOPILOT_CATCHUP = "autopilot-catchup";
 const AUTOPILOT_HOUR    = 9;    // fire at 09:30 local
 const AUTOPILOT_MINUTE  = 30;
+const CATCHUP_DELAY_MIN = 2;    // settle after browser start before catching up
 const TAB_LOAD_TIMEOUT  = 45_000;   // page load wait
 const TAB_SETTLE_MS     = 5_000;    // extra beat for SPA form render
 const FILL_TIMEOUT      = 180_000;  // fill + AI + submit, per job
 const MAX_REVIEW_TABS   = 5;        // needs-review tabs kept open for the user
 
-function scheduleAutopilotAlarm() {
+// Today's 09:30 as a timestamp.
+function todaysSlot() {
+  const d = new Date();
+  d.setHours(AUTOPILOT_HOUR, AUTOPILOT_MINUTE, 0, 0);
+  return d.getTime();
+}
+
+async function scheduleAutopilotAlarm() {
   const next = new Date();
   next.setHours(AUTOPILOT_HOUR, AUTOPILOT_MINUTE, 0, 0);
   if (next.getTime() <= Date.now()) next.setDate(next.getDate() + 1);
@@ -159,12 +168,32 @@ function scheduleAutopilotAlarm() {
     when: next.getTime(),
     periodInMinutes: 24 * 60,
   });
+  await maybeScheduleCatchUp();
 }
+
+// The PC is usually asleep at 09:30, and creating the alarm above REPLACES
+// any alarm Chrome would have fired late — so without this, a day where
+// Chrome wasn't running at 09:30 would silently be skipped entirely.
+// Instead: if today's slot has passed and no run has happened since it,
+// queue a catch-up shortly after the browser settles.
+async function maybeScheduleCatchUp() {
+  try {
+    const { lastAutopilotRun, autopilotEnabled } =
+      await chrome.storage.local.get(["lastAutopilotRun", "autopilotEnabled"]);
+    if (autopilotEnabled === false) return;
+    const slot = todaysSlot();
+    if (Date.now() < slot) return;                       // slot still ahead today
+    if ((lastAutopilotRun?.at || 0) >= slot) return;     // already ran since it
+    chrome.alarms.create(AUTOPILOT_CATCHUP, { delayInMinutes: CATCHUP_DELAY_MIN });
+  } catch (_) { /* storage unavailable — the daily alarm still stands */ }
+}
+
 chrome.runtime.onInstalled.addListener(scheduleAutopilotAlarm);
 chrome.runtime.onStartup.addListener(scheduleAutopilotAlarm);
 
 chrome.alarms.onAlarm.addListener(alarm => {
-  if (alarm.name === AUTOPILOT_ALARM) autopilotRun("scheduled");
+  if (alarm.name === AUTOPILOT_ALARM)   autopilotRun("scheduled");
+  if (alarm.name === AUTOPILOT_CATCHUP) autopilotRun("catchup");
 });
 
 let apRunning = false;
@@ -178,7 +207,8 @@ async function autopilotRun(trigger) {
   try {
     const { appUrl, profile, autopilotEnabled } =
       await chrome.storage.local.get(["appUrl", "profile", "autopilotEnabled"]);
-    if (trigger === "scheduled" && autopilotEnabled === false) return; // default ON
+    // Only an explicit "Run now" from the popup overrides the toggle.
+    if (trigger !== "manual" && autopilotEnabled === false) return; // default ON
     if (!appUrl || !profile) {
       notifySummary("Autopilot can't run", "Open the extension popup and sign in to your job app first.");
       return;
