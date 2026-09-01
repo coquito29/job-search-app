@@ -621,6 +621,25 @@ SENIOR_TITLE_BLOCKLIST = (
 
 APIFY_TASK_ID = os.environ.get("APIFY_TASK_ID", "SaaKhEMNZxRC5uGk0")
 
+# Country gate, applied at the SOURCE instead of after the fact.
+# Before this (2026-08-31) the actor searched worldwide and the app merely
+# tagged non-US results: a real digest day returned 41 jobs of which only ONE
+# was US-eligible, so the paid budget was mostly spent on jobs George can't
+# take and autopilot had nothing to apply to.
+#
+# The actor's field is `locationSearch` (array, phrase-matched, full names —
+# no abbreviations); ["United States"] matches any US location. Comma-separate
+# APIFY_LOCATIONS to widen (e.g. "United States,Canada"); set it empty to
+# disable the gate entirely and go back to worldwide.
+#
+# The server-side NON_US penalty in score_job() stays as a backstop for
+# anything mislabeled upstream.
+APIFY_LOCATIONS = [
+    s.strip() for s in
+    os.environ.get("APIFY_LOCATIONS", "United States").split(",")
+    if s.strip()
+]
+
 
 def fetch_apify_jobs(skills, token, limit=300, time_range="7d"):
     """Fetch remote jobs from Apify via the saved Task "IT Career Search — George".
@@ -671,6 +690,8 @@ def fetch_apify_jobs(skills, token, limit=300, time_range="7d"):
     #   are a big slice of entry IT. Senior-title blocklist still applies.
     run_override["aiExperienceLevelFilter"] = ["0-2", "2-5"]
     run_override["aiEmploymentTypeFilter"]  = ["FULL_TIME", "PART_TIME", "CONTRACTOR", "INTERN"]
+    if APIFY_LOCATIONS:
+        run_override["locationSearch"] = APIFY_LOCATIONS
     if APIFY_TASK_ID:
         url = (f"https://api.apify.com/v2/actor-tasks/{APIFY_TASK_ID}"
                "/run-sync-get-dataset-items")
@@ -691,6 +712,24 @@ def fetch_apify_jobs(skills, token, limit=300, time_range="7d"):
     r.raise_for_status()
     items = r.json()
     if not isinstance(items, list):
+        items = []
+    print(f"[apify] fetched {len(items)} items "
+          f"(locationSearch={run_override.get('locationSearch') or 'worldwide'}, "
+          f"limit={run_override['limit']}, range={time_range})")
+    # Safety net for the location gate: if filtering returned nothing, the
+    # filter itself is suspect (bad field name, unmatched phrasing) — retry
+    # once worldwide rather than handing back an empty digest. Worst case this
+    # change behaves exactly like the old worldwide search.
+    if not items and run_override.get("locationSearch"):
+        print("[apify] location-filtered fetch returned 0 — retrying worldwide")
+        run_override.pop("locationSearch", None)
+        r = http_req.post(url, params={"token": token}, json=run_override, timeout=180)
+        r.raise_for_status()
+        items = r.json()
+        if not isinstance(items, list):
+            return []
+        print(f"[apify] worldwide retry fetched {len(items)} items")
+    if not items:
         return []
 
     def pick(*vals):
