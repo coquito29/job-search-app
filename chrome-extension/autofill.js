@@ -1804,17 +1804,41 @@
     const RESUME_RE = /\b(resume|cv|curriculum[\s_-]*vitae|upload[\s_-]*(your[\s_-]*)?(resume|cv|file))\b|\battach[\s_-]*(your[\s_-]*)?(resume|cv|file)\b/i;
     // Never auto-attach the CV to slots meant for something else.
     const NOT_RESUME_RE = /\b(cover[\s_-]*letter|portfolio|transcript|photo|avatar|head[\s_-]*shot|certificate|reference)\b/i;
+
+    // BambooHR (and SmartRecruiters) give EVERY file slot the same useless
+    // identity — aria-label "file-input", no name, no id, identical accept
+    // list — so neither regex matched and the old "just take the first one"
+    // fallback put the CV in the Cover Letter slot and left Resume* empty
+    // (seen live on ebq.bamboohr.com 2026-09-01: the form then refused to
+    // submit with "Please upload a file"). The section heading above each
+    // control is the only thing that distinguishes them, so read that:
+    // walk up a few ancestors — crossing shadow boundaries — and take the
+    // nearest ancestor whose text is small enough to describe just this
+    // field rather than the whole form.
+    function slotContext(el) {
+      let node = el.parentElement || (el.getRootNode() && el.getRootNode().host) || null;
+      for (let d = 0; d < 6 && node; d++) {
+        const t = cleanText(node.innerText || "");
+        // NEAREST non-empty ancestor wins. Climbing past it reaches a
+        // container holding BOTH slots ("Cover Letter Resume*"), which
+        // would tar the resume slot with the cover-letter word and leave
+        // the CV unattached entirely.
+        if (t) return t.length <= 120 ? t : "";
+        node = node.parentElement || (node.getRootNode && node.getRootNode().host) || null;
+      }
+      return "";
+    }
+
     let resumeInput = null;
     const candidates = [];
     for (const el of fileInputs) {
-      const haystack = `${el.name || ""} ${el.id || ""} ${probeText(el)} ${el.accept || ""}`;
+      const haystack = `${el.name || ""} ${el.id || ""} ${probeText(el)} ${el.accept || ""} ${slotContext(el)}`;
       if (NOT_RESUME_RE.test(haystack)) continue;
       if (RESUME_RE.test(haystack)) { resumeInput = el; break; }
       candidates.push(el);
     }
-    // Labels ambiguous (e.g. SmartRecruiters ids every slot "file-input"):
-    // take the first non-excluded input — the resume slot leads application
-    // forms in practice, and the user reviews before submitting anyway.
+    // Still ambiguous: take the first slot nothing excluded. Safe now that
+    // the cover-letter slot is recognised by its heading.
     if (!resumeInput && candidates.length) resumeInput = candidates[0];
     if (!resumeInput) return 0;
     // Skip if a file is already attached
@@ -1869,6 +1893,22 @@
   // Auto-submit is only safe when we can prove the form is actually complete.
   // Returns { ok, blockers: [reason, ...] } — every reason is phrased for
   // display in the popup so the user knows what to finish by hand.
+  // True once a human has completed the challenge: reCAPTCHA / hCaptcha /
+  // Turnstile all write their verification token into a response field.
+  // We only ever READ this — the token is produced by the user's own tick.
+  function captchaSatisfied() {
+    for (const sel of ['#g-recaptcha-response',
+                       'textarea[name="g-recaptcha-response"]',
+                       'textarea[name="h-captcha-response"]',
+                       'input[name="cf-turnstile-response"]',
+                       'input[name="cf-chl-widget-response"]']) {
+      for (const el of querySelectorAllDeep(sel)) {
+        if (el && String(el.value || "").trim()) return true;
+      }
+    }
+    return false;
+  }
+
   function validateBeforeSubmit() {
     const blockers = [];
 
@@ -1890,11 +1930,15 @@
     }
 
     // 1. A CAPTCHA means a human must act; we never attempt to solve one.
+    //    But once a human HAS solved it the widget stays on screen, so
+    //    presence alone can't keep blocking — otherwise the user ticks the
+    //    box and submission is still refused. A non-empty response token is
+    //    the challenge's own proof that a person satisfied it.
     const captcha = [
       'iframe[src*="recaptcha"]', 'iframe[src*="hcaptcha"]',
       'iframe[src*="turnstile"]', ".g-recaptcha", ".h-captcha", "[data-sitekey]",
     ].some(sel => Array.from(document.querySelectorAll(sel)).some(isVisible));
-    if (captcha) blockers.push("CAPTCHA present — needs a human");
+    if (captcha && !captchaSatisfied()) blockers.push("CAPTCHA present — needs a human");
 
     // 2. Every required control must hold a value. Radio/checkbox groups are
     //    judged per NAME (any one checked satisfies the group).

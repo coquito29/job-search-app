@@ -199,11 +199,12 @@
     // and the user's whole job is ticking one box. Watch for that tick and
     // submit the moment it lands, so they never have to hunt for the Submit
     // button — one interaction per job instead of two plus a scroll.
-    if (!sub.submitted && isCaptchaOnly(sub.blockers)) {
-      armCaptchaAutoSubmit(job);
+    if (!sub.submitted && (sub.blockers || []).length) {
+      armCaptchaAutoSubmit(job, sub.blockers);
       return {
         result: "needs_review",
-        detail: "ready — waiting for you to tick the CAPTCHA (auto-submits after)",
+        detail: "filled; waiting on you — " +
+                (sub.blockers || []).slice(0, 4).join("; ").slice(0, 300),
         filled: stats.filled || 0,
         total:  stats.total  || 0,
       };
@@ -258,24 +259,40 @@
     return el;
   }
 
-  function armCaptchaAutoSubmit(job) {
+  // Tells the user exactly what is left, then submits the instant they do it.
+  // Not captcha-only: a form can also be missing something the engine can't
+  // fill (BambooHR's State widget refuses synthetic events), and making the
+  // user hunt for Submit after fixing it is the same wasted interaction.
+  function armCaptchaAutoSubmit(job, blockers) {
     if (window.__jtCaptchaWatch) return;
     window.__jtCaptchaWatch = true;
 
-    readyBanner("✅ Application filled and ready — just tick the “I’m not a robot” box. It submits itself.");
+    const others = (blockers || []).filter(b => !/captcha/i.test(b))
+      .map(b => b.replace(/^required:\s*/i, "").trim());
+    const needsCaptcha = (blockers || []).some(b => /captcha/i.test(b));
+    const parts = [];
+    if (others.length) parts.push(others.slice(0, 3).join(", "));
+    if (needsCaptcha)  parts.push("tick the “I’m not a robot” box");
+    readyBanner("✅ Application filled — just " +
+                (parts.join(" and ") || "review it") + ". It submits itself.");
 
-    // Bring the challenge into view so it's the first thing seen.
+    // Bring whatever is still needed into view.
     setTimeout(() => {
       const cap = document.querySelector(
         'iframe[src*="recaptcha"], iframe[src*="hcaptcha"], iframe[src*="turnstile"], .g-recaptcha, .h-captcha');
-      if (cap) try { cap.scrollIntoView({ block: "center", behavior: "smooth" }); } catch (_) {}
+      const target = others.length ? null : cap;
+      if (target) try { target.scrollIntoView({ block: "center", behavior: "smooth" }); } catch (_) {}
     }, 600);
 
     const started = Date.now();
     const timer = setInterval(async () => {
       if (shutdownIfOrphaned()) { clearInterval(timer); return; }
       if (Date.now() - started > 45 * 60_000) { clearInterval(timer); return; }  // give up after 45m
-      if (!captchaToken()) return;
+      // Re-validate rather than watching only the token: the user may also
+      // have just filled the field the engine couldn't.
+      let ready = false;
+      try { ready = window.__jobTrackerAutofill.validateBeforeSubmit().ok; } catch (_) {}
+      if (!ready) return;
 
       clearInterval(timer);
       readyBanner("Submitting your application…");
