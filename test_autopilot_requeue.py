@@ -1,4 +1,5 @@
-# Re-queueing needs_review attempts after a matcher fix.
+# Recovering needs_review attempts: re-queueing them, and surfacing the
+# questions that stopped them so they can be answered once.
 #
 # The queue's skip set is every URL this user has ever attempted, so a job that
 # came back needs_review is never served again. When the reason was a FILL BUG
@@ -147,6 +148,73 @@ check("an attempted-and-left-alone URL still is",
       URL["Support Engineer"] in applied_urls)
 check("a submitted URL still is", URL["Web Developer"] in applied_urls)
 
+# ── The blocker questions behind those rows ─────────────────────────────────
+# Same detail strings, read for a different purpose: each "required: <label>"
+# is a question the rules could not answer, and a saved answer fills it on
+# every future form.
+
+bq = appmod._blocker_questions
+check("a required question is extracted",
+      bq(REQUIRED_ONLY) == ["Will you now or in the future require sponsorship "
+                            "for employment visa status?"], str(bq(REQUIRED_ONLY)))
+check("the 'filled; waiting on you' lead-in is stripped even though it "
+      "contains its own semicolon",
+      bq("filled; waiting on you \u2014 required: Desired salary?") == ["Desired salary?"],
+      str(bq("filled; waiting on you \u2014 required: Desired salary?")))
+check("a CAPTCHA is not a question", bq(CAPTCHA_ONLY) == [])
+check("an upload slot is not a question", bq(FILE_ONLY) == [])
+check("a consent box is not a question", bq(CONSENT_ONLY) == [])
+check("both blockers of a mixed row are read, minus the CAPTCHA",
+      bq(BOTH) == ["Are you a protected veteran?"], str(bq(BOTH)))
+check("a trailing star is trimmed off the label",
+      bq("required: Desired pay*") == ["Desired pay"])
+check("an anonymous field carries no question to answer",
+      bq("required: field; required: Real question?") == ["Real question?"],
+      str(bq("required: field; required: Real question?")))
+check("empty detail is safe", bq("") == [])
+check("None detail is safe", bq(None) == [])
+
+# The endpoint de-duplicates across jobs and ranks by how many each one cost.
+# Seeded fresh so the counts are unambiguous.
+with appmod._db_conn() as conn:
+    conn.execute("DELETE FROM autopilot_attempts WHERE user_id = ?", (uid,))
+    for u, detail in (
+        ("https://x/1", "filled; waiting on you \u2014 required: Preferred management style?; "
+                        "CAPTCHA present \u2014 needs a human"),
+        ("https://x/2", "filled; waiting on you \u2014 required: Preferred management style?"),
+        ("https://x/3", "filled; waiting on you \u2014 required: Timezone?"),
+        ("https://x/4", "filled; waiting on you \u2014 CAPTCHA present \u2014 needs a human"),
+    ):
+        conn.execute(
+            """INSERT INTO autopilot_attempts
+               (user_id, url, title, company, result, detail, filled, total, attempted_at)
+               VALUES (?, ?, ?, ?, 'needs_review', ?, 7, 12, '2026-09-02T09:00:00Z')""",
+            (uid, u, "Helpdesk Analyst", "Acme", detail))
+
+data = client.get("/api/autopilot/blockers").get_json()
+check("every needs_review row is counted", data["needs_review"] == 4, str(data))
+check("the CAPTCHA-only row has no question", data["no_question"] == 1, str(data))
+check("questions are de-duplicated across jobs", len(data["questions"]) == 2,
+      str([q["question"] for q in data["questions"]]))
+check("the costliest question ranks first",
+      data["questions"][0]["question"] == "Preferred management style?"
+      and data["questions"][0]["jobs"] == 2, str(data["questions"][0]))
+check("an example job is attached", "Helpdesk Analyst" in data["questions"][0]["example"])
+check("nothing is saved yet", data["questions"][0]["saved"] == "")
+
+# An answer saved through the extension's own learning endpoint comes back
+# attached to the question, so the UI can show and edit it.
+check("saving an answer succeeds",
+      client.post("/api/qa/learn", json={
+          "answers": [["Preferred management style?", "Clear priorities, regular feedback"]]
+      }).status_code == 200)
+after = client.get("/api/autopilot/blockers").get_json()
+check("the saved answer comes back with its question",
+      after["questions"][0]["saved"] == "Clear priorities, regular feedback",
+      str(after["questions"][0]))
+check("the unanswered question stays empty", after["questions"][1]["saved"] == "")
+
+
 print()
-print(("FAILED: " + ", ".join(fails)) if fails else "All autopilot re-queue assertions passed")
+print(("FAILED: " + ", ".join(fails)) if fails else "All autopilot recovery assertions passed")
 raise SystemExit(1 if fails else 0)
