@@ -68,6 +68,7 @@ python3 test_location_filter.py
 python3 test_work_history.py
 python3 test_autopilot_requeue.py
 python3 test_bookmarklet.py
+python3 test_ats_classify.py
 cd chrome-extension/tests && node autofill.accuracy.test.mjs && node autofill.test.mjs
 node fixture_runner.mjs          # diagnostic, not pass/fail
 ```

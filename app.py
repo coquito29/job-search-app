@@ -549,10 +549,35 @@ ATS_BLOCKED = {
 }
 
 
+ATS_URL_MARKERS = (
+    # Some employers embed a fast ATS directly in their own careers page, so
+    # the host is the company's own domain and nothing in the tables above
+    # matches. The embed still carries the ATS's own job-id parameter, which
+    # is a reliable marker of what actually renders the form.
+    #
+    # Only consulted when the domain tables came back "unknown", so an
+    # aggregator that happens to pass gh_jid through in a redirect stays
+    # ATS_BLOCKED rather than being promoted to "fast".
+    #
+    # Added 2026-09-02: stability.ai/careers?gh_jid=... scored "unknown" and
+    # was dropped by the autopilot queue's ats_class == "fast" gate -- on a
+    # day whose 30-job digest held no other fast-apply job at all, so the
+    # queue came back empty and the robot had nothing to do. Same shape as
+    # the Zoho Recruit and Paycom gaps: a direct-apply ATS invisible to the
+    # robot because of a missing rule, not because of anything about its
+    # forms. The form itself lives in a greenhouse.io iframe, which the
+    # extension's all_frames content script already reaches.
+    ("gh_jid=", ("fast", "Greenhouse")),
+    ("gh_src=", ("fast", "Greenhouse")),
+)
+
+
 def _classify_ats(url):
     """Return ('fast'|'walled'|'blocked'|'unknown', ats_name).
     Longest-match wins so 'jobs.greenhouse.io' beats a generic 'greenhouse.io'.
-    ats_name is a human label for the badge ('' if unknown)."""
+    ats_name is a human label for the badge ('' if unknown).
+    A URL marker (see ATS_URL_MARKERS) is a fallback for embedded boards on
+    a company's own domain, consulted only when no domain matched."""
     if not url:
         return ("unknown", "")
     u = url.lower()
@@ -561,6 +586,10 @@ def _classify_ats(url):
         for domain, label in table.items():
             if domain in u and len(domain) > best[2]:
                 best = (cls, label, len(domain))
+    if best[0] == "unknown":
+        for marker, (cls, label) in ATS_URL_MARKERS:
+            if marker in u:
+                return (cls, label)
     return (best[0], best[1])
 
 
