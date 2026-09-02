@@ -7223,7 +7223,7 @@ def bookmarklet_run_js():
   // step 3b in 0bfecbf. \s is not a recognised escape, so it survives
   // unescaped, which is exactly what hides the bug: half the regex looks
   // fine. test_bookmarklet.py fails on any control character in the response.
-  const APPLY_RE   = /^(apply\\b|start\s+(your\s+)?application\\b|begin\s+application\\b|submit\s+an?\s+application\\b|i'?m\s+interested\\b|application$)/i;
+  const APPLY_RE   = /^(apply\\b|start\s+(your\s+)?application\\b|begin\s+application\\b|submit\s+(your\s+|an?\s+)?application\\b|i'?m\s+interested\\b|application$)/i;
   const APPLY_SKIP = /\\b(linkedin|indeed|google|facebook|seek|xing|glassdoor)\\b/i;
   // Only ever the privacy-preserving option. Accepting cookies is the user's
   // decision, not ours -- if a banner offers nothing but acceptance we leave
@@ -7249,8 +7249,14 @@ def bookmarklet_run_js():
     }
     return false;
   }
-  const hasFields = () => document.querySelectorAll(
-    'input[type="text"], input[type="email"], input[type="tel"], input:not([type]), textarea, select').length > 0;
+  // Same test as the extension's hasApplicationForm(). The looser "any text
+  // box on the page" version this replaces was defeated by the search field
+  // almost every job board carries: the page looked like it already had a
+  // form, so the Apply click never fired on exactly the pages that need it.
+  const hasFields = () =>
+    !!document.querySelector('input[type="file"]')
+    || !!document.querySelector('input[type="email"], input[autocomplete="email"]')
+    || document.querySelectorAll('input[type="text"], input:not([type]), textarea').length >= 3;
 
   // Answers typed by hand since the last tap, saved before we fill anything.
   // On a phone this is the only way saved answers can grow -- autopilot, which
@@ -7278,10 +7284,12 @@ def bookmarklet_run_js():
     // annoying part, so do it here too. Safe by construction: this only runs
     // when the page has NO form fields, so there is nothing a click could
     // submit -- it can only reveal.
+    let pressedApply = false;
     if (!hasFields()) {
       let opened = clickMatch(DECLINE_RE, null);
       if (opened) await new Promise(r => setTimeout(r, 600));
       if (!hasFields() && clickMatch(APPLY_RE, APPLY_SKIP)) {
+        pressedApply = true;
         toast('Opening the application form...', 'ok');
         const until = Date.now() + 20000;
         while (Date.now() < until && !hasFields()) {
@@ -7295,9 +7303,17 @@ def bookmarklet_run_js():
       autologUrl: APP + '/api/applications/autolog?k=__JT_TOKEN__',
     });
     if (!r1.total) {
-      toast(clickable().some(b => APPLY_RE.test((b.innerText || '').trim().slice(0, 40)))
-        ? "No form here yet - tap the site's Apply button, then tap Autofill again."
-        : 'No form fields found on this page.', 'warn');
+      // Three different failures, three different things to do about them.
+      const seesApply = clickable().some(b => {
+        const t = (b.innerText || '').replace(/\s+/g, ' ').trim();
+        return t && t.length <= 40 && APPLY_RE.test(t) && !APPLY_SKIP.test(t);
+      });
+      toast(pressedApply
+        ? "Pressed Apply but no form appeared in 20s. Give it a moment and tap again - if it keeps happening, tell Claude which site this is."
+        : seesApply
+          ? "Found an Apply button but could not press it. Tap it yourself, then tap Autofill again."
+          : "No application form here, and no Apply button I recognise. If this page has one, tell Claude its exact wording.",
+        'warn');
       return;
     }
     let msg = 'Auto-filled ' + r1.filled + ' field' + (r1.filled === 1 ? '' : 's');
