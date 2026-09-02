@@ -21,6 +21,20 @@ cd chrome-extension/tests && node autofill.accuracy.test.mjs   # what it does on
 
 The robot applies for jobs unattended. These are the limits on that.
 
+George settled the four open ones on 2026-09-02, and they are decisions, not
+defaults to revisit on a whim:
+
+1. **The job list must be trustworthy.** Confidence in *which* jobs the robot
+   touches matters more than volume. Every gate below stays.
+2. **A CAPTCHA is his.** The robot fills, he ticks and submits. It never
+   tries to get past one.
+3. **Missing information is his to supply**, in the wording he wants. The
+   robot never invents an answer to make a form go through.
+4. **A blank beats a guess**, always.
+
+Change one only when he says so, and change the rule here in the same commit
+as the code.
+
 ### It applies only to jobs that pass every gate
 
 | Rule | Why | Proof |
