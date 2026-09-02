@@ -482,6 +482,42 @@ const DECOY_SELECT = `
     results.push(lines.join("\n"));
   }
 
+  // ── A required consent box whose text is a sibling, not a label ──────────
+  // Teamtailor writes "Required. I agree to the Privacy Policy..." into a bare
+  // <span> before the input. ownLabelText() reads only the box's own label, so
+  // it saw "" and the guard let auto-submit fire with the box unticked. The
+  // fallback reads the immediately preceding sibling -- but only when that
+  // text is consent wording, so the Breezy opt-in above (an optional box
+  // sitting near a starred field) must still NOT block. Both directions are
+  // asserted, here and in the Breezy group earlier in this file.
+  await group("Sibling-text required consent blocks auto-submit", `
+    <form>
+      <label for="fn9">First Name</label><input id="fn9" name="first_name" required />
+      <div>
+        <span>Required. I agree to the Privacy Policy and to my personal data being processed for recruitment purposes.</span>
+        <input type="checkbox" id="candidate_consent" />
+      </div>
+      <button type="submit" id="go9">Submit Application</button>
+    </form>`, (w) => ({
+    "consent box left unticked": [w.document.getElementById("candidate_consent").checked, false],
+    "submit NOT clicked": [w.document.getElementById("go9").hasAttribute("data-clicked"), false],
+  }), { autoSubmit: true });
+
+  // The same markup with OPTIONAL wording must not block -- the fallback keys
+  // on the word "required", not on the mere presence of consent text.
+  await group("Optional sibling-text consent does not block", `
+    <form>
+      <label for="fn10">First Name</label><input id="fn10" name="first_name" required />
+      <div>
+        <span>I agree to receive occasional marketing emails.</span>
+        <input type="checkbox" id="marketing_consent" />
+      </div>
+      <button type="submit" id="go10">Submit Application</button>
+    </form>`, (w) => ({
+    "opt-in left unticked": [w.document.getElementById("marketing_consent").checked, false],
+    "submit clicked": [w.document.getElementById("go10").hasAttribute("data-clicked"), true],
+  }), { autoSubmit: true });
+
   console.log(results.join("\n"));
   console.log(failures === 0
     ? "\nAll accuracy assertions passed."
