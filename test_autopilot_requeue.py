@@ -258,6 +258,53 @@ served = [j["url"] for j in client.get("/api/autopilot/queue").get_json()["jobs"
 check("a Zoho posting is queued for the robot", served == [zoho_url], str(served))
 
 
+# ── The safety gates, one job each ──────────────────────────────────────────
+# RULES.md states these; this is what makes them true. Each job below differs
+# from a queueable one in exactly one field, so a gate that stops working
+# fails here and nowhere else.
+SAFE = {
+    "url": "https://boards.greenhouse.io/acme/jobs/500", "title": "IT Support",
+    "company_name": "Acme", "ats_class": "fast", "ats_name": "Greenhouse",
+    "match_pct": 5, "scam_flags": [], "blockers": [], "loc_class": "US",
+}
+
+
+def queue_with(*jobs):
+    with appmod._db_conn() as conn:
+        conn.execute("DELETE FROM daily_searches WHERE user_id = ?", (uid,))
+        conn.execute("DELETE FROM autopilot_attempts WHERE user_id = ?", (uid,))
+        conn.execute(
+            "INSERT INTO daily_searches (user_id, run_at, jobs, total_fetched) VALUES (?, ?, ?, ?)",
+            (uid, "2026-09-02T16:00:00Z", json.dumps(list(jobs)), len(jobs)))
+    return {j["url"] for j in client.get("/api/autopilot/queue").get_json()["jobs"]}
+
+
+def variant(**over):
+    j = dict(SAFE)
+    j.update(over)
+    j["url"] = SAFE["url"] + "-" + "-".join(sorted(over))
+    return j
+
+
+check("a clean fast-apply job is queued", queue_with(SAFE) == {SAFE["url"]},
+      str(queue_with(SAFE)))
+check("a scam-flagged job is never queued",
+      queue_with(variant(scam_flags=["upfront fee"])) == set())
+check("a job with blockers is never queued",
+      queue_with(variant(blockers=["security clearance required"])) == set())
+check("a non-US job is never queued", queue_with(variant(loc_class="NON_US")) == set())
+check("a walled ATS is never queued", queue_with(variant(ats_class="walled")) == set())
+check("an unclassified ATS is never queued", queue_with(variant(ats_class="unknown")) == set())
+check("a blocked aggregator is never queued", queue_with(variant(ats_class="blocked")) == set())
+
+# All six rejects together, plus one good job: only the good one is served.
+mixed = [SAFE, variant(scam_flags=["fee"]), variant(blockers=["clearance"]),
+         variant(loc_class="NON_US"), variant(ats_class="walled"),
+         variant(ats_class="unknown"), variant(ats_class="blocked")]
+check("one good job among six rejects is the only one served",
+      queue_with(*mixed) == {SAFE["url"]}, str(queue_with(*mixed)))
+
+
 print()
 print(("FAILED: " + ", ".join(fails)) if fails else "All autopilot recovery assertions passed")
 raise SystemExit(1 if fails else 0)

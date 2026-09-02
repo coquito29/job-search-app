@@ -2,32 +2,22 @@
 
 Guidance for Claude Code when working in this repository.
 
+**Read [RULES.md](RULES.md) first.** It states what the robot may do on
+George's behalf and how to work in this repo, with the test that proves
+each rule. This file is the rest: context, mechanics and traps.
+
 ## Standing constraint: one external API
 
-**This project relies on Apify only. Do not add, restore, or extend any
-second external API.**
+Apify only. The full statement, including the two things deliberately not
+counted against it and what proves the rule, is in [RULES.md](RULES.md#one-external-api).
+Anthropic was removed under it; `_anthropic` is pinned to `None`. When a
+feature seems to want an LLM, do it with rules instead, or leave the field
+for the user to fill.
 
-Apify is the job-search source (`fetch_jobs_from_apify` in `app.py`, the
-`fantastic-jobs~career-site-job-listing-api` actor, reached either through a
-saved `APIFY_TASK_ID` or the direct actor URL). It stays.
-
-Anthropic is being dropped. Anything gated on `ANTHROPIC_API_KEY` is on its
-way out, not something to build on:
-
-- AI cover letters (`app.py`, the `_anthropic.Anthropic(...)` call sites)
-- Phase 2 AI form fill — `POST /api/ai/fill`, called by the extension's
-  `aiFillRequest` (`chrome-extension/background.js`) from `runFullAutofill`
-  (`chrome-extension/content.js`)
-- The `ai_enabled` / `ai` flags reported by the status and health endpoints
-
-When a feature seems to want an LLM, do it with rules instead, or leave the
-field for the user to fill. The autofill engine is rule-based by design
+The autofill engine is rule-based by design
 (`chrome-extension/autofill.js`): identity, contact, address, EEO, work
 history, Yes/No screeners and button chips are all matched without a model,
 and that is the path to extend.
-
-If a task genuinely cannot be done within this constraint, say so and stop —
-do not reach for a second provider.
 
 ## The product is desktop autopilot. He is currently building from a phone
 
@@ -68,6 +58,7 @@ python3 test_location_filter.py
 python3 test_work_history.py
 python3 test_autopilot_requeue.py
 python3 test_bookmarklet.py
+python3 test_rules.py
 cd chrome-extension/tests && node autofill.accuracy.test.mjs && node autofill.test.mjs
 node fixture_runner.mjs          # diagnostic, not pass/fail
 ```
