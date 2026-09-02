@@ -1,7 +1,7 @@
 """
 app.py  —  Remote Job Search Mobile PWA
 Sources: Apify only (Adzuna/JSearch removed 2026-07-06 for signal quality)
-AI Cover Letters: Claude Haiku (set ANTHROPIC_API_KEY env var)
+AI: none. Apify is the only external API this app relies on -- see CLAUDE.md.
 """
 import io, json, os, re, secrets, socket, sqlite3
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -43,10 +43,16 @@ try:
 except ImportError:
     _docx = None
 
-try:
-    import anthropic as _anthropic
-except ImportError:
-    _anthropic = None
+# One external API only: Apify. Anthropic is deliberately NOT imported --
+# pinning this to None (rather than deleting ~24 call sites) keeps every
+# feature on the fallback path it already had for a keyless deploy, and
+# means the app cannot call Claude even if the package is present in the
+# environment or ANTHROPIC_API_KEY is still set in Render. Every use is
+# guarded by `_anthropic` truthiness, so this switches all of them off at
+# once: cover letters fall back to the template, CV parsing to the regex
+# reader, categorisation to keyword scoring, and the AI-only endpoints
+# return their existing "AI not available" 503. See CLAUDE.md.
+_anthropic = None
 
 # psycopg2 is only imported when DATABASE_URL is set (Render Postgres);
 # local dev falls back to sqlite with no new dependency
@@ -1632,7 +1638,7 @@ def health():
             "ok":       False,
             "db":       "postgres" if USE_POSTGRES else "sqlite",
             "db_error": f"init failed: {_DB_INIT_ERROR}",
-            "ai":       bool(os.environ.get("ANTHROPIC_API_KEY")),
+            "ai":       bool(os.environ.get("ANTHROPIC_API_KEY") and _anthropic),
         }), 503
     try:
         with _db_conn() as conn:
@@ -1647,7 +1653,7 @@ def health():
         "ok":       db_ok,
         "db":       "postgres" if USE_POSTGRES else "sqlite",
         "db_error": db_error,
-        "ai":       bool(os.environ.get("ANTHROPIC_API_KEY")),
+        "ai":       bool(os.environ.get("ANTHROPIC_API_KEY") and _anthropic),
         # Render sets RENDER_GIT_COMMIT on every deploy — lets us verify
         # which code is live without guessing at deploy timing.
         "commit":   os.environ.get("RENDER_GIT_COMMIT", "")[:7],
