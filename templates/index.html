@@ -2253,9 +2253,15 @@
         Autopilot
         <span class="badge bg-primary ms-1" id="autopilotCount" style="font-size:.65rem;">0</span>
       </div>
-      <button class="btn btn-sm btn-outline-primary" onclick="loadAutopilotLog(true)">
-        <i class="bi bi-arrow-clockwise me-1"></i>Refresh
-      </button>
+      <div class="d-flex gap-2">
+        <button class="btn btn-sm btn-outline-secondary" id="autopilotRequeueBtn"
+                onclick="requeueAutopilot()" title="Hand jobs that stalled on an unanswered field back to the robot">
+          <i class="bi bi-arrow-counterclockwise me-1"></i>Re-queue
+        </button>
+        <button class="btn btn-sm btn-outline-primary" onclick="loadAutopilotLog(true)">
+          <i class="bi bi-arrow-clockwise me-1"></i>Refresh
+        </button>
+      </div>
     </div>
     <div id="autopilotSummaryLine" style="font-size:.75rem;color:var(--ink-muted);margin-bottom:6px;"></div>
     <div id="autopilotList" style="font-size:.85rem;color:#6c757d;">
@@ -3603,6 +3609,51 @@ function syncResultsChrome() {
   renderTodayStats();
 }
 
+// ── Re-queue stalled attempts ────────────────────────────────────────────────
+// A needs_review job is never served again -- one shot per URL. That is right
+// when the robot filled everything and is waiting on a human (a CAPTCHA tick),
+// and wrong when it stalled on a field the matcher has since learned to fill.
+// GET is a dry run, so the user sees exactly what would come back before
+// anything is written.
+async function requeueAutopilot() {
+  const btn = document.getElementById('autopilotRequeueBtn');
+  const was = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = 'Checking…'; }
+  try {
+    const dry = await (await fetch('/api/autopilot/requeue', { credentials: 'include' })).json();
+    const n = (dry.reopened || []).length;
+    const stuck = (dry.counts || {}).captcha_too || 0;
+    if (!n) {
+      alert(dry.needs_review_total
+        ? `Nothing to re-queue. All ${dry.needs_review_total} job(s) awaiting review are waiting on you `
+          + `(a CAPTCHA tick, a consent box, or a file), not on the matcher.`
+        : 'Nothing awaiting review.');
+      return;
+    }
+    const preview = (dry.reopened || []).slice(0, 8)
+      .map(r => '  • ' + (r.title || r.url) + (r.company ? ' — ' + r.company : '')).join('\n');
+    const alsoNote = stuck
+      ? `\n\n(${stuck} more stalled on a field AND a CAPTCHA. Those are left alone — `
+        + `re-running fills more but you would still have to tick.)`
+      : '';
+    if (!confirm(`Hand ${n} job(s) back to autopilot?\n\n${preview}`
+                 + (n > 8 ? `\n  …and ${n - 8} more` : '') + alsoNote))
+      return;
+    if (btn) btn.innerHTML = 'Re-queueing…';
+    const res = await fetch('/api/autopilot/requeue', { method: 'POST', credentials: 'include' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const out = await res.json();
+    alert(`${(out.reopened || []).length} job(s) back in the queue. `
+          + `Autopilot picks them up on its next sweep.`);
+    autopilotLoadedAt = 0;
+    loadAutopilotLog(true);
+  } catch (e) {
+    alert('Could not re-queue: ' + (e.message || e));
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = was; }
+  }
+}
+
 // ── Autopilot log ────────────────────────────────────────────────────────────
 // Read-only view of autopilot_attempts so the user can see what the
 // extension's daily auto-apply did without opening the extension popup.
@@ -3642,10 +3693,12 @@ async function loadAutopilotLog(force) {
       error:        'background:#fee2e2;color:#7f1d1d;',
       timeout:      'background:#fee2e2;color:#7f1d1d;',
       no_form:      'background:#e9ecef;color:#6c757d;',
+      requeued:     'background:#dbeafe;color:#1e3a8a;',
     };
     const resLabel = {
       submitted: 'Submitted ✓', needs_review: 'Needs review',
       error: 'Failed', timeout: 'Timed out', no_form: 'No form found',
+      requeued: 'Back in queue',
     };
     listEl.innerHTML = attempts.map(a => {
       const when = a.attempted_at ? new Date(a.attempted_at).toLocaleString([], { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }) : '';
