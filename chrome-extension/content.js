@@ -210,9 +210,17 @@
     const btn = findApplyButton();
     if (!btn) return false;
     try { btn.click(); } catch (_) { return false; }
+    // 45s, not 12s. Workable's apply modal opens immediately but loads its
+    // form body lazily behind a spinner — on jobs.workable.com the header and
+    // Submit button were up in under a second while the fields took well over
+    // twenty to arrive, and eventually rendered 63 inputs including both file
+    // slots. The old 12s ceiling gave up mid-spinner and reported "apply
+    // button did not reveal a form" on a page that had one coming. Matches
+    // the 45s already allowed for a tab load; the per-job fill timeout (180s)
+    // still bounds the whole attempt.
     const start = Date.now();
     let dismissed = false;
-    while (Date.now() - start < (maxWaitMs || 12000)) {
+    while (Date.now() - start < (maxWaitMs || 45000)) {
       await new Promise(r => setTimeout(r, 400));
       if (hasApplicationForm()) return true;
       // ...and one can appear WITH the modal, which is the Workable case.
