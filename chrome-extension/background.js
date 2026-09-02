@@ -154,8 +154,17 @@ async function getCvRequest({ appUrl }) {
 
 const AUTOPILOT_ALARM   = "autopilot-daily";
 const AUTOPILOT_CATCHUP = "autopilot-catchup";
+const AUTOPILOT_SWEEP   = "autopilot-sweep";
 const AUTOPILOT_HOUR    = 9;    // fire at 09:30 local
 const AUTOPILOT_MINUTE  = 30;
+// Once a day was the wrong shape. Applying costs nothing — only SEARCHING
+// costs money — so there is no reason to sit on a queue for 24 hours. The
+// sweep re-checks continuously and applies to anything that has appeared:
+// new jobs from a search, jobs that failed a transient load, jobs added while
+// Chrome was closed. An empty queue costs one cheap request and exits.
+const SWEEP_DEFAULT_MIN = 15;
+const SWEEP_MIN_MINUTES = 5;    // floor, so a bad setting cannot hammer the site
+const SWEEP_MAX_MINUTES = 240;
 const CATCHUP_DELAY_MIN = 2;    // settle after browser start before catching up
 const TAB_LOAD_TIMEOUT  = 45_000;   // page load wait
 const TAB_SETTLE_MS     = 5_000;    // extra beat for SPA form render
@@ -182,7 +191,25 @@ async function scheduleAutopilotAlarm() {
     when: next.getTime(),
     periodInMinutes: 24 * 60,
   });
+  await scheduleSweep();
   await maybeScheduleCatchUp();
+}
+
+// The continuous half: keep checking the queue all day rather than once.
+async function scheduleSweep() {
+  let mins = SWEEP_DEFAULT_MIN;
+  try {
+    const { autopilotSweepMinutes } =
+      await chrome.storage.local.get(["autopilotSweepMinutes"]);
+    const wanted = parseInt(autopilotSweepMinutes, 10);
+    if (Number.isFinite(wanted)) {
+      mins = Math.max(SWEEP_MIN_MINUTES, Math.min(SWEEP_MAX_MINUTES, wanted));
+    }
+  } catch (_) { /* storage unavailable — fall back to the default */ }
+  chrome.alarms.create(AUTOPILOT_SWEEP, {
+    delayInMinutes: 1,          // first pass shortly after Chrome starts
+    periodInMinutes: mins,
+  });
 }
 
 // The PC is usually asleep at 09:30, and creating the alarm above REPLACES
@@ -208,7 +235,12 @@ chrome.runtime.onStartup.addListener(scheduleAutopilotAlarm);
 chrome.alarms.onAlarm.addListener(alarm => {
   if (alarm.name === AUTOPILOT_ALARM)   autopilotRun("scheduled");
   if (alarm.name === AUTOPILOT_CATCHUP) autopilotRun("catchup");
+  if (alarm.name === AUTOPILOT_SWEEP)   autopilotRun("sweep");
 });
+
+// Apply the moment the browser comes back, instead of waiting for the next
+// slot — the queue is usually non-empty after the machine has been asleep.
+chrome.runtime.onStartup.addListener(scheduleSweep);
 
 let apRunning = false;
 

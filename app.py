@@ -3440,9 +3440,16 @@ def autopilot_queue():
     except Exception: min_match = 10
 
     with _db_conn() as conn:
-        row = conn.execute(
+        # The last few runs, not just the newest. Autopilot now sweeps the
+        # queue continuously instead of once a day, so reading a single row
+        # meant a job that was never attempted -- because Chrome was closed,
+        # or the page failed to load once -- vanished the moment the next
+        # search landed. Attempted URLs are filtered out below anyway, so
+        # merging recent runs only ever surfaces genuinely unfinished work.
+        rows = conn.execute(
             "SELECT jobs, run_at FROM daily_searches WHERE user_id = ? "
-            "ORDER BY run_at DESC LIMIT 1", (uid,)).fetchone()
+            "ORDER BY run_at DESC LIMIT 5", (uid,)).fetchall()
+        row = rows[0] if rows else None
         app_rows = conn.execute(
             "SELECT url FROM applications WHERE user_id = ?", (uid,)).fetchall()
         tried_rows = conn.execute(
@@ -3454,10 +3461,20 @@ def autopilot_queue():
     skip |= {(_row_get(r, "url") or "").strip() for r in tried_rows}
     skip.discard("")
 
-    try:
-        digest_jobs = json.loads(_row_get(row, "jobs") or "[]")
-    except Exception:
-        digest_jobs = []
+    # Newest first, de-duplicated by URL so a job repeated across runs keeps
+    # its most recent scoring.
+    digest_jobs, seen = [], set()
+    for r in rows:
+        try:
+            batch = json.loads(_row_get(r, "jobs") or "[]")
+        except Exception:
+            continue
+        for j in batch:
+            u = (j.get("url") or "").strip()
+            if not u or u in seen:
+                continue
+            seen.add(u)
+            digest_jobs.append(j)
 
     queue = []
     for j in digest_jobs:
