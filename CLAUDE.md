@@ -29,6 +29,31 @@ and that is the path to extend.
 If a task genuinely cannot be done within this constraint, say so and stop —
 do not reach for a second provider.
 
+## George works from a phone
+
+Assume no PC unless he says otherwise. This is a hard constraint on what can
+be built and tested, not a preference:
+
+- **The Chrome extension cannot run at all.** Chrome on Android and iOS has
+  no extension support, and there is no `chrome://extensions` page. So
+  autopilot sweeps, "Run autopilot now", and anything that depends on a
+  background tab are unavailable until he is back at a desktop. Do not
+  propose steps that begin "at the desktop" as if they were actionable now.
+- **Autopilot data is therefore frozen.** `/api/autopilot/blockers` and the
+  Re-queue button read rows that only an extension sweep can create. They
+  work, but nothing new arrives while he is phone-only.
+- **The mobile bookmarklet is the working path.** `/bookmarklet/run.js`
+  serves the same `chrome-extension/autofill.js` engine off disk at request
+  time and runs it against whatever application form is open in the phone
+  browser. It is per-form and manual -- he taps it -- but it is the whole of
+  the fill engine, and it picks up engine changes on deploy with no
+  reinstall. Prefer improvements that reach him through this path.
+- **Shipping still works normally.** He merges from GitHub's mobile site and
+  Render deploys from `main`, so server and template changes reach him within
+  minutes. Extension-only changes reach nothing until he has a PC again --
+  say so plainly when a change is extension-only, rather than letting a
+  version bump imply it is live.
+
 ## Tests
 
 No CI runs on pull requests; the only workflow is a scheduled digest cron.
@@ -38,6 +63,7 @@ Run the suites directly before pushing:
 python3 test_location_filter.py
 python3 test_work_history.py
 python3 test_autopilot_requeue.py
+python3 test_bookmarklet.py
 cd chrome-extension/tests && node autofill.accuracy.test.mjs && node autofill.test.mjs
 node fixture_runner.mjs          # diagnostic, not pass/fail
 ```

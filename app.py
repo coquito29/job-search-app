@@ -2156,20 +2156,38 @@ def profile_save():
     return jsonify({"ok": True, "updated_at": now})
 
 
-@app.route("/api/qa/learn", methods=["POST"])
+@app.route("/api/qa/learn", methods=["POST", "OPTIONS"])
 def qa_learn():
-    """Learning loop for the Chrome extension's "Learn answers" button.
+    """Learning loop: answers typed by hand on a real application form.
 
-    Body: {"answers": [[question, answer], ...]} — pairs the user typed by
-    hand on a real application form (the engine already filters out fields it
-    filled itself, identity/contact rules, and existing qa_defaults). Merged
-    into profile.settings.qa_defaults: same question (case-insensitive) gets
-    the new answer, new questions are appended. Pass 1's tryQADefaults then
-    fills them automatically on every future form, and /api/autofill feeds
-    them to the AI as grounding for similarly-worded questions.
+    Body: {"answers": [[question, answer], ...]} — the engine already filters
+    out fields it filled itself, identity/contact rules, and existing
+    qa_defaults. Merged into profile.settings.qa_defaults: same question
+    (case-insensitive) gets the new answer, new questions are appended, and
+    Pass 1's tryQADefaults then fills them automatically on every future form.
+
+    Called by the extension's "Learn answers" button AND, cross-origin, by the
+    mobile bookmarklet. The bookmarklet is now the only caller that can grow
+    this list while there is no desktop to run autopilot on, which is why the
+    CORS + token handling below matters: without it the phone path could read
+    saved answers but never add to them.
     """
+    if request.method == "OPTIONS":
+        return _autofill_cors_response(("", 204))
     uid, err = _auth_required()
-    if err: return err
+    if err:
+        return _autofill_cors_response(err)
+
+    # Same drive-by guard as /api/autofill and the autologger: a cross-origin
+    # caller that is not the extension must carry the bookmarklet token, or
+    # any page the user visits could write junk into their saved answers.
+    origin = request.headers.get("Origin", "")
+    own    = request.host_url.rstrip("/")
+    if origin and not origin.startswith("chrome-extension://") and origin.rstrip("/") != own:
+        tok = request.args.get("k", "")
+        if not (tok and secrets.compare_digest(tok, _bookmarklet_token(uid))):
+            return _autofill_cors_response(
+                (jsonify({"error": "bookmarklet outdated — reinstall from /bookmarklet"}), 403))
     data    = request.get_json(force=True) or {}
     answers = data.get("answers") or []
     clean = []
@@ -2217,8 +2235,9 @@ def qa_learn():
                 "VALUES (?, '', '[]', ?, ?)",
                 (uid, json.dumps(settings), now),
             )
-    return jsonify({"ok": True, "added": added, "updated": updated,
-                    "qa_defaults": settings["qa_defaults"]})
+    return _autofill_cors_response(
+        jsonify({"ok": True, "added": added, "updated": updated,
+                 "qa_defaults": settings["qa_defaults"]}))
 
 
 @app.route("/api/profile/skills/refresh", methods=["POST"])
@@ -6277,7 +6296,7 @@ def test_form_page():
     """Self-contained ATS-shaped form for dogfooding the Chrome extension.
 
     Covers every field the rule-based filler targets (Phase 1) plus a few
-    custom free-text questions for Phase 2 (AI). Submitting renders a
+    custom free-text questions, filled from saved answers. Submitting renders a
     preview of what would have been sent — there is NO server roundtrip,
     no application data leaves the browser."""
     return """<!DOCTYPE html>
@@ -6330,7 +6349,7 @@ def test_form_page():
   <div style="margin-top:8px;font-size:.78rem;color:#856404;background:#fff3cd;padding:6px 10px;border-radius:6px">
     <i class="bi bi-info-circle"></i>
     Auto-fire only triggers on supported ATS hosts. This sandbox is on <code>job-search-app-9pnx.onrender.com</code>, so you trigger it manually via the popup.
-    Phase 2 (AI free-text) requires <code>ANTHROPIC_API_KEY</code> on the server; if unset, the AI fields stay empty and Phase 1 still runs. Check the AI badge in the main app header to confirm it's enabled.
+    Free-text questions are not filled by a model — this app deliberately relies on one external API (Apify, for the job search) and nothing else. They are filled from answers you have saved, so a question you answer once fills itself everywhere after that.
   </div>
 </div>
 
@@ -6822,11 +6841,11 @@ def test_form_page():
 
   <div class="card">
     <div class="card-body">
-      <p class="ph">Free-text questions <span class="badge-phase badge-phase2">Phase 2 AI</span></p>
+      <p class="ph">Free-text questions <span class="badge-phase badge-phase2">from your saved answers</span></p>
       <div class="mb-3">
         <label for="why">Why are you interested in this role?</label>
         <textarea id="why" name="why" class="form-control" rows="3" maxlength="500"></textarea>
-        <span class="help">Won't fill until ANTHROPIC_API_KEY is set on Render.</span>
+        <span class="help">Filled from answers you have saved. Answer one on a real form, tap Autofill again, and it is saved for next time.</span>
       </div>
       <div class="mb-2">
         <label for="story">Describe a time you handled a difficult customer.</label>
@@ -7105,7 +7124,8 @@ def bookmarklet_install():
 <div class="card">
   <div class="card-body">
     <p class="ph">How it works</p>
-    <p style="font-size:.88rem">Tapping the bookmarklet injects a <code>&lt;script&gt;</code> tag pointing at <code>/bookmarklet/run.js</code>. Your session cookie travels along (SameSite=None, secure). The server returns the same autofill engine the Chrome extension uses, with your profile + answer defaults inlined. The engine runs the rule pass, then if needed posts unfilled fields to <code>/api/autofill</code> for AI grounding from your default CV — same Phase 2 path as the desktop extension.</p>
+    <p style="font-size:.88rem">Tapping the bookmarklet injects a <code>&lt;script&gt;</code> tag pointing at <code>/bookmarklet/run.js</code>. Your session cookie travels along (SameSite=None, secure). The server returns the same autofill engine the Chrome extension uses, with your profile, saved answers and default CV inlined. If the page is still showing only the job description, it dismisses a cookie banner (declining, never accepting) and presses the site's own Apply button to bring the form up. Then it fills by rules — no AI, no model, nothing sent anywhere for a decision.</p>
+    <p style="font-size:.88rem"><strong>It learns.</strong> Each tap first saves any answers you typed by hand since the last one, so the second tap on a form banks your answers to its custom questions and every later form fills them for you. Answer a question once.</p>
     <p style="font-size:.88rem">No data leaves your browser except: <strong>(1)</strong> the cookie-authenticated fetch of <code>/bookmarklet/run.js</code> (your profile flows in), and <strong>(2)</strong> the optional <code>/api/autofill</code> POST when there are custom free-text questions (form labels + page URL flow out). Nothing is submitted on your behalf.</p>
   </div>
 </div>
@@ -7190,65 +7210,100 @@ def bookmarklet_run_js():
     toast('Autofill engine failed to load', 'err'); return;
   }
   const profile = window.__jt_bookmarklet_profile;
+  const APP = 'https://job-search-app-9pnx.onrender.com';
+
+  // The site's own Apply button, by the same rules the extension uses.
+  // Anchored to the START of the label so "Apply To Position" and "I'm
+  // interested" match, and never a third-party sign-in route -- "Apply Using
+  // LinkedIn" hands the application to an OAuth flow instead of the form.
+  // NOTE: this invocation is a plain (non-raw) Python string, so every word
+  // boundary must be written with a DOUBLED backslash. A single one is an
+  // escape Python turns into a BACKSPACE byte, shipping a regex that silently
+  // matches nothing -- the same failure that killed fillRadioOrCheckbox's
+  // step 3b in 0bfecbf. \s is not a recognised escape, so it survives
+  // unescaped, which is exactly what hides the bug: half the regex looks
+  // fine. test_bookmarklet.py fails on any control character in the response.
+  const APPLY_RE   = /^(apply\\b|start\s+(your\s+)?application\\b|begin\s+application\\b|submit\s+an?\s+application\\b|i'?m\s+interested\\b|application$)/i;
+  const APPLY_SKIP = /\\b(linkedin|indeed|google|facebook|seek|xing|glassdoor)\\b/i;
+  // Only ever the privacy-preserving option. Accepting cookies is the user's
+  // decision, not ours -- if a banner offers nothing but acceptance we leave
+  // it alone and the form simply stays hidden.
+  const DECLINE_RE = /^(decline all|decline|reject all|reject|refuse all|only necessary|necessary only|essential only|strictly necessary|continue without accepting)$/i;
+
+  function visible(el) {
+    if (!el || !el.offsetParent) return false;
+    const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0;
+  }
+  function clickable() {
+    return [...document.querySelectorAll('button, a, [role="button"], input[type="button"]')];
+  }
+  function clickMatch(re, skip) {
+    for (const el of clickable()) {
+      const t = (el.innerText || el.value || '').replace(/\s+/g, ' ').trim();
+      if (!t || t.length > 40 || !re.test(t)) continue;
+      if (skip && skip.test(t)) continue;
+      if (!visible(el)) continue;
+      try { el.click(); } catch (_) { continue; }
+      return true;
+    }
+    return false;
+  }
+  const hasFields = () => document.querySelectorAll(
+    'input[type="text"], input[type="email"], input[type="tel"], input:not([type]), textarea, select').length > 0;
+
+  // Answers typed by hand since the last tap, saved before we fill anything.
+  // On a phone this is the only way saved answers can grow -- autopilot, which
+  // used to feed them, needs a desktop. Fill, answer the leftovers, tap again:
+  // the second tap banks those answers and they fill themselves from then on.
+  let learned = 0;
   try {
+    const pairs = window.__jobTrackerAutofill.collectLearnableAnswers(profile) || [];
+    if (pairs.length) {
+      const lr = await fetch(APP + '/api/qa/learn?k=__JT_TOKEN__', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ answers: pairs }),
+      });
+      if (lr.ok) {
+        const lb = await lr.json();
+        learned = (lb.added || 0) + (lb.updated || 0);
+      }
+    }
+  } catch (_) { /* learning is a bonus, never block the fill for it */ }
+
+  try {
+    // Many ATSes show only the job description until Apply is pressed. The
+    // extension clicks it for autopilot; on a phone that tap is the most
+    // annoying part, so do it here too. Safe by construction: this only runs
+    // when the page has NO form fields, so there is nothing a click could
+    // submit -- it can only reveal.
+    if (!hasFields()) {
+      let opened = clickMatch(DECLINE_RE, null);
+      if (opened) await new Promise(r => setTimeout(r, 600));
+      if (!hasFields() && clickMatch(APPLY_RE, APPLY_SKIP)) {
+        toast('Opening the application form...', 'ok');
+        const until = Date.now() + 20000;
+        while (Date.now() < until && !hasFields()) {
+          await new Promise(r => setTimeout(r, 400));
+          if (!opened && clickMatch(DECLINE_RE, null)) { opened = true; await new Promise(r => setTimeout(r, 600)); }
+        }
+      }
+    }
+
     const r1 = await window.__jobTrackerAutofill.run(profile, {
-      autologUrl: 'https://job-search-app-9pnx.onrender.com/api/applications/autolog?k=__JT_TOKEN__',
+      autologUrl: APP + '/api/applications/autolog?k=__JT_TOKEN__',
     });
-    // Workable-style listings mount the form only after the site's own
-    // Apply button is pressed — before that there is literally nothing to
-    // fill, which used to read as a failure. Say what to do instead.
     if (!r1.total) {
-      const applyBtn = [...document.querySelectorAll('button, a, [role="button"]')]
-        .some(b => /\\bapply\\b/i.test((b.innerText || b.textContent || '').trim().slice(0, 40)));
-      toast(applyBtn
-        ? "No form on this page yet — tap the site's Apply button to open the application, then tap Autofill again."
+      toast(clickable().some(b => APPLY_RE.test((b.innerText || '').trim().slice(0, 40)))
+        ? "No form here yet - tap the site's Apply button, then tap Autofill again."
         : 'No form fields found on this page.', 'warn');
       return;
     }
-    // Phase 2 AI — fetches /api/autofill cross-origin with cookies.
-    const unfilled = window.__jobTrackerAutofill.collectUnfilledFields(profile);
-    let aiCount  = 0;
-    let aiStatus = '';   // '', 'skipped', 'network', 'config', 'server'
-    if (unfilled.length) {
-      try {
-        const ar = await fetch('https://job-search-app-9pnx.onrender.com/api/autofill?k=__JT_TOKEN__', {
-          method: 'POST', credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            fields: unfilled,
-            page_context: {
-              url: location.href, hostname: location.hostname,
-              title: (document.title || '').slice(0, 200),
-              h1: (document.querySelector('h1')?.innerText || '').slice(0, 200),
-            },
-          }),
-        });
-        if (ar.ok) {
-          const body = await ar.json();
-          if (Array.isArray(body.fills) && body.fills.length) {
-            const apply = await window.__jobTrackerAutofill.applyAiFills(body.fills);
-            aiCount = apply.applied;
-          } else {
-            aiStatus = 'skipped';
-          }
-        } else if (ar.status === 503) {
-          aiStatus = 'config';
-        } else {
-          aiStatus = 'server';
-        }
-      } catch (e) {
-        aiStatus = 'network';
-      }
-    }
-    const ruleCount = r1.filled - aiCount;
-    let msg = 'Auto-filled ' + ruleCount + ' field' + (ruleCount === 1 ? '' : 's');
-    if (aiCount)               msg += ' + ' + aiCount + ' AI';
-    else if (aiStatus === 'network') msg += ' — AI skipped (network/CORS)';
-    else if (aiStatus === 'config')  msg += ' — AI skipped (no API key)';
-    else if (aiStatus === 'server')  msg += ' — AI skipped (server error)';
-    else if (aiStatus === 'skipped' && unfilled.length) msg += ' — AI returned no fills';
-    msg += ' — review before submitting';
-    toast(msg, aiStatus && aiStatus !== '' && !aiCount ? 'warn' : 'ok');
+    let msg = 'Auto-filled ' + r1.filled + ' field' + (r1.filled === 1 ? '' : 's');
+    if (learned) msg += ' - saved ' + learned + ' answer' + (learned === 1 ? '' : 's') + ' for next time';
+    msg += ' - review before submitting';
+    toast(msg, r1.filled ? 'ok' : 'warn');
   } catch (e) {
     toast('Autofill error: ' + (e.message || e), 'err');
   }
@@ -7400,7 +7455,7 @@ def bookmarklet_inline():
 </div>
 
 <div class="warning">
-  <strong>Trade-off:</strong> Phase 2 AI (free-text answers from your CV) is OFF in this mode — those questions need a cross-origin fetch that CSP also blocks. You'll still get all the Phase 1 rule fills (name / contact / address / EEO / education / work history / button-radios). For Lever / Workable / less-strict ATSes, prefer the regular <a href="/bookmarklet">/bookmarklet</a> which keeps AI on.
+  <strong>Trade-off:</strong> this mode cannot save the answers you type — that needs a cross-origin POST which strict CSP also blocks — so its fills never improve. You still get every rule fill (name / contact / address / EEO / education / work history / button-radios / saved answers). It also bakes the engine into the bookmark itself, so it does NOT pick up engine updates: reinstall it after a deploy. For Lever / Workable / less-strict ATSes prefer the regular <a href="/bookmarklet">/bookmarklet</a>, which updates itself and learns.
 </div>
 
 <div class="card">
