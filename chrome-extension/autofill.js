@@ -423,6 +423,13 @@
   function setNativeValue(el, value) {
     const proto = Object.getPrototypeOf(el);
     const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+    // Focus first. Ashby rejected a submit with "Missing entry for required
+    // field: Name / Phone Number" while both inputs visibly held the right
+    // text (Cyberhaven, 2026-09-01); retyping the identical value by hand
+    // fixed it. Its form state commits on the focus/blur cycle, which nothing
+    // here was producing -- so the application looked complete and submitted
+    // as empty. Cheap enough to do for every field.
+    try { el.focus({ preventScroll: true }); } catch (_) { try { el.focus(); } catch (_) {} }
     if (setter) setter.call(el, value); else el.value = value;
     // composed: true so the events escape shadow roots — web-component
     // wrappers (spl-input) often listen at their shadow root or host.
@@ -436,6 +443,11 @@
         inputType: "insertText", data: String(value),
       }));
     } catch (_) {}
+    // ...and blur, which is where form libraries mark a field touched and
+    // copy it into their own state.
+    el.dispatchEvent(new Event("blur", { bubbles: false, composed: true }));
+    el.dispatchEvent(new FocusEvent("focusout", { bubbles: true, composed: true }));
+    try { el.blur(); } catch (_) {}
   }
 
   // ── Shadow DOM helpers ────────────────────────────────────────────────────
@@ -614,7 +626,28 @@
     // matches against the substring inside "Will you now or in the future
     // require sponsorship?" — "now" contains "no", so Pass-1 of the old
     // code clicked the wrong radio for any question whose label has "now".
-    const wantTokens = want.replace(/[^a-z0-9]+/g, " ").trim().split(/\s+/).filter(Boolean);
+    const rawTokens = want.replace(/[^a-z0-9]+/g, " ").trim().split(/\s+/).filter(Boolean);
+
+    // A saved answer often NAMES the thing it denies: "I am NOT a veteran"
+    // contains "veteran". The regex below is a plain OR over every token, so
+    // the checkbox labelled "Veteran" matched its own negation and got ticked
+    // on a real application (Cyberhaven, 2026-09-01) -- a false claim of
+    // protected status. The filler words are just as bad: the token "not"
+    // matches an option called "Not Listed", and "a"/"i"/"am" match almost
+    // anything. Drop them, and decide the polarity separately.
+    const FILLER = new Set(["i", "im", "am", "a", "an", "the", "is", "are", "was",
+      "have", "has", "had", "do", "does", "did", "my", "me", "of", "to", "in", "on",
+      "at", "for", "and", "or", "with", "as", "that", "this", "it", "be", "been",
+      "not", "no", "never", "none", "dont", "doesnt", "cannot", "cant", "nor",
+      "na", "prefer", "answer", "status", "please", "select", "all", "apply"]);
+    const NEGATED_RE = /\b(?:not|no|never|none|non|dont|doesn'?t|do not|does not|n\/a|neither)\b/i;
+    const isNegated = NEGATED_RE.test(want);
+
+    // Protected characteristics are only ever ticked from an explicitly
+    // affirmative answer -- never inferred from token overlap.
+    const PROTECTED_OPTION_RE = /\b(veterans?|disabilit(?:y|ies)|disabled|neurodiverse|neurodivergent|pregnan\w*|refugees?|immigrants?|lgbtq?\+?|transgender|non-?binary)\b/i;
+
+    const wantTokens = rawTokens.filter(t => !FILLER.has(t));
     const wordBoundaryRe = wantTokens.length
       ? new RegExp(`\\b(?:${wantTokens.join("|")})\\b`, "i")
       : null;
@@ -656,10 +689,52 @@
           + " " + (r.closest("label")?.textContent || "")
           + " " + (r.value || "");
         if (wordBoundaryRe.test(ownLabel)) {
+          // The answer mentions this option but denies it -- "I am NOT a
+          // veteran" against the box labelled "Veteran". Guarantee it stays
+          // clear rather than treating the mention as agreement.
+          if (isNegated && r.type === "checkbox") {
+            if (r.checked) r.click();
+            return true;
+          }
+          // Never claim a protected characteristic off a fuzzy match; that
+          // needs an answer that plainly says yes.
+          if (PROTECTED_OPTION_RE.test(ownLabel) && !/^(yes|y|true|1)$/i.test(want)
+              && !PROTECTED_OPTION_RE.test(want)) {
+            continue;
+          }
           if (!r.checked) r.click(); return true;
         }
       }
     }
+    // 3b. A sentence answer against a plain Yes/No group. "I am not a
+    // protected veteran" shares no token with either label, so the group was
+    // left blank and the form came back with a missing required field. The
+    // polarity of the sentence is the answer.
+    if (group.length === 2) {
+      const labelOf = r => (
+        (r.closest("label")?.textContent || "") + " " +
+        (labelForText(r) || "") + " " + (r.value || "")
+      ).trim().toLowerCase();
+      const yes = group.find(r => /^\W*(yes|true|1)/.test(labelOf(r)));
+      const no  = group.find(r => /^\W*(no|false|0)/.test(labelOf(r)));
+      if (yes && no && yes !== no) {
+        const affirmative = /^(yes|y|true|1)$/i.test(want)
+          || (!isNegated && /(i am|i have|authorized|eligible)/i.test(want));
+        const target = isNegated ? no : (affirmative ? yes : null);
+        if (target) { if (!target.checked) target.click(); return true; }
+      }
+    }
+
+    // 3c. Affirmative answer to ONE option of a multi-select. applyValue runs
+    // per element, so the rule that produced this value matched THIS
+    // checkbox's own text -- "Hispanic or LatinX" matching hispanic_latino.
+    // A bare "Yes" shares no token with the option label, so steps 1-3 all
+    // missed and the box stayed clear on a real EEO form.
+    if (el.type === "checkbox" && group.length > 1) {
+      if (/^(yes|y|true|1)$/i.test(want)) { if (!el.checked) el.click(); return true; }
+      if (/^(no|n|false|0)$/i.test(want)) { if (el.checked)  el.click(); return true; }
+    }
+
     // 4. Lone checkbox answering a yes/no question — "Do you have a valid
     // driver's licence? [x]". There is no sibling to match against and its
     // value attribute is the useless default "on", so steps 1-3 all miss and

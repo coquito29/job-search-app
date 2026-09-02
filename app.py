@@ -610,6 +610,19 @@ TARGET_TITLES = [
     "software developer", "qa engineer", "qa analyst", "test engineer",
     "junior cybersecurity analyst", "soc analyst", "security analyst",
     "information security analyst", "cybersecurity analyst",
+    # Added 2026-09-01. The digest was returning single-digit usable counts,
+    # and these are all titles George is qualified for that the list simply
+    # never asked for. Deliberately still no bare "support specialist" or
+    # "customer support" — that is the call-centre spam the 2026-07-07 note
+    # above removed, and the scorer now blocks it on description as well.
+    "it associate", "it coordinator", "it operations", "it analyst i",
+    "technical analyst", "computer technician", "deskside support",
+    "field service technician", "field technician",
+    "systems administrator", "junior systems administrator",
+    "network operations technician", "junior network engineer",
+    "tier 1 support", "tier 2 support", "technical support representative",
+    "information technology specialist", "cloud support associate",
+    "junior qa", "qa tester", "junior data analyst",
 ]
 
 # Post-filter: drop listings with any of these words in the title (too senior for entry IT)
@@ -693,6 +706,12 @@ def fetch_apify_jobs(skills, token, limit=300, time_range="7d"):
     #   are a big slice of entry IT. Senior-title blocklist still applies.
     run_override["aiExperienceLevelFilter"] = ["0-2", "2-5"]
     run_override["aiEmploymentTypeFilter"]  = ["FULL_TIME", "PART_TIME", "CONTRACTOR", "INTERN"]
+    # Remote-only at the source, on the TASK path too. This override was set
+    # only on the no-task branch below, so a run through the saved task fell
+    # back to whatever work-arrangement filter was baked into it -- and the
+    # 2026-09-01 digest fetched 42 jobs of which just 4 survived is_remote_job.
+    # We were paying for 42 listings and discarding 38 of them after the fact.
+    run_override["aiWorkArrangementFilter"] = ["Remote OK", "Remote Solely"]
     if APIFY_LOCATIONS:
         run_override["locationSearch"] = APIFY_LOCATIONS
     if APIFY_TASK_ID:
@@ -704,7 +723,7 @@ def fetch_apify_jobs(skills, token, limit=300, time_range="7d"):
         run_override.update({
             "includeAi": True,
             "includeLinkedIn": True,
-            "aiWorkArrangementFilter": ["Remote OK", "Remote Solely"],
+            # aiWorkArrangementFilter is set for both paths above.
             "remote only (legacy)": True,
             "removeAgency": True,
             # employment/experience filters already set above (schema-valid enums)
@@ -3056,6 +3075,46 @@ def daily_digest():
                     "skipped_already_applied": skipped_applied, "to": digest_to})
 
 
+def _rescore_jobs(jobs, uid):
+    """Re-run scoring over stored digest jobs with today's rules.
+
+    Keeps the stored row untouched — this is a read-time overlay, so a bad
+    scoring change is undone by a deploy rather than by a lost digest.
+    """
+    if not jobs:
+        return jobs
+    try:
+        skills = []
+        with _db_conn() as conn:
+            row = conn.execute(
+                "SELECT skills FROM profiles WHERE user_id = ?", (uid,)).fetchone()
+        if row:
+            raw = _row_get(row, "skills")
+            if raw:
+                try: skills = json.loads(raw)
+                except Exception: skills = []
+        if not isinstance(skills, list) or not skills:
+            return jobs          # no profile skills — leave stored scores alone
+        profile = UserProfile(summary="", skills=skills, no_go_terms=NO_GO_TERMS)
+        for j in jobs:
+            j["days_old"] = _days_since_posted(j.get("posted"))
+        _flag_reposts(jobs)
+        for j in jobs:
+            j.update(score_job(j, profile))
+            j["salary_clean"] = _clean_salary(j.get("salary", ""))
+            j["date_fmt"]     = fmt_date(j.get("posted"))
+        # Same ordering rule as the digest and /api/search: anything not
+        # workable sinks regardless of score.
+        jobs.sort(key=lambda j: (
+            1 if j.get("loc_class") == "NON_US" else 0,
+            1 if j.get("scam_flags") else 0,
+            -(j.get("match_pct") or 0),
+        ))
+    except Exception as e:
+        print(f"[daily-results] re-score skipped: {e}")
+    return jobs
+
+
 @app.route("/api/daily-results", methods=["GET"])
 def daily_results():
     """Return the most recent stored daily-digest run for the current user.
@@ -3089,6 +3148,14 @@ def daily_results():
     # this lets us tighten the filter without re-running ($1.20 Apify).
     blocked = _aggregator_denylist()
     jobs = [j for j in jobs if not _url_host_matches(j.get("url", ""), blocked)]
+
+    # Re-score against the CURRENT rules for the same reason. match_pct and
+    # blockers were frozen at search time, so a scoring fix deployed after the
+    # morning cron did nothing for the jobs already on screen — on 2026-09-01
+    # a call-centre role kept sitting at 31% and the top of the list hours
+    # after the rule that demotes it went live. Scoring is pure and local (no
+    # network, no Apify), so it is cheap to redo on read.
+    jobs = _rescore_jobs(jobs, uid)
 
     return jsonify({
         "id":            _row_get(row, "id"),
