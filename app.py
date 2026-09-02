@@ -2941,8 +2941,13 @@ def daily_digest():
             rows = conn.execute(
                 "SELECT url, company, title FROM applications WHERE user_id = 1"
             ).fetchall()
+            # Same carve-out as the queue's skip set: a row marked 'requeued'
+            # is open work again, so it must keep appearing in the digest.
+            # Dropping it here would quietly undo the re-queue -- the queue
+            # only serves what the last few digests contain.
             tried = conn.execute(
-                "SELECT url FROM autopilot_attempts WHERE user_id = 1"
+                "SELECT url FROM autopilot_attempts WHERE user_id = 1 AND result != ?",
+                (REQUEUED_RESULT,)
             ).fetchall()
         applied_urls = {(_row_get(r, "url") or "").strip() for r in rows}
         applied_urls |= {(_row_get(r, "url") or "").strip() for r in tried}
@@ -3425,6 +3430,45 @@ def autolog_application():
 
 AUTOPILOT_RESULTS = ("submitted", "needs_review", "error", "timeout", "no_form")
 
+# ── Re-queueing attempts the engine can now finish ───────────────────────────
+# The queue's skip set is every URL this user has ever attempted, whatever the
+# outcome, so the robot gets exactly one shot per job and a needs_review row is
+# a dead end. That is right when needs_review means "filled, waiting on your
+# CAPTCHA tick" -- the work is done and a human owns the last step. It is wrong
+# when a FILL BUG produced the row: fixing the bug cannot bring those jobs back
+# on its own, and they are exactly the jobs the fix would now complete.
+#
+# Marking a row 'requeued' returns its URL to the queue while keeping the
+# attempt in the log. Not a reportable result -- the extension never sends it,
+# only /api/autopilot/requeue writes it. A later "submitted" report upgrades
+# the same row in place (see autopilot_report), so re-queueing never doubles a
+# job in the history.
+REQUEUED_RESULT = "requeued"
+
+# Blocker strings come from submitIfComplete(): "required: <label>" for an
+# empty required control, "required file: <label>" for an empty upload slot,
+# "consent needed: <label>", and "CAPTCHA present -- needs a human".
+_BLOCKER_REQUIRED_RE = re.compile(r"\brequired:", re.I)
+_BLOCKER_CAPTCHA_RE  = re.compile(r"captcha", re.I)
+
+
+def _requeue_class(detail):
+    """How a needs_review row would fare on a second attempt.
+
+    "answerable"  -- stopped on an empty required field and nothing else, so a
+                     fixed matcher can finish it unattended.
+    "captcha_too" -- an empty required field AND a CAPTCHA. Worth re-running
+                     (the fill improves and the CAPTCHA watcher re-arms) but
+                     the tick is still the user's.
+    "skip"        -- everything else: CAPTCHA alone, a consent box we must not
+                     tick, an empty upload slot, or a blockerless row. Nothing
+                     a re-run would change.
+    """
+    d = detail or ""
+    if not _BLOCKER_REQUIRED_RE.search(d):
+        return "skip"
+    return "captcha_too" if _BLOCKER_CAPTCHA_RE.search(d) else "answerable"
+
 
 @app.route("/api/autopilot/queue", methods=["GET"])
 def autopilot_queue():
@@ -3466,8 +3510,12 @@ def autopilot_queue():
         row = rows[0] if rows else None
         app_rows = conn.execute(
             "SELECT url FROM applications WHERE user_id = ?", (uid,)).fetchall()
+        # Rows marked 'requeued' are deliberately NOT in the skip set -- that
+        # mark exists to hand a URL back to the robot after a fix. Every other
+        # result still means "tried once, never again".
         tried_rows = conn.execute(
-            "SELECT url FROM autopilot_attempts WHERE user_id = ?", (uid,)).fetchall()
+            "SELECT url FROM autopilot_attempts WHERE user_id = ? AND result != ?",
+            (uid, REQUEUED_RESULT)).fetchall()
     if not row:
         return jsonify({"jobs": [], "reason": "no digest run yet"})
 
@@ -3533,6 +3581,57 @@ def autopilot_attempts():
         {k: _row_get(r, k) for k in
          ("url", "title", "company", "result", "detail", "filled", "total", "attempted_at")}
         for r in rows]})
+
+
+@app.route("/api/autopilot/requeue", methods=["GET", "POST"])
+def autopilot_requeue():
+    """Hand needs_review jobs back to the robot after a matcher fix.
+
+    GET  = dry run, read-only: what WOULD be reopened, so the list can be
+           eyeballed before anything changes.
+    POST = apply.
+
+    ?include_captcha=1 also reopens rows whose blockers include a CAPTCHA.
+    Those still need a human tick at the end, but a re-run fills what the old
+    engine could not and re-arms the tick-to-submit watcher.
+    """
+    uid, err = _auth_required()
+    if err: return err
+    include_captcha = str(request.args.get("include_captcha", "")).strip().lower() in ("1", "true", "yes")
+    dry_run = request.method == "GET"
+
+    wanted = {"answerable", "captcha_too"} if include_captcha else {"answerable"}
+    with _db_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, url, title, company, detail, filled, total, attempted_at "
+            "FROM autopilot_attempts WHERE user_id = ? AND result = 'needs_review' "
+            "ORDER BY attempted_at DESC, id DESC", (uid,)).fetchall()
+
+        counts = {"answerable": 0, "captcha_too": 0, "skip": 0}
+        picked = []
+        for r in rows:
+            cls = _requeue_class(_row_get(r, "detail"))
+            counts[cls] += 1
+            if cls in wanted:
+                picked.append((r, cls))
+
+        if not dry_run and picked:
+            for r, _cls in picked:
+                conn.execute(
+                    "UPDATE autopilot_attempts SET result = ? WHERE id = ? AND user_id = ?",
+                    (REQUEUED_RESULT, _row_get(r, "id"), uid))
+
+    return jsonify({
+        "dry_run": dry_run,
+        "include_captcha": include_captcha,
+        "needs_review_total": len(rows),
+        "counts": counts,
+        "reopened": [
+            {**{k: _row_get(r, k) for k in
+                ("url", "title", "company", "detail", "filled", "total", "attempted_at")},
+             "why": cls}
+            for r, cls in picked],
+    })
 
 
 @app.route("/api/autopilot/status", methods=["GET"])
