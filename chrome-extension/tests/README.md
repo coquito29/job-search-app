@@ -1,6 +1,6 @@
 # Extension tests
 
-Four layers, smallest first:
+Five layers, smallest first (0-4 are the suites; 5 is a diagnostic):
 
 ## 0. `autofill.accuracy.test.mjs` — accuracy regressions (jsdom)
 
@@ -50,7 +50,14 @@ npm install jsdom
 node autofill.test.mjs
 ```
 
-Expected: 11/11, 7/11 (4 legitimate profile-empty skips), 7/7, 4/4.
+Expected: 11/11, 8/11 (Lever's Portfolio field is empty in the profile), 7/7, 4/4.
+
+These four numbers come from the DIAGNOSTIC half of the file, which for a
+while reported `0/0` on every fixture with each input listed as a matcher
+gap: `runOn()` was missing the zero-rect `getBoundingClientRect` stub that
+`runAssertions()` has, so the engine's own `isOffscreen()` rejected every
+field. If you see all-zeros again, suspect the harness before the matchers —
+the assertion half stays green either way, so it will not fail the run.
 
 ## 2. `extension-smoke.test.mjs` — real Chrome, popup-injected path
 
@@ -101,6 +108,24 @@ APP=http://127.0.0.1:5054 node bookmarklet_drive.mjs           # CHROMIUM=/path/
 Add new fixtures or matcher rules in `../autofill.js`, then re-run `node
 autofill.test.mjs`. If you change the manifest / popup / content script,
 re-run the smoke + integration tests too.
+
+## 5. `fixture_runner.mjs` — the engine against real captured markup
+
+Rebuilds every form in `../form_fixtures.json` (captured from live ATS pages)
+as jsdom and reports what each field ended up holding. Diagnostic, not
+pass/fail — read the per-field report.
+
+```
+cd chrome-extension/tests
+node fixture_runner.mjs          # ENGINE= / FIXTURES= override the defaults
+```
+
+Two harness bugs used to make this lie about the engine: the default
+`ENGINE`/`FIXTURES` paths resolved against the shell's cwd (so the documented
+invocation died on ENOENT), and without the zero-rect stub every fixture came
+back "filled 0 of 0" with every field blank. Both fixed — but if the numbers
+ever collapse to zero across ALL fixtures at once, that is the harness, not
+the matchers.
 
 ## What still isn't covered
 

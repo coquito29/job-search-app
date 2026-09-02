@@ -715,11 +715,11 @@
         (r.closest("label")?.textContent || "") + " " +
         (labelForText(r) || "") + " " + (r.value || "")
       ).trim().toLowerCase();
-      const yes = group.find(r => /^\W*(yes|true|1)/.test(labelOf(r)));
-      const no  = group.find(r => /^\W*(no|false|0)/.test(labelOf(r)));
+      const yes = group.find(r => /^\W*(yes|true|1)\b/.test(labelOf(r)));
+      const no  = group.find(r => /^\W*(no|false|0)\b/.test(labelOf(r)));
       if (yes && no && yes !== no) {
         const affirmative = /^(yes|y|true|1)$/i.test(want)
-          || (!isNegated && /(i am|i have|authorized|eligible)/i.test(want));
+          || (!isNegated && /\b(i am|i have|authorized|eligible)\b/i.test(want));
         const target = isNegated ? no : (affirmative ? yes : null);
         if (target) { if (!target.checked) target.click(); return true; }
       }
@@ -1936,7 +1936,7 @@
     const rest = [];                // nothing excluded it
     for (const el of fileInputs) {
       // Underscores and hyphens are word characters, so "_systemfield_resume"
-      // has no  before "resume" and RESUME_RE misses it. Split them.
+      // has no \b before "resume" and RESUME_RE misses it. Split them.
       const own = `${el.name || ""} ${el.id || ""}`.replace(/[_\-]+/g, " ");
       const ctx = slotContext(el);
       const haystack = `${own} ${probeText(el)} ${el.accept || ""} ${ctx}`;
