@@ -29,30 +29,34 @@ and that is the path to extend.
 If a task genuinely cannot be done within this constraint, say so and stop —
 do not reach for a second provider.
 
-## George works from a phone
+## The product is desktop autopilot. He is currently building from a phone
 
-Assume no PC unless he says otherwise. This is a hard constraint on what can
-be built and tested, not a preference:
+Two different things, and conflating them sends work in the wrong direction.
 
-- **The Chrome extension cannot run at all.** Chrome on Android and iOS has
-  no extension support, and there is no `chrome://extensions` page. So
-  autopilot sweeps, "Run autopilot now", and anything that depends on a
-  background tab are unavailable until he is back at a desktop. Do not
-  propose steps that begin "at the desktop" as if they were actionable now.
-- **Autopilot data is therefore frozen.** `/api/autopilot/blockers` and the
-  Re-queue button read rows that only an extension sweep can create. They
-  work, but nothing new arrives while he is phone-only.
-- **The mobile bookmarklet is the working path.** `/bookmarklet/run.js`
-  serves the same `chrome-extension/autofill.js` engine off disk at request
-  time and runs it against whatever application form is open in the phone
-  browser. It is per-form and manual -- he taps it -- but it is the whole of
-  the fill engine, and it picks up engine changes on deploy with no
-  reinstall. Prefer improvements that reach him through this path.
-- **Shipping still works normally.** He merges from GitHub's mobile site and
-  Render deploys from `main`, so server and template changes reach him within
-  minutes. Extension-only changes reach nothing until he has a PC again --
-  say so plainly when a change is extension-only, rather than letting a
-  version bump imply it is live.
+**What the app is for: unattended auto-apply on a PC.** The Chrome extension
+sweeps the queue, opens each job in a background tab, fills it and submits.
+That is the point of the product. Work that raises how many jobs autopilot
+reaches and completes is the work that matters -- the queue's supply
+(`ATS_FAST` membership and the `ats_class == "fast"` gate in
+`autopilot_queue`), and its conversion (whatever `validateBeforeSubmit` is
+still blocking on). Extension-only changes are worth making even when he
+cannot run them yet.
+
+**Where he is building from right now: a phone.** So:
+
+- He can ship normally -- merging from GitHub's mobile site, Render deploying
+  from `main`. Server and template changes reach him in minutes.
+- He cannot RUN the extension. Chrome on Android and iOS has no extension
+  support and no `chrome://extensions` page, so nothing that needs a sweep
+  can be tested until he is back at a desktop. Say plainly when a change is
+  extension-only rather than letting a version bump imply it went live, and
+  do not write instructions that begin "at the desktop" as though they were
+  actionable today.
+- Autopilot data is therefore frozen. `/api/autopilot/blockers` and Re-queue
+  read rows only a sweep can create; they work, but nothing new arrives.
+- The mobile bookmarklet (`/bookmarklet/run.js`, same engine off disk at
+  request time) is a stopgap for applying by hand in the meantime. It is not
+  the destination -- do not optimise the product around it.
 
 ## Tests
 
