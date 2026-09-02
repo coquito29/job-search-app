@@ -2254,6 +2254,10 @@
         <span class="badge bg-primary ms-1" id="autopilotCount" style="font-size:.65rem;">0</span>
       </div>
       <div class="d-flex gap-2">
+        <button class="btn btn-sm btn-outline-secondary" id="autopilotBlockersBtn"
+                onclick="loadBlockerQuestions()" title="Answer the questions that stopped autopilot, once">
+          <i class="bi bi-question-circle me-1"></i>Answer blockers
+        </button>
         <button class="btn btn-sm btn-outline-secondary" id="autopilotRequeueBtn"
                 onclick="requeueAutopilot()" title="Hand jobs that stalled on an unanswered field back to the robot">
           <i class="bi bi-arrow-counterclockwise me-1"></i>Re-queue
@@ -2264,6 +2268,7 @@
       </div>
     </div>
     <div id="autopilotSummaryLine" style="font-size:.75rem;color:var(--ink-muted);margin-bottom:6px;"></div>
+    <div id="autopilotBlockers" style="display:none;margin-bottom:10px;"></div>
     <div id="autopilotList" style="font-size:.85rem;color:#6c757d;">
       The Chrome extension applies to up to 20 safe jobs daily at 9:30 AM.
       Every attempt shows here — submitted, left for review, or failed.
@@ -3607,6 +3612,81 @@ function syncResultsChrome() {
   if (empty)  empty.style.display = (!has && currentTab === 'jobs') ? '' : 'none';
   syncSearchForm();
   renderTodayStats();
+}
+
+// ── Answer the questions that blocked autopilot ──────────────────────────────
+// Every needs_review row records WHY it stopped. The "required: <label>"
+// entries are questions the rules could not answer -- the single most useful
+// thing in the log, and previously only readable by squinting at it. Answer
+// one here and the engine's tryQADefaults fills it on every future form, so
+// each question costs the user one answer, once, instead of one stalled
+// application per posting.
+async function loadBlockerQuestions() {
+  const box = document.getElementById('autopilotBlockers');
+  const btn = document.getElementById('autopilotBlockersBtn');
+  const was = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = 'Loading…'; }
+  try {
+    const res = await fetch('/api/autopilot/blockers', { credentials: 'include' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    const qs = data.questions || [];
+    box.style.display = '';
+    if (!qs.length) {
+      box.innerHTML = `<div style="font-size:.8rem;color:var(--ink-muted);">`
+        + (data.needs_review
+            ? `None of the ${data.needs_review} job(s) awaiting review stopped on a question. `
+              + `They are waiting on you for something else — a CAPTCHA tick, a consent box, or a file.`
+            : `Nothing awaiting review.`)
+        + `</div>`;
+      return;
+    }
+    box.innerHTML = `
+      <div style="font-size:.78rem;color:var(--ink-muted);margin-bottom:6px;">
+        ${qs.length} question${qs.length === 1 ? '' : 's'} stopped autopilot. Answer one and it fills
+        itself on every future form.
+      </div>
+      ${qs.map((q, i) => `
+        <div style="padding:6px 0;border-bottom:1px dashed var(--border-soft);">
+          <label for="blk${i}" style="display:block;font-size:.8rem;color:var(--ink);margin-bottom:3px;">
+            ${escHtml(q.question)}
+            <span style="color:var(--ink-muted);font-size:.7rem;">
+              · ${q.jobs} job${q.jobs === 1 ? '' : 's'}${q.example ? ' · e.g. ' + escHtml(q.example) : ''}
+            </span>
+          </label>
+          <input id="blk${i}" class="form-control form-control-sm" data-q="${escHtml(q.question)}"
+                 value="${escHtml(q.saved || '')}" placeholder="Your answer" style="font-size:.8rem;" />
+        </div>`).join('')}
+      <button class="btn btn-sm btn-primary mt-2" onclick="saveBlockerAnswers()">Save answers</button>
+      <button class="btn btn-sm btn-link mt-2" onclick="document.getElementById('autopilotBlockers').style.display='none'">Hide</button>`;
+  } catch (e) {
+    box.style.display = '';
+    box.innerHTML = `<div style="font-size:.8rem;color:var(--danger-500,#b91c1c);">Could not load blockers: ${escHtml(e.message || String(e))}</div>`;
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = was; }
+  }
+}
+
+// Saved through the same endpoint the extension's "Learn answers" button uses,
+// so an answer typed here and one typed on a real form land in the same place.
+async function saveBlockerAnswers() {
+  const inputs = [...document.querySelectorAll('#autopilotBlockers input[data-q]')];
+  const answers = inputs
+    .map(el => [el.dataset.q, (el.value || '').trim()])
+    .filter(([, a]) => a);
+  if (!answers.length) { alert('Type at least one answer first.'); return; }
+  try {
+    const res = await fetch('/api/qa/learn', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ answers }),
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    alert(`Saved ${answers.length} answer${answers.length === 1 ? '' : 's'}. `
+          + `Re-queue those jobs and autopilot can finish them.`);
+  } catch (e) {
+    alert('Could not save: ' + (e.message || e));
+  }
 }
 
 // ── Re-queue stalled attempts ────────────────────────────────────────────────

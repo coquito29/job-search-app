@@ -3458,6 +3458,36 @@ _BLOCKER_REQUIRED_RE = re.compile(r"\brequired:", re.I)
 _BLOCKER_CAPTCHA_RE  = re.compile(r"captcha", re.I)
 
 
+def _blocker_questions(detail):
+    """The unanswered-question labels inside a needs_review `detail` string.
+
+    The content script writes "filled; waiting on you -- " then joins blockers
+    with "; ". Only "required: <label>" entries are questions: a CAPTCHA is a
+    human step, "required file:" is an upload slot, and "consent needed:" is a
+    box the engine must never tick on the user's behalf. Labels the engine
+    could not name ("field", from an anonymous input such as a Greenhouse
+    value-holder twin) carry no question to answer, so they are dropped rather
+    than shown as an unanswerable row.
+    """
+    # Strip the lead-in BEFORE splitting: "filled; waiting on you -- " carries
+    # its own semicolon, so splitting first leaves "waiting on you -- required:
+    # <label>" in the same piece as the first real blocker and nothing matches.
+    text = re.sub(r"^\s*filled\s*[;,]?\s*waiting on you\s*[-\u2013\u2014]+\s*", "",
+                  str(detail or "").strip(), flags=re.I)
+    out = []
+    for part in text.split(";"):
+        part = re.sub(r"^\s*waiting on you\s*[-\u2013\u2014]+\s*", "",
+                      part.strip(), flags=re.I).strip()
+        m = re.match(r"^required:\s*(.+)$", part, flags=re.I)
+        if not m:
+            continue
+        label = m.group(1).strip().strip("*").strip()
+        if not label or label.lower() in ("field", "this field"):
+            continue
+        out.append(label)
+    return out
+
+
 def _requeue_class(detail):
     """How a needs_review row would fare on a second attempt.
 
@@ -3637,6 +3667,66 @@ def autopilot_requeue():
                 ("url", "title", "company", "detail", "filled", "total", "attempted_at")},
              "why": cls}
             for r, cls in picked],
+    })
+
+
+@app.route("/api/autopilot/blockers", methods=["GET"])
+def autopilot_blockers():
+    """The distinct questions that stopped autopilot, so they can be answered
+    once instead of being re-hit on every future form.
+
+    Every needs_review row records why it stopped ("required: <label>" per
+    unanswered control). Those labels are the most useful thing in the log:
+    each is a question the rules could not answer, and a saved answer makes it
+    fill itself from then on through the engine's tryQADefaults path. Until
+    now they were only readable by squinting at the log text.
+
+    De-duplicated and ranked by how many jobs each one cost, with any answer
+    already saved for it so the UI can show and edit it. Answers are written
+    back through the existing POST /api/qa/learn.
+    """
+    uid, err = _auth_required()
+    if err: return err
+
+    with _db_conn() as conn:
+        rows = conn.execute(
+            "SELECT title, company, detail, attempted_at FROM autopilot_attempts "
+            "WHERE user_id = ? AND result = 'needs_review' "
+            "ORDER BY attempted_at DESC, id DESC LIMIT 200", (uid,)).fetchall()
+        saved = {}
+        prof = conn.execute(
+            "SELECT settings FROM profiles WHERE user_id = ? LIMIT 1", (uid,)).fetchone()
+        if prof is not None:
+            try:
+                for pair in (json.loads(_row_get(prof, "settings") or "{}").get("qa_defaults") or []):
+                    if isinstance(pair, (list, tuple)) and len(pair) >= 2:
+                        saved[str(pair[0]).strip().lower()] = pair[1]
+            except Exception:
+                saved = {}
+
+    seen, no_question = {}, 0
+    for r in rows:
+        qs = _blocker_questions(_row_get(r, "detail"))
+        if not qs:
+            no_question += 1
+            continue
+        for q in qs:
+            key = q.lower()
+            hit = seen.setdefault(key, {
+                "question": q,
+                "jobs": 0,
+                "example": " - ".join(x for x in (
+                    (_row_get(r, "title") or "").strip(),
+                    (_row_get(r, "company") or "").strip()) if x),
+                "saved": saved.get(key) or "",
+            })
+            hit["jobs"] += 1
+
+    ranked = sorted(seen.values(), key=lambda h: (-h["jobs"], h["question"].lower()))
+    return jsonify({
+        "questions":    ranked,
+        "needs_review": len(rows),
+        "no_question":  no_question,
     })
 
 
