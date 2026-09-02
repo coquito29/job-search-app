@@ -2923,27 +2923,30 @@ def daily_digest():
 
     # Drop jobs already in the applications tracker (by URL or company|title
     # fingerprint) — every digest slot should be a job you can still apply to.
-    # Also drop jobs emailed in recent digests: the 7d search window re-fetches
-    # the same pool daily, so without this each digest would repeat yesterday's.
+    #
+    # This used to ALSO drop anything that appeared in the last 14 digest runs,
+    # to stop a once-a-day digest repeating yesterday's email. That rule counts
+    # RUNS, not days, so it broke the moment searches ran more than once a day:
+    # the 02:15 run on 2026-09-02 saw all 29 jobs from the 00:15 run, dropped
+    # every one of them, and stored an empty digest — 47 fetched, 0 kept. A
+    # frequent search poisoned itself.
+    #
+    # What actually belongs here is "jobs I can no longer act on", which is
+    # exactly applications + autopilot_attempts — the same pair the autopilot
+    # queue filters against. A job that was merely SURFACED and never attempted
+    # is still open work and should keep appearing until something happens to
+    # it.
     try:
         with _db_conn() as conn:
             rows = conn.execute(
                 "SELECT url, company, title FROM applications WHERE user_id = 1"
             ).fetchall()
-            recent = conn.execute(
-                "SELECT jobs FROM daily_searches WHERE user_id = 1 "
-                "ORDER BY run_at DESC LIMIT 14"
+            tried = conn.execute(
+                "SELECT url FROM autopilot_attempts WHERE user_id = 1"
             ).fetchall()
         applied_urls = {(_row_get(r, "url") or "").strip() for r in rows}
+        applied_urls |= {(_row_get(r, "url") or "").strip() for r in tried}
         applied_urls.discard("")
-        for r in recent:
-            try:
-                for j in json.loads(_row_get(r, "jobs") or "[]"):
-                    u = (j.get("url") or "").strip()
-                    if u:
-                        applied_urls.add(u)
-            except Exception:
-                continue
         applied_fps = set()
         for r in rows:
             c = re.sub(r'\s+', ' ', (_row_get(r, "company") or "").lower().strip())[:30]
