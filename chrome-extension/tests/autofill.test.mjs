@@ -469,6 +469,15 @@ async function runOn(name, html) {
     get() { return this.ownerDocument.body; },
   });
 
+  // ...and no layout also means getBoundingClientRect() is all zeros, which
+  // isOffscreen() reads as "off the left edge" — so isFillable() rejected
+  // every field and this half of the suite printed "0/0 fields filled" with
+  // every input listed as a matcher gap, on an engine the assertion half was
+  // passing. runAssertions() has always had this stub; runOn() never did.
+  window.HTMLElement.prototype.getBoundingClientRect = function () {
+    return { width: 100, height: 20, top: 0, left: 0, right: 100, bottom: 20 };
+  };
+
   // jsdom doesn't expose CSS.escape on the global; real Chrome does. Polyfill.
   if (!window.CSS) window.CSS = {};
   if (!window.CSS.escape) {

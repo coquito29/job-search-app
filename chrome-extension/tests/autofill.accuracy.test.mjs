@@ -36,6 +36,10 @@ const PROFILE = {
     ["Have you worked directly with Shopify? Either at Shopify or at a company building apps or integrations in the Shopify ecosystem?", "Yes"],
     ["Do you have experience working in technical support at a SaaS company?", "Yes"],
     ["What timezone are you located in?", "Eastern Time"],
+    // Worded as a sentence that NAMES what it denies -- the shape that made
+    // the engine tick "Veteran" on a real application (Cyberhaven 2026-09-01),
+    // and the shape step 3b resolves by polarity rather than token overlap.
+    ["Are you a protected veteran?", "I am not a protected veteran"],
   ],
 };
 
@@ -430,6 +434,53 @@ const DECOY_SELECT = `
     </form>`, (w) => ({
     "submit NOT clicked": [w.document.getElementById("go3").hasAttribute("data-clicked"), false],
   }), { autoSubmit: true });
+
+  // ── Plain Yes/No radio groups with no value attributes ───────────────────
+  // Workable's screeners: the question sits in a bare <span>, each radio lives
+  // in its own div with a sibling <label>, and NO radio carries a value
+  // attribute. A saved "No" is the hard case — "no" is in the FILLER set, so
+  // the token regex is empty and steps 1-3 all miss; step 3b (polarity against
+  // a two-option group) is the only thing that can answer it.
+  //
+  // 3b shipped DEAD in 0bfecbf: its two \b word boundaries were written into
+  // the source as literal backspace bytes (0x08), so the yes/no lookups could
+  // never match and every negative screener answer was left blank. The form
+  // then failed its own required-field check and autopilot filed the job as
+  // needs_review instead of submitting it.
+  await group("Negative answer fills a value-less Yes/No radio group", `
+    <form>
+      <div><span>Do you now, or will you in the future, need sponsorship from an employer to work in the United States?</span>
+        <label for="sp_y">Yes</label><input type="radio" id="sp_y" name="sponsorship" /></div>
+      <div><label for="sp_n">No</label><input type="radio" id="sp_n" name="sponsorship" /></div>
+      <div><span>Are you a protected veteran?</span>
+        <label for="vt_y">Yes</label><input type="radio" id="vt_y" name="veteran" /></div>
+      <div><label for="vt_n">No</label><input type="radio" id="vt_n" name="veteran" /></div>
+    </form>`, (w) => ({
+    "sponsorship = No": [w.document.getElementById("sp_n").checked, true],
+    "sponsorship not Yes": [w.document.getElementById("sp_y").checked, false],
+    "sentence answer resolves veteran = No": [w.document.getElementById("vt_n").checked, true],
+    "veteran not claimed": [w.document.getElementById("vt_y").checked, false],
+  }));
+
+  // ── The engine source itself is clean ────────────────────────────────────
+  // The bug above was invisible in every editor and in `git diff`: a backspace
+  // byte renders as nothing, so `/(yes|true|1)\b/` and `/(yes|true|1)<0x08>/`
+  // look identical while only one of them works. Two of the three corrupted
+  // regexes were in a code path with no test, so nothing else caught it.
+  // Cheaper to assert the file has no control characters at all.
+  {
+    const stray = [];
+    AUTOFILL_SRC.split("\n").forEach((line, i) => {
+      if (/[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(line)) stray.push(i + 1);
+    });
+    const lines = ["\n══ Engine source has no stray control characters ══"];
+    const ok = stray.length === 0;
+    if (!ok) failures++;
+    lines.push(ok
+      ? "  \u2713 autofill.js control-character lines = []"
+      : `  \u2717 autofill.js control-character lines = ${JSON.stringify(stray)}   expected []`);
+    results.push(lines.join("\n"));
+  }
 
   console.log(results.join("\n"));
   console.log(failures === 0

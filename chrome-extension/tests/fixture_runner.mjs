@@ -9,9 +9,16 @@
 // engine really does on markup it has never met.
 
 import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { JSDOM } from 'jsdom';
 
-const ENGINE = fs.readFileSync(process.env.ENGINE || './autofill.js', 'utf8');
+// Defaults resolve against this file, not the shell's cwd. The README says to
+// run this from chrome-extension/tests, where './autofill.js' does not exist —
+// so every documented invocation died on ENOENT before reaching a fixture.
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const ENGINE = fs.readFileSync(
+  process.env.ENGINE || path.join(HERE, '..', 'autofill.js'), 'utf8');
 
 // George's real profile, as /api/profile/full returns it.
 const PROFILE = {
@@ -75,7 +82,15 @@ function buildForm(fixture) {
     // Fields captured with no id/name/label get NO synthetic id — Greenhouse's
     // value-holder twins are only recognizable by their total lack of identity,
     // and an invented anon_<i> id would hide them from the engine's Pass 1c.
-    const id = f.id || (f.name ? 'n_' + f.name : (f.label ? 'anon_' + i : ''));
+    // Radio-group members SHARE a name but must not share an id: the old
+    // 'n_' + name rule gave every member of a group the same id, so each
+    // <label for> resolved to the first member and the engine read the "No"
+    // radio's label as "Yes". Workable's two screener groups came back 1-of-4
+    // answered here while the same markup with distinct ids answers 2-of-2 —
+    // a harness artifact that reads exactly like an engine bug.
+    const grouped = f.type === 'radio' || f.type === 'checkbox';
+    const id = f.id || (f.name ? 'n_' + f.name + (grouped ? '_' + i : '')
+                               : (f.label ? 'anon_' + i : ''));
     const attrs = [
       id ? `id="${esc(id)}"` : '',
       f.name ? `name="${esc(f.name)}"` : '',
@@ -121,6 +136,20 @@ async function runFixture(key, fixture) {
   Object.defineProperty(w.HTMLElement.prototype, 'offsetParent', {
     get() { return this.parentNode; }, configurable: true,
   });
+  // ...and no layout means getBoundingClientRect() is all zeros, which the
+  // engine's isOffscreen() reads as "right <= 0 && bottom <= 0" — i.e. every
+  // field is off the left edge of the screen. isFillable() then rejected the
+  // whole form, so this runner reported "filled 0 of 0" and every field blank
+  // for all eleven fixtures, on an engine whose unit suite is green. That is
+  // worse than no diagnostic: it says the engine is dead on every ATS. Same
+  // stub the unit suite has always used.
+  w.HTMLElement.prototype.getBoundingClientRect = function () {
+    return { width: 100, height: 20, top: 0, left: 0, right: 100, bottom: 20 };
+  };
+  if (!w.CSS) w.CSS = {};
+  if (!w.CSS.escape) {
+    w.CSS.escape = (s) => String(s).replace(/[^a-zA-Z0-9_-]/g, c => '\\' + c);
+  }
   w.eval(ENGINE);
 
   let result = null, error = null;
@@ -151,7 +180,8 @@ async function runFixture(key, fixture) {
 }
 
 // ── Report ──────────────────────────────────────────────────────────────────
-const fixtures = JSON.parse(fs.readFileSync(process.env.FIXTURES || './form_fixtures.json', 'utf8'));
+const fixtures = JSON.parse(fs.readFileSync(
+  process.env.FIXTURES || path.join(HERE, '..', 'form_fixtures.json'), 'utf8'));
 
 for (const [key, fx] of Object.entries(fixtures)) {
   if (key.startsWith('_') || !fx.fields || !fx.fields.length) continue;
