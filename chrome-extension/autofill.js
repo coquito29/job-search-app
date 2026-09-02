@@ -2032,8 +2032,21 @@
       // sideways into neighbouring fields, so an optional opt-in sitting
       // near any "*"-marked field inherited the star and blocked every
       // auto-submit on the page (seen on Breezy).
-      const text = ownLabelText(el);
-      if (/\brequired\b|\*/i.test(text)) {
+      let basis = ownLabelText(el);
+      // Teamtailor puts "Required. I agree to the Privacy Policy..." in a bare
+      // <span> BEFORE the input instead of a <label>, so ownLabelText() reads
+      // "" and a genuinely required, unticked consent box sailed straight
+      // through the guard -- auto-submit fired on a form the ATS would refuse.
+      // Fall back to the IMMEDIATELY preceding sibling, and only when that
+      // text is itself consent wording: an ordinary opt-in then still cannot
+      // inherit a neighbouring field's "*" the way probeText's walk-up did on
+      // Breezy, which is the false-positive this guard was narrowed to avoid.
+      if (!/\brequired\b|\*/i.test(basis)) {
+        const prev = el.previousElementSibling;
+        const near = (prev && prev.textContent || "").trim().slice(0, 300);
+        if (near && CONSENT_RE.test(near)) basis = near;
+      }
+      if (/\brequired\b|\*/i.test(basis)) {
         blockers.push(`consent needed: ${fieldLabelFor(el)}`);
       }
     }
