@@ -142,8 +142,18 @@
   // Without this, autopilot opened those pages, saw no form and reported
   // no_form — never even attempting jobs it could have filled. Verified on
   // ebq.bamboohr.com 2026-08-31: one click turns 1 field into 21.
+  // Anchored to the START, not the whole string. The old exact-match version
+  // only recognised a handful of exact phrases, so two of the five no_form
+  // results on 2026-09-02 were simply an unrecognised label: SmartRecruiters
+  // says "I'm interested" and Breezy says "Apply To Position". Neither was
+  // matched, so the page was reported as having no form at all.
   const APPLY_TEXT_RE =
-    /^(apply|apply\s+now|apply\s+for\s+this\s+job|apply\s+here|apply\s+to\s+this\s+job|start\s+(your\s+)?application|begin\s+application|application)$/i;
+    /^(apply\b|start\s+(your\s+)?application\b|begin\s+application\b|submit\s+an?\s+application\b|i'?m\s+interested\b|application$)/i;
+  // ...but never a third-party sign-in route or an unrelated "apply". Breezy
+  // renders "Apply Using LinkedIn" right beside the real button, and that
+  // hands the application to an OAuth flow instead of the form.
+  const APPLY_EXCLUDE_RE =
+    /\b(linkedin|indeed|google|facebook|seek|xing|glassdoor|filters?|coupon|promo|discount)\b/i;
 
   function isVisibleEl(el) {
     if (!el || !el.offsetParent) return false;
@@ -157,23 +167,60 @@
       const t = (el.innerText || el.value || "").replace(/\s+/g, " ").trim();
       if (!t || t.length > 40) continue;
       if (!APPLY_TEXT_RE.test(t)) continue;
+      if (APPLY_EXCLUDE_RE.test(t)) continue;
       if (!isVisibleEl(el)) continue;
       return el;
     }
     return null;
   }
 
+  // Cookie walls hide application forms. On Workable's aggregator listings
+  // (jobs.workable.com/view/...) the Apply button opens the application modal
+  // UNDERNEATH the consent banner, and the form's inputs are not in the DOM
+  // at all until the banner is dealt with — so the page looked formless.
+  // Three of the five no_form results on 2026-09-02 were this, not a missing
+  // form: dismissing the banner turned 0 inputs into 13, including the resume
+  // slot.
+  //
+  // Only ever the privacy-preserving option. "Accept all" is a consent
+  // decision that belongs to the user, so if a banner offers nothing but
+  // acceptance we leave it alone and the attempt honestly reports no_form.
+  const CONSENT_DECLINE_RE =
+    /^(decline all|decline|reject all|reject|refuse all|only necessary|necessary only|essential only|strictly necessary|use necessary cookies only|continue without accepting)$/i;
+
+  function dismissConsentBanner() {
+    for (const el of document.querySelectorAll(
+        'button, a, [role="button"], input[type="button"]')) {
+      const t = (el.innerText || el.value || "").replace(/\s+/g, " ").trim();
+      if (!t || t.length > 40) continue;
+      if (!CONSENT_DECLINE_RE.test(t)) continue;
+      if (!isVisibleEl(el)) continue;
+      try { el.click(); } catch (_) { continue; }
+      return true;
+    }
+    return false;
+  }
+
   // Only ever called when NO form is on the page, so there is nothing this
   // click could submit — it can only reveal one.
   async function revealApplicationForm(maxWaitMs) {
+    // A banner can be sitting over the form before we click anything.
+    if (dismissConsentBanner()) await new Promise(r => setTimeout(r, 600));
     if (hasApplicationForm()) return true;
     const btn = findApplyButton();
     if (!btn) return false;
     try { btn.click(); } catch (_) { return false; }
     const start = Date.now();
+    let dismissed = false;
     while (Date.now() - start < (maxWaitMs || 12000)) {
       await new Promise(r => setTimeout(r, 400));
       if (hasApplicationForm()) return true;
+      // ...and one can appear WITH the modal, which is the Workable case.
+      if (!dismissed && dismissConsentBanner()) {
+        dismissed = true;
+        await new Promise(r => setTimeout(r, 600));
+        if (hasApplicationForm()) return true;
+      }
     }
     return false;
   }
@@ -432,6 +479,7 @@
     if (autoFillEnabled === false) return;  // default ON when undefined
     if (!profile) return;                   // signed out — stay silent
     ranUrls.add(url);
+    try { dismissConsentBanner(); } catch (_) {}
     setTimeout(() => runFullAutofill("auto"), 900);
   }
 
