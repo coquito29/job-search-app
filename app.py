@@ -3635,6 +3635,20 @@ def autopilot_queue():
             seen.add(u)
             digest_jobs.append(j)
 
+    # Re-score before gating, exactly as /api/daily-results does. The gates
+    # below read ats_class, blockers, scam_flags and loc_class straight off
+    # the stored digest row, and those were frozen at search time -- so a
+    # classification or safety fix deployed after the morning cron changed
+    # what the SITE showed and left the robot's queue untouched.
+    #
+    # Added 2026-09-02, an hour after 49f44ec: that commit taught the
+    # classifier to see Greenhouse boards embedded on a company domain, and
+    # /api/daily-results duly re-scored the day's two stability.ai postings
+    # to "fast" -- while this endpoint, reading the same row, kept returning
+    # an empty queue. The fix reached the page and not the robot, which is
+    # the only consumer that mattered.
+    digest_jobs = _rescore_jobs(digest_jobs, uid)
+
     queue = []
     for j in digest_jobs:
         # Hard safety gate: only clean, fast-apply, US-eligible jobs. Scam

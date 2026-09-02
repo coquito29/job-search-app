@@ -258,6 +258,35 @@ served = [j["url"] for j in client.get("/api/autopilot/queue").get_json()["jobs"
 check("a Zoho posting is queued for the robot", served == [zoho_url], str(served))
 
 
+# ── The queue re-scores on read, so a fix reaches the robot ─────────────────
+# A digest row freezes ats_class at search time. /api/daily-results has always
+# re-scored on read; the queue did not, so 49f44ec's classifier fix promoted
+# two jobs to "fast" on the page while the robot's queue stayed empty. The
+# stored class below is deliberately the STALE one.
+with appmod._db_conn() as conn:
+    conn.execute("DELETE FROM daily_searches WHERE user_id = ?", (uid,))
+    conn.execute("DELETE FROM autopilot_attempts WHERE user_id = ?", (uid,))
+    conn.execute(
+        "INSERT INTO profiles (user_id, skills, updated_at) VALUES (?, ?, ?) "
+        "ON CONFLICT(user_id) DO UPDATE SET skills = excluded.skills",
+        (uid, json.dumps(["IT Support", "Windows", "Troubleshooting"]),
+         "2026-09-02T16:00:00Z"))
+    embed_url = "http://stability.ai/careers?gh_jid=4965729101"
+    conn.execute(
+        "INSERT INTO daily_searches (user_id, run_at, jobs, total_fetched) VALUES (?, ?, ?, ?)",
+        (uid, "2026-09-02T16:00:00Z", json.dumps([{
+            "url": embed_url, "title": "Junior IT Support Engineer",
+            "company_name": "Stability AI",
+            "description": "Provide technical support across hardware and software.",
+            "ats_class": "unknown", "ats_name": "",
+            "match_pct": 0, "scam_flags": [], "blockers": [], "loc_class": "US",
+        }]), 1))
+
+served = [j["url"] for j in client.get("/api/autopilot/queue").get_json()["jobs"]]
+check("a stale 'unknown' class is re-scored and queued", served == [embed_url], str(served))
+check("the badge the robot is handed says Greenhouse",
+      appmod._classify_ats(embed_url) == ("fast", "Greenhouse"))
+
 print()
 print(("FAILED: " + ", ".join(fails)) if fails else "All autopilot recovery assertions passed")
 raise SystemExit(1 if fails else 0)
