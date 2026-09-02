@@ -487,6 +487,14 @@ ATS_FAST = {
     "personio.de":         "Personio",
     "pinpointhq.com":      "Pinpoint",
     "join.com":            "Join",
+    # Added 2026-09-02: the extension has run on zohorecruit for a while, but
+    # the app never classified it, so every Zoho posting scored "unknown" --
+    # filtered out of the Fast-only view and skipped by the autopilot queue,
+    # which serves ats_class == "fast" and nothing else. Same shape as the
+    # Teamtailor gap above: a direct-apply ATS invisible to the robot because
+    # of a missing table entry, not because of anything about its forms.
+    "zohorecruit.com":     "Zoho Recruit",
+    "zohorecruit.eu":      "Zoho Recruit",
 }
 ATS_WALLED = {
     "myworkdayjobs.com":   "Workday",
@@ -506,6 +514,11 @@ ATS_WALLED = {
     "adp.com":             "ADP",
     "myjobs.adp.com":      "ADP",
     "paycom.com":          "Paycom",
+    # paycom.com is the marketing site; postings live on paycomonline.net,
+    # which scored "unknown" and so rendered neutral instead of warning about
+    # the account wall. Walled either way -- autopilot skips it -- but the
+    # badge should say so.
+    "paycomonline.net":    "Paycom",
     "paylocity.com":       "Paylocity",
     "brassring.com":       "BrassRing",
     "kenexa.com":          "BrassRing",

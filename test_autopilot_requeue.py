@@ -1,5 +1,6 @@
-# Recovering needs_review attempts: re-queueing them, and surfacing the
-# questions that stopped them so they can be answered once.
+# Which jobs reach the robot, and what happens to the ones that stall:
+# ATS classification (the queue's supply gate), re-queueing attempts the
+# engine can now finish, and surfacing the questions that stopped them.
 #
 # The queue's skip set is every URL this user has ever attempted, so a job that
 # came back needs_review is never served again. When the reason was a FILL BUG
@@ -213,6 +214,48 @@ check("the saved answer comes back with its question",
       after["questions"][0]["saved"] == "Clear priorities, regular feedback",
       str(after["questions"][0]))
 check("the unanswered question stays empty", after["questions"][1]["saved"] == "")
+
+
+# ── The supply gate: ats_class decides what the robot ever sees ─────────────
+# autopilot_queue serves ats_class == "fast" and nothing else, so an ATS
+# missing from the tables is invisible to the robot no matter how simple its
+# forms are. That is what happened to Teamtailor in July and to Zoho Recruit
+# until now: the extension had been running on zohorecruit for a while while
+# the queue skipped every posting.
+
+cls = appmod._classify_ats
+check("Zoho Recruit is fast-apply",
+      cls("https://acme.zohorecruit.com/jobs/Careers/1/IT-Support") == ("fast", "Zoho Recruit"),
+      str(cls("https://acme.zohorecruit.com/jobs/Careers/1/IT-Support")))
+check("the EU Zoho domain too",
+      cls("https://acme.zohorecruit.eu/jobs/Careers/9/Helpdesk") == ("fast", "Zoho Recruit"))
+check("Paycom postings are walled, not unknown",
+      cls("https://acme.paycomonline.net/v4/ats/web.php/jobs/1") == ("walled", "Paycom"),
+      str(cls("https://acme.paycomonline.net/v4/ats/web.php/jobs/1")))
+check("the Paycom marketing domain still classifies",
+      cls("https://www.paycom.com/careers")[0] == "walled")
+check("an unknown host stays unknown",
+      cls("https://careers.example.com/jobs/1") == ("unknown", ""))
+check("aggregators stay blocked", cls("https://www.jobleads.com/x")[0] == "blocked")
+
+# End to end: a Zoho posting scored by the real classifier now reaches the
+# queue. Seeded through _classify_ats rather than a hand-written ats_class,
+# so the table and the gate are tested together rather than in isolation.
+zoho_url = "https://acme.zohorecruit.com/jobs/Careers/77/Helpdesk-Analyst"
+z_class, z_name = cls(zoho_url)
+with appmod._db_conn() as conn:
+    conn.execute("DELETE FROM autopilot_attempts WHERE user_id = ?", (uid,))
+    conn.execute("DELETE FROM daily_searches WHERE user_id = ?", (uid,))
+    conn.execute(
+        "INSERT INTO daily_searches (user_id, run_at, jobs, total_fetched) VALUES (?, ?, ?, ?)",
+        (uid, "2026-09-02T15:00:00Z", json.dumps([{
+            "url": zoho_url, "title": "Helpdesk Analyst", "company_name": "Acme",
+            "ats_class": z_class, "ats_name": z_name,
+            "match_pct": 6, "scam_flags": [], "blockers": [], "loc_class": "US",
+        }]), 1))
+
+served = [j["url"] for j in client.get("/api/autopilot/queue").get_json()["jobs"]]
+check("a Zoho posting is queued for the robot", served == [zoho_url], str(served))
 
 
 print()
