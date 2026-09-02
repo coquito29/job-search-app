@@ -3439,8 +3439,19 @@ def autopilot_queue():
     # denominator grows with the skill list, so genuinely good jobs land low.
     # A 25 floor skipped both "Technical Support Engineer" roles (12%, 11%)
     # on 2026-08-31 while queueing only two CAPTCHA-walled BambooHR posts.
-    try:    min_match = max(0, min(100, int(request.args.get("min_match", 10))))
-    except Exception: min_match = 10
+    # Floor 0. This has now been walked down 35 -> 25 -> 10 -> 0, each time
+    # because a genuinely applyable job sat just under it: on 2026-09-02 a
+    # Workable "Helpdesk Analyst (Full-time, Remote)" with no blockers scored
+    # 8% and was the ONLY fast-apply job in a 30-job digest — the floor left
+    # autopilot with nothing to do at all.
+    #
+    # A percentage floor was never the right instrument here. match_pct is a
+    # RANKING signal whose denominator grows with the skill list, so good jobs
+    # land in single digits. Relevance is enforced upstream by TARGET_TITLES,
+    # and safety by the scam/blocker/US gates below. Those do the real work;
+    # the floor only ever removed jobs the other gates had already approved.
+    try:    min_match = max(0, min(100, int(request.args.get("min_match", 0))))
+    except Exception: min_match = 0
 
     with _db_conn() as conn:
         # The last few runs, not just the newest. Autopilot now sweeps the
