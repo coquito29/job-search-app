@@ -1695,13 +1695,41 @@
     return false;
   }
 
-  function mirrorValueHolderTwins() {
-    let mirrored = 0;
+  // The controls a value-holder twin can be found among, in DOM order. Shared
+  // with questionLabelFor() so the "twin follows its question" pairing is one
+  // rule, not two that can drift apart.
+  function valueHolderControls() {
     const textLike = el =>
       el.tagName === "TEXTAREA"
       || (el.tagName === "INPUT" && ["text", "email", "tel", "url", "search", ""].includes(el.type || ""));
-    const controls = querySelectorAllDeep("input, textarea")
+    return querySelectorAllDeep("input, textarea")
       .filter(el => !el.disabled && !el.readOnly && el.type !== "hidden" && textLike(el));
+  }
+
+  // The QUESTION a blocker should name, not the machine control that holds
+  // the answer. A Greenhouse value-holder twin has no id, name, label or
+  // aria of its own, so fieldLabelFor() falls through to its last resort and
+  // every unanswered screener reported as "required: field". That is
+  // unanswerable twice over: it tells the user nothing, and the blockers
+  // endpoint drops it because there is no question to attach an answer to --
+  // leaving the ATS that stalls most often invisible in that list. The twin's
+  // question sits on the visible input immediately before it, the same
+  // pairing Pass 1c mirrors values through.
+  function questionLabelFor(el) {
+    const own = fieldLabelFor(el);
+    if (own !== "field" || hasOwnIdentity(el)) return own;
+    const controls = valueHolderControls();
+    const i = controls.indexOf(el);
+    if (i > 0 && hasOwnIdentity(controls[i - 1])) {
+      const holder = fieldLabelFor(controls[i - 1]);
+      if (holder && holder !== "field") return holder;
+    }
+    return own;
+  }
+
+  function mirrorValueHolderTwins() {
+    let mirrored = 0;
+    const controls = valueHolderControls();
 
     for (let i = 1; i < controls.length; i++) {
       const twin = controls[i];
@@ -2076,7 +2104,7 @@
         seenGroups.add(key);
         const group = querySelectorAllDeep(`input[name="${CSS.escape(key)}"]`);
         if (!group.some(g => g.checked)) {
-          blockers.push(`required: ${fieldLabelFor(el)}`);
+          blockers.push(`required: ${questionLabelFor(el)}`);
         }
         continue;
       }
@@ -2084,7 +2112,7 @@
         if (!el.files || el.files.length === 0) blockers.push(`required file: ${fieldLabelFor(el)}`);
         continue;
       }
-      if (!String(el.value || "").trim()) blockers.push(`required: ${fieldLabelFor(el)}`);
+      if (!String(el.value || "").trim()) blockers.push(`required: ${questionLabelFor(el)}`);
     }
 
     return { ok: blockers.length === 0, blockers: blockers.slice(0, 12) };

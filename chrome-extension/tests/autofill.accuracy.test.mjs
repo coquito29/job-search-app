@@ -518,6 +518,46 @@ const DECOY_SELECT = `
     "submit clicked": [w.document.getElementById("go10").hasAttribute("data-clicked"), true],
   }), { autoSubmit: true });
 
+  // ── A blocker names the question, not the value-holder ───────────────────
+  // Greenhouse pairs each screener with an anonymous input[required] that its
+  // validation actually reads. With no id, name, label or aria, fieldLabelFor
+  // fell through to "field", so an unanswered screener reported as
+  // "required: field" -- useless to the user and dropped by the blockers
+  // endpoint, which needs a question to attach an answer to. The twin's
+  // question is on the visible input immediately before it.
+  await group("An anonymous value-holder blocker names its question", `
+    <form>
+      <label for="fn11">First Name</label><input id="fn11" name="first_name" required />
+      <label for="q_1">What style of management do you prefer?</label>
+      <input type="text" id="q_1" />
+      <input type="text" required />
+      <button type="submit" id="go11">Submit Application</button>
+    </form>`, (w) => {
+    const b = w.__jobTrackerAutofill.validateBeforeSubmit().blockers;
+    return {
+      "the question is named": [
+        b.some(x => /^required: What style of management/.test(x)), true],
+      "no blocker reads 'field'": [b.some(x => x === "required: field"), false],
+    };
+  });
+
+  // ...but only when there IS a question to borrow. An anonymous required
+  // input with no labelled control before it must not inherit an unrelated
+  // field's label -- better a vague blocker than a wrong one.
+  await group("A lone anonymous required input is not given someone else's label", `
+    <form>
+      <input type="text" required />
+      <label for="fn12">First Name</label><input id="fn12" name="first_name" required />
+      <button type="submit" id="go12">Submit Application</button>
+    </form>`, (w) => {
+    const b = w.__jobTrackerAutofill.validateBeforeSubmit().blockers;
+    return {
+      "reports the generic label": [b.includes("required: field"), true],
+      "does not borrow First Name": [
+        b.filter(x => /First Name/i.test(x)).length, 0],
+    };
+  });
+
   console.log(results.join("\n"));
   console.log(failures === 0
     ? "\nAll accuracy assertions passed."
