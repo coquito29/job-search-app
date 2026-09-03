@@ -1885,6 +1885,12 @@
     <strong>Digest email isn't sending.</strong>
     <span id="digestEmailWarnDetail"></span>
     Job searching still works normally — only the email is affected.
+    <button id="digestEmailTestBtn" onclick="testDigestEmail()"
+            style="margin-left:6px;padding:1px 10px;font-size:.75rem;border-radius:6px;
+                   border:1px solid #92400e;background:transparent;color:#92400e;cursor:pointer">
+      Test email now
+    </button>
+    <span id="digestEmailTestResult" style="margin-left:6px"></span>
   </div>
 </div>
 
@@ -3560,6 +3566,35 @@ async function refreshToday() {
     warn.style.display = 'block';
   } else if (warn) {
     warn.style.display = 'none';
+  }
+}
+
+// Check the Gmail credential on its own. /api/digest would also prove it,
+// but that spends ~$1.20 of Apify credit per attempt — this is free, so it
+// can be retried after every password change until it goes green.
+async function testDigestEmail() {
+  const btn = document.getElementById('digestEmailTestBtn');
+  const out = document.getElementById('digestEmailTestResult');
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+  if (out) out.textContent = '';
+  try {
+    const res  = await fetch('/api/email/test', { method: 'POST', credentials: 'include' });
+    const data = await res.json();
+    if (data.ok) {
+      // Credential is good and the server cleared the stored error, so drop
+      // the whole banner rather than leaving a fixed problem on screen.
+      const warn = document.getElementById('digestEmailWarn');
+      if (warn) warn.style.display = 'none';
+      alert('Sent. Check ' + (data.to || 'your inbox') + ' — email is working again.');
+      return;
+    }
+    if (out) out.textContent = data.auth_failure ? 'Still rejected.' : 'Failed.';
+    alert((data.error || 'Unknown error') + '\n\n' + (data.hint || ''));
+  } catch (e) {
+    if (out) out.textContent = 'Failed.';
+    alert('Could not reach the server: ' + e.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Test email now'; }
   }
 }
 

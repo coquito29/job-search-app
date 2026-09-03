@@ -3150,6 +3150,80 @@ def daily_digest():
                     "skipped_already_applied": skipped_applied, "to": digest_to})
 
 
+@app.route("/api/email/test", methods=["POST"])
+def test_email_credentials():
+    """Prove GMAIL_APP_PASSWORD works, without running a search.
+
+    Added 2026-09-03. Checking the Gmail credential used to mean calling
+    /api/digest, and that spends ~$1.20 of Apify credit per call -- so every
+    attempt to verify a password fix cost real money and a full 100-job
+    fetch. This talks to SMTP and nothing else, so it is free to retry.
+
+    The same credential backs three features (digest email, follow-up send,
+    IMAP reply scanning), so a pass here unblocks all of them.
+    """
+    import smtplib
+    from email.mime.text import MIMEText
+
+    uid, err = _auth_required()
+    if err: return err
+
+    gmail_user = os.environ.get("GMAIL_USER", "")
+    gmail_pass = os.environ.get("GMAIL_APP_PASSWORD", "")
+    digest_to  = os.environ.get("DIGEST_TO", gmail_user)
+    if not gmail_user or not gmail_pass:
+        missing = [n for n, v in (("GMAIL_USER", gmail_user),
+                                  ("GMAIL_APP_PASSWORD", gmail_pass)) if not v]
+        return jsonify({"ok": False,
+                        "error": f"{' and '.join(missing)} not set on the server",
+                        "hint": "Add it in Render -> Environment, then redeploy."}), 200
+
+    msg = MIMEText("Your Remote Job Search app can send email again.\n\n"
+                   "Nothing else to do -- the daily digest will arrive as usual.")
+    msg["Subject"] = "Remote Job Search - email test"
+    msg["From"]    = gmail_user
+    msg["To"]      = digest_to
+
+    try:
+        with smtplib.SMTP("smtp.gmail.com", 587, timeout=20) as server:
+            server.ehlo()
+            server.starttls()
+            server.ehlo()
+            server.login(gmail_user, gmail_pass)
+            server.sendmail(gmail_user, digest_to, msg.as_string())
+    except Exception as e:
+        detail = str(e)
+        # Google answers a stale or revoked app password with 5.7.8. Anything
+        # else (network, TLS, quota) is worth surfacing verbatim instead.
+        is_auth = any(t in detail for t in
+                      ("5.7.8", "BadCredentials", "Username and Password not accepted"))
+        print(f"[email-test] failed: {detail}")
+        return jsonify({
+            "ok": False,
+            "error": detail[:400],
+            "auth_failure": is_auth,
+            "hint": ("The saved app password is stale. Generate a new one at "
+                     "myaccount.google.com/apppasswords, paste it into "
+                     "GMAIL_APP_PASSWORD in Render -> Environment (no spaces), "
+                     "and redeploy.") if is_auth else
+                    "SMTP would not accept the connection -- see the error above.",
+        }), 200
+
+    # The credential works, so the banner's stored complaint is now stale.
+    # Clear it here rather than waiting for tomorrow's cron to overwrite it.
+    cleared = 0
+    try:
+        with _db_conn() as conn:
+            cur = conn.execute(
+                "UPDATE daily_searches SET email_error = NULL "
+                "WHERE user_id = ? AND email_error IS NOT NULL", (uid,))
+            cleared = cur.rowcount or 0
+    except Exception as e:
+        print(f"[email-test] could not clear email_error: {e}")
+
+    return jsonify({"ok": True, "to": digest_to, "warnings_cleared": cleared})
+
+
 def _rescore_jobs(jobs, uid):
     """Re-run scoring over stored digest jobs with today's rules.
 
