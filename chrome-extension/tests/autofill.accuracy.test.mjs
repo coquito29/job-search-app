@@ -462,6 +462,13 @@ const DECOY_SELECT = `
     "veteran not claimed": [w.document.getElementById("vt_y").checked, false],
   }));
 
+  await group("A salary range is written as a single number", `
+    <form>
+      <label for="sal">Desired Salary</label><input id="sal" name="cSalary" />
+    </form>`, (w) => ({
+    "salary is a bare number": [w.document.getElementById("sal").value, "50000"],
+  }));
+
   // ── The engine source itself is clean ────────────────────────────────────
   // The bug above was invisible in every editor and in `git diff`: a backspace
   // byte renders as nothing, so `/(yes|true|1)\b/` and `/(yes|true|1)<0x08>/`

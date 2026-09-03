@@ -1096,6 +1096,38 @@
       }
       // No dropdown at all — genuine free-text input, fall through.
     }
+    // A single free-text salary box cannot hold a range, and some ATSes strip
+    // every non-digit in their own input handler after we write. Breezy turned
+    // "$50,000 - $60,000" into "5000060000" — five billion dollars, on a live
+    // application. Verified against the real field 2026-09-03: type="text",
+    // no inputmode, no pattern, so the numeric guard above cannot see it, and
+    // the damage happens after the value lands.
+    //
+    // Write the low end as a bare number. It survives stripping, and it is the
+    // honest reading of "desired salary" — the top of a range is the number a
+    // candidate would rather not be held to.
+    //
+    // This sits at the very bottom deliberately. Placed any earlier it also
+    // rewrote the value handed to the combobox path, and a salary DROPDOWN
+    // needs the full range to pick the band it falls into ("$50,000 -
+    // $59,999") — that is a real assertion in the accuracy suite, and moving
+    // this block is what broke it.
+    //
+    // Plain string tests, no word-boundary escapes: writing this with regex
+    // boundaries through a shell heredoc silently produced backspace bytes,
+    // the same corruption 1324135 had to undo.
+    {
+      const probe = `${el.placeholder || ""} | ${el.name || ""} | ${el.id || ""} | ${labelForText(el) || ""}`.toLowerCase();
+      const salaryish = probe.includes("salary")
+        || probe.includes("compensation")
+        || probe.includes("wage");
+      if (salaryish && !/^[0-9]+$/.test(String(v).trim())) {
+        const tokens = parseMoneyTokens(v);
+        if (tokens.length >= 2) {
+          return fillTextLike(el, String(Math.round(Math.min(...tokens))));
+        }
+      }
+    }
     return fillTextLike(el, v);
   }
 
