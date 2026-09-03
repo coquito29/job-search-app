@@ -261,6 +261,38 @@ async function autopilotRun(trigger) {
     }
     const base = appUrl.replace(/\/+$/, "");
 
+    // Re-sync the profile before filling anything. content.js fills from
+    // chrome.storage.local.profile, and until now only the POPUP ever wrote
+    // that key -- so a cache that went stale or thin (a reinstall wipes
+    // extension storage; a sync predating a profile edit keeps the old copy)
+    // made every form come back nearly empty, with no error raised anywhere.
+    //
+    // 2026-09-03, eight jobs and zero submitted: Greenhouse discovered the
+    // same 25 fields the offline fixture does and filled 2 of them instead
+    // of 13, and Breezy filled 1 of 36 and was rejected by the form for a
+    // missing name, email and phone -- all three present and correct in
+    // /api/profile/full at that moment. The engine and the server were both
+    // fine; only the copy between them was empty.
+    //
+    // One extra request per run, against a sweep that otherwise spends
+    // itself typing nothing into real applications it can never retry.
+    try {
+      const pRes = await fetch(base + "/api/profile/full", {
+        credentials: "include", headers: { "Accept": "application/json" },
+      });
+      if (pRes.ok) {
+        const fresh = await pRes.json();
+        // Only overwrite with something that actually carries identity --
+        // never let a truncated reply clobber a good cache.
+        if (fresh && (fresh.email || fresh.full_name)) {
+          await chrome.storage.local.set({ profile: fresh, lastSync: Date.now() });
+        }
+      }
+    } catch (_) {
+      // Offline or signed out: keep the cached copy and carry on. The queue
+      // fetch immediately below reports a 401 properly.
+    }
+
     let queue = [];
     try {
       const res = await fetch(base + "/api/autopilot/queue?cap=20", {
