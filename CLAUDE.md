@@ -60,28 +60,63 @@ cannot run them yet.
 
 ## Tests
 
-No CI runs on pull requests; the only workflow is a scheduled digest cron.
-Run the suites directly before pushing:
+Run every suite before pushing:
 
 ```
-python3 test_location_filter.py
-python3 test_work_history.py
-python3 test_autopilot_requeue.py
-python3 test_bookmarklet.py
-python3 test_ats_classify.py
-cd chrome-extension/tests && node autofill.accuracy.test.mjs && node autofill.test.mjs
-node fixture_runner.mjs          # diagnostic, not pass/fail
+python run_tests.py
 ```
+
+That runs all seven suites — five Python, two Node — and exits non-zero if
+any fail. GitHub Actions runs the same command on every pull request and on
+pushes to `main` (`.github/workflows/tests.yml`), so a green run locally and
+a green check on the PR mean the same thing.
+
+The one thing it does not run is the diagnostic, which is pass/fail-less and
+the most useful tool here:
+
+```
+cd chrome-extension/tests && node fixture_runner.mjs
+```
+
+It prints per-ATS fill counts against 11 fixtures. That is how you tell an
+ENGINE gap from a DATA gap — on 2026-09-03 it showed Greenhouse filling
+13/25 offline while the live sweep filled 2/25, which located the bug in the
+cached profile rather than in the engine, without spending real applications
+to find out.
+
+Node lives under `Program Files/nodejs` and is not on the Bash tool's PATH;
+`run_tests.py` finds it anyway. Calling `node` directly needs
+`export PATH="/c/Program Files/nodejs:$PATH"` first. `jsdom` must be
+installed in `chrome-extension/tests/` (`npm install jsdom`) — its
+`package.json` is gitignored, so a fresh checkout needs that step.
 
 `chrome-extension/tests/README.md` explains each layer.
 
 ## Line endings
 
-`app.py` and `templates/index.html` are **CRLF**. Most other files are LF.
-Editing either of those with a tool that rewrites the file in text mode
-converts it to LF and turns a small change into a whole-file diff. Check
-`git diff --numstat` before committing; if it reports thousands of changed
-lines, restore CRLF and re-check.
+`.gitattributes` and `.editorconfig` now enforce this; the note below is
+why they exist.
+
+The repo has `core.autocrlf=true`, so most files are stored LF in the blob
+and checked out CRLF. **Five files are stored WITH CRLF in the blob itself**
+(measured 2026-09-03, not assumed):
+
+```
+app.py                            templates/index.html
+chrome-extension/popup.html       chrome-extension/popup.js
+chrome-extension/tests/README.md
+```
+
+An earlier version of this section named only the first two — popup.js and
+popup.html carry the same hazard and were missing. Editing any of the five
+with a tool that rewrites in text mode converts it to LF and turns a
+one-line change into a whole-file diff. `.editorconfig` pins `end_of_line`
+for exactly those five, and `.gitattributes` marks them `-text` so no future
+`core.autocrlf` change renormalises them.
+
+Still worth checking `git diff --numstat` before committing: if it reports
+thousands of changed lines, the tooling was bypassed — restore CRLF and
+re-check.
 
 ## Deploying
 

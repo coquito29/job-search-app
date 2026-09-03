@@ -1,0 +1,41 @@
+name: Tests
+
+# Until now nothing verified a pull request — the only workflow here was the
+# digest cron. PRs get merged from GitHub's mobile site and `main` deploys
+# straight to Render, so a broken merge reached production with nothing in
+# between. This is that missing step.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      # jsdom is deliberately untracked (chrome-extension/tests/.gitignore
+      # ignores package.json), so CI installs it by name rather than from a
+      # lockfile. Pinned to the major the suites were written against.
+      - name: Install jsdom
+        working-directory: chrome-extension/tests
+        run: npm install jsdom@^30 --no-audit --no-fund
+
+      # One command, the same one used locally, so a green run here means
+      # the same thing as a green run on the desktop.
+      - name: Run all suites
+        run: python run_tests.py

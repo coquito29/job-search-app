@@ -1,0 +1,16 @@
+# Editor settings. Respected by VS Code, JetBrains, Sublime, Vim (plugin)
+# and most agent tooling.
+#
+# The one rule that matters here is end_of_line on the five files stored
+# with CRLF in the blob. An editor that rewrites one of those in text mode
+# converts it to LF and turns a one-line change into a whole-file diff --
+# the exact failure CLAUDE.md warns about. Pinning it here makes the tool
+# get it right instead of relying on someone remembering the rule.
+
+root = true
+
+[*]
+charset = utf-8
+
+[{app.py,templates/index.html,chrome-extension/popup.html,chrome-extension/popup.js,chrome-extension/tests/README.md}]
+end_of_line = crlf
