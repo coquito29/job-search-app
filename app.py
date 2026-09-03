@@ -3705,22 +3705,50 @@ def autopilot_requeue():
     ?include_captcha=1 also reopens rows whose blockers include a CAPTCHA.
     Those still need a human tick at the end, but a re-run fills what the old
     engine could not and re-arms the tick-to-submit watcher.
+
+    ?include_failed=1 also reopens rows the ENGINE gave up on -- no_form and
+    timeout -- rather than the ones waiting on a human.
     """
     uid, err = _auth_required()
     if err: return err
     include_captcha = str(request.args.get("include_captcha", "")).strip().lower() in ("1", "true", "yes")
+    include_failed  = str(request.args.get("include_failed",  "")).strip().lower() in ("1", "true", "yes")
     dry_run = request.method == "GET"
 
     wanted = {"answerable", "captcha_too"} if include_captcha else {"answerable"}
+
+    # Rows where the engine gave up rather than handing the job to a human.
+    # They never reach _requeue_class -- its input is the blocker text a
+    # needs_review row carries, and these have none -- so before this they
+    # could not be reopened at all, and a non-requeued attempt is in the
+    # queue's skip set for good.
+    #
+    # Added 2026-09-02: v0.18.5 ("fix every no_form cause from the 2026-09-02
+    # run") and v0.18.7 ("wait long enough for Workable's apply form to load")
+    # were written FOR these exact rows and could never be tried against them.
+    # The last Workable no_form was recorded four minutes before v0.18.7 was
+    # committed. Off by default -- a posting that genuinely has no form will
+    # just fail again -- so this is a deliberate "the engine changed, try
+    # again" switch rather than routine behaviour.
+    ENGINE_GAVE_UP = ("no_form", "timeout")
+    results = ("needs_review",) + (ENGINE_GAVE_UP if include_failed else ())
+    placeholders = ",".join("?" * len(results))
     with _db_conn() as conn:
         rows = conn.execute(
-            "SELECT id, url, title, company, detail, filled, total, attempted_at "
-            "FROM autopilot_attempts WHERE user_id = ? AND result = 'needs_review' "
-            "ORDER BY attempted_at DESC, id DESC", (uid,)).fetchall()
+            "SELECT id, url, title, company, detail, filled, total, attempted_at, result "
+            "FROM autopilot_attempts WHERE user_id = ? "
+            f"AND result IN ({placeholders}) "
+            "ORDER BY attempted_at DESC, id DESC", (uid, *results)).fetchall()
 
-        counts = {"answerable": 0, "captcha_too": 0, "skip": 0}
-        picked = []
+        counts = {"answerable": 0, "captcha_too": 0, "skip": 0, "no_form": 0, "timeout": 0}
+        picked, needs_review_total = [], 0
         for r in rows:
+            if _row_get(r, "result") in ENGINE_GAVE_UP:
+                cls = _row_get(r, "result")
+                counts[cls] += 1
+                picked.append((r, cls))
+                continue
+            needs_review_total += 1
             cls = _requeue_class(_row_get(r, "detail"))
             counts[cls] += 1
             if cls in wanted:
@@ -3735,7 +3763,7 @@ def autopilot_requeue():
     return jsonify({
         "dry_run": dry_run,
         "include_captcha": include_captcha,
-        "needs_review_total": len(rows),
+        "needs_review_total": needs_review_total,
         "counts": counts,
         "reopened": [
             {**{k: _row_get(r, k) for k in

@@ -287,6 +287,59 @@ check("a stale 'unknown' class is re-scored and queued", served == [embed_url], 
 check("the badge the robot is handed says Greenhouse",
       appmod._classify_ats(embed_url) == ("fast", "Greenhouse"))
 
+# ── Rows the ENGINE gave up on ──────────────────────────────────────────────
+# no_form and timeout carry no blocker text, so _requeue_class never sees them
+# and nothing could reopen them -- while v0.18.5 and v0.18.7 were written for
+# exactly those failures. Opt-in, because a posting with genuinely no form
+# will just fail again.
+WORKABLE = "https://jobs.workable.com/view/abc/helpdesk-analyst"
+GREENHOUSE = "https://boards.greenhouse.io/acme/jobs/999"
+with appmod._db_conn() as conn:
+    conn.execute("DELETE FROM daily_searches WHERE user_id = ?", (uid,))
+    conn.execute("DELETE FROM autopilot_attempts WHERE user_id = ?", (uid,))
+    conn.execute(
+        "INSERT INTO daily_searches (user_id, run_at, jobs, total_fetched) VALUES (?, ?, ?, ?)",
+        (uid, "2026-09-02T17:00:00Z", json.dumps([
+            {"url": WORKABLE, "title": "Helpdesk Analyst", "company_name": "Acme",
+             "ats_class": "fast", "ats_name": "Workable", "match_pct": 8,
+             "scam_flags": [], "blockers": [], "loc_class": "US"},
+            {"url": GREENHOUSE, "title": "Support Engineer", "company_name": "Acme",
+             "ats_class": "fast", "ats_name": "Greenhouse", "match_pct": 9,
+             "scam_flags": [], "blockers": [], "loc_class": "US"},
+        ]), 2))
+    for url, result, detail in (
+        (WORKABLE,   "no_form", "apply button did not reveal a form"),
+        (GREENHOUSE, "timeout", "fill/submit timed out"),
+    ):
+        conn.execute(
+            """INSERT INTO autopilot_attempts
+               (user_id, url, title, company, result, detail, filled, total, attempted_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (uid, url, "T", "Acme", result, detail, 0, 0, "2026-09-02T17:05:00Z"))
+
+check("an engine failure is excluded from the queue to begin with",
+      queued_urls() == set(), str(queued_urls()))
+
+plain = client.get("/api/autopilot/requeue").get_json()
+check("the default dry run leaves engine failures alone",
+      plain["reopened"] == [], str(plain["reopened"]))
+check("and reports no needs_review rows, because there are none",
+      plain["needs_review_total"] == 0, str(plain["needs_review_total"]))
+
+dry = client.get("/api/autopilot/requeue?include_failed=1").get_json()
+check("include_failed lists both engine failures",
+      {r["url"] for r in dry["reopened"]} == {WORKABLE, GREENHOUSE},
+      str([r["url"] for r in dry["reopened"]]))
+check("the dry run counts them by result",
+      dry["counts"]["no_form"] == 1 and dry["counts"]["timeout"] == 1, str(dry["counts"]))
+check("a dry run changes nothing", queued_urls() == set(), str(queued_urls()))
+
+client.post("/api/autopilot/requeue?include_failed=1")
+check("after applying, both are served to the robot again",
+      queued_urls() == {WORKABLE, GREENHOUSE}, str(queued_urls()))
+check("the rows are marked requeued, not deleted",
+      result_for(WORKABLE) == appmod.REQUEUED_RESULT, str(result_for(WORKABLE)))
+
 print()
 print(("FAILED: " + ", ".join(fails)) if fails else "All autopilot recovery assertions passed")
 raise SystemExit(1 if fails else 0)
