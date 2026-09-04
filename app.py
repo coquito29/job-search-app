@@ -4088,7 +4088,12 @@ def autopilot_blockers():
             "SELECT settings FROM profiles WHERE user_id = ? LIMIT 1", (uid,)).fetchone()
         if prof is not None:
             try:
-                for pair in (json.loads(_row_get(prof, "settings") or "{}").get("qa_defaults") or []):
+                # Seeds count as saved answers. They are what the engine
+                # actually fills from (_merge_qa_seed feeds /api/profile/full),
+                # so listing a seeded question as unanswered here sends the
+                # user off to retype an answer the robot already has.
+                for pair in _merge_qa_seed(
+                        json.loads(_row_get(prof, "settings") or "{}").get("qa_defaults") or []):
                     if isinstance(pair, (list, tuple)) and len(pair) >= 2:
                         saved[str(pair[0]).strip().lower()] = pair[1]
             except Exception:
