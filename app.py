@@ -3972,7 +3972,7 @@ def autopilot_capture():
     # Descriptor keys only. has_value is a BOOLEAN -- whether the control ended
     # up non-empty -- and never the content: it is what separates "the engine
     # skipped this" from "the engine filled it and the page rejected it".
-    allowed = {"type", "id", "name", "label", "aria", "placeholder",
+    allowed = {"type", "id", "name", "label", "labelledby", "aria", "placeholder",
                "required", "options", "section",
                "role", "aria_autocomplete", "aria_haspopup", "list",
                "readonly", "disabled", "shadow_hosts", "combobox", "has_value",
@@ -3989,8 +3989,8 @@ def autopilot_capture():
                 row[list_key] = [str(o)[:item_len] for o in row[list_key][:cap_len]]
             else:
                 row.pop(list_key, None)
-        for k in ("type", "id", "name", "label", "aria", "placeholder", "section",
-                  "role", "aria_autocomplete", "aria_haspopup"):
+        for k in ("type", "id", "name", "label", "labelledby", "aria", "placeholder",
+                  "section", "role", "aria_autocomplete", "aria_haspopup"):
             if k in row:
                 row[k] = str(row[k])[:200]
         # Flags are stored only when true, so absence reads as "not set" rather

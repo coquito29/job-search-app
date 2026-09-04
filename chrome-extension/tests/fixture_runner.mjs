@@ -126,11 +126,19 @@ function buildForm(fixture) {
       f.list && id ? `list="dl_${esc(id)}"` : '',
       f.readonly ? 'readonly' : '',
       f.disabled ? 'disabled' : '',
+      f.labelledby && id ? `aria-labelledby="lb_${esc(id)}"` : '',
     ].filter(Boolean).join(' ');
 
     parts.push('<div class="field">');
     if (f.prev_sibling) parts.push(`<span>${esc(f.prev_sibling)}</span>`);
     if (f.label) parts.push(`<label for="${esc(id)}">${esc(f.label)}</label>`);
+    // Rebuilt as the page had it — a <span> the control points at — rather
+    // than folded into f.label. probeText() reads both, but a fixture that
+    // silently upgrades aria-labelledby into a <label for> stops being
+    // evidence of the markup that was actually there.
+    if (f.labelledby && id) {
+      parts.push(`<span id="lb_${esc(id)}">${esc(f.labelledby)}</span>`);
+    }
 
     if (f.type === 'textarea') parts.push(`<textarea ${attrs}></textarea>`);
     else if (f.type === 'select-one') {

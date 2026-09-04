@@ -2518,6 +2518,24 @@
       let lbl = "";
       try { lbl = labelForText(el) || ""; } catch (_) { lbl = ""; }
       if (lbl) f.label = lbl.trim().slice(0, 200);
+      // labelForText() resolves <label for> and nothing else, but probeText()
+      // -- what the MATCHER actually reads -- also follows aria-labelledby.
+      // Rippling labels every field that way (aria-labelledby="field-8-label"
+      // over a <span>), so all nine of its controls came back label-less on
+      // 2026-09-04 and the fixture looked blinder than the page really was.
+      // Record it separately: a capture has to show what the engine saw, or
+      // triage starts from a form nobody ever met.
+      try {
+        const lb = el.getAttribute("aria-labelledby");
+        if (lb) {
+          const root = (el.getRootNode && el.getRootNode()) || document;
+          const txt = lb.split(/\s+/)
+            .map(id => ((root.getElementById && root.getElementById(id))
+                        || document.getElementById(id) || {}).textContent || "")
+            .filter(Boolean).join(" ").trim();
+          if (txt) f.labelledby = txt.slice(0, 200);
+        }
+      } catch (_) { /* detached or exotic root */ }
       const aria = el.getAttribute("aria-label");
       if (aria) f.aria = aria.trim().slice(0, 200);
       const ph = el.getAttribute("placeholder");

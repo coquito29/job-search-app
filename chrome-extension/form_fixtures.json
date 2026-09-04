@@ -298,17 +298,17 @@
     "ats": "Rippling",
     "company": "cardiff",
     "field_count": 9,
-    "notes": "Captured live 2026-09-04T04:51:05.550406: the engine filled 1 of 10 here. Captured by v0.19.0, six minutes before v0.19.1 began recording role/aria-autocomplete, so every combobox here is stored as a plain text input and the offline count runs optimistic against the live one. Re-sweep this URL to refine the row in place.",
+    "notes": "Captured live 2026-09-04T04:51:05: the engine filled 1 of 10 here. Field shapes re-read from the live DOM the same day, read-only, after v0.19.3 taught captureFormShape to record aria-labelledby -- which is how Rippling labels every control, so the original capture came back label-less and its four comboboxes looked like anonymous Search boxes. They are Pronouns, the phone country code (arrives pre-filled), Location, and Please identify your race. NOTE: Rippling regenerates every id and name on each page load, so both are noise here -- match on labelledby or placeholder, never on id.",
     "fields": [
-      {"type": "text", "id": "field-12", "name": "leQEHRJYtA", "placeholder": "First name", "required": true, "section": "Application: IT Support and Salesforce Administrator"},
-      {"type": "text", "id": "field-16", "name": "F6v3Dq-Wssr", "placeholder": "Last name", "required": true},
-      {"type": "text", "id": "field-20", "name": "eqbRKSJCLYb", "placeholder": "Email", "required": true},
-      {"type": "text", "id": "field-24", "name": "_RJJ_Yv7Bfq", "aria": "Search", "placeholder": "Search"},
-      {"type": "text", "id": "field-31", "name": "lXc0fbaS2t0", "placeholder": "Current company"},
-      {"type": "text", "id": "field-38", "name": "iJIjk9Xjia9", "aria": "Search", "placeholder": "Search", "required": true},
-      {"type": "text", "id": "field-35", "name": "w1SdYKYjTM9", "placeholder": "Phone number", "required": true},
-      {"type": "text", "id": "field-46", "name": "4_5xRQZhCfQ", "aria": "textbox", "required": true},
-      {"type": "text", "id": "field-101", "name": "46J0jHavbH6", "aria": "Select...", "placeholder": "Select..."}
+      {"type": "text", "id": "field-8", "name": "Lt-4yeX8Y8", "labelledby": "First name", "placeholder": "First name", "required": true, "section": "Application: IT Support and Salesforce Administrator"},
+      {"type": "text", "id": "field-12", "name": "kYO0PlW9luR", "labelledby": "Last name", "placeholder": "Last name", "required": true},
+      {"type": "text", "id": "field-16", "name": "rY-CFaLgaH_", "labelledby": "Email", "placeholder": "Email", "required": true},
+      {"type": "text", "id": "field-20", "name": "uNPUY4wqVmP", "labelledby": "Pronouns", "aria": "Search", "placeholder": "Search", "role": "combobox", "aria_autocomplete": "list", "aria_haspopup": "listbox"},
+      {"type": "text", "id": "field-27", "name": "76wGH8LAbxz", "labelledby": "Current company", "placeholder": "Current company"},
+      {"type": "text", "id": "field-34", "name": "K8Kh4pgsRV", "aria": "Search", "placeholder": "Search", "required": true, "role": "combobox", "aria_autocomplete": "list", "aria_haspopup": "listbox", "has_value": true},
+      {"type": "text", "id": "field-31", "name": "1ZqZ7G8QEu_", "labelledby": "Phone number", "placeholder": "Phone number", "required": true},
+      {"type": "text", "id": "field-42", "name": "qnor65rX64m", "labelledby": "Location", "aria": "textbox", "required": true, "aria_autocomplete": "list", "aria_haspopup": "listbox"},
+      {"type": "text", "id": "field-97", "name": "J-wY7pg9IUf", "labelledby": "Please identify your race", "aria": "Select...", "placeholder": "Select...", "role": "combobox", "aria_autocomplete": "list", "aria_haspopup": "listbox"}
     ]
   }
 }
