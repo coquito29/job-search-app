@@ -3653,6 +3653,41 @@ def _captcha_only(detail):
     return saw_captcha
 
 
+# A row has to have been genuinely filled before "one tick and it sends" is a
+# true statement about it. 0.5 separates the real cases from the broken ones on
+# live data (Zafran 5/5, Agave 9/10 pass; BTI 1/11 does not) without demanding
+# a perfect score, which would drop rows whose remaining fields are optional.
+READY_FILL_RATIO = 0.5
+
+
+def _ready_to_tick(detail, filled, total):
+    """True when the form is filled AND a CAPTCHA tick is all that is left.
+
+    The blocker list only names REQUIRED controls that came back empty, so a
+    page the engine never managed to read reports no required fields at all,
+    and _captcha_only alone then reads that silence as success. Seen live on
+    2026-09-03: Stability AI at 0/8 and iSoftStone at 0/6 were both sitting in
+    the ready pile with a CAPTCHA as their only blocker. Ticking one of those
+    submits a blank application under the user's name -- worse than not
+    applying, and the same false-positive shape as the Apply & Log bug.
+
+    So the fill counts have to agree that work actually happened. Nothing
+    filled is disqualifying outright; a token fraction (BTI at 1/11) means the
+    engine caught a stray field on a form it could not really see.
+    """
+    if not _captcha_only(detail):
+        return False
+    try:
+        f, t = int(filled or 0), int(total or 0)
+    except (TypeError, ValueError):
+        return False
+    if f <= 0:
+        return False
+    # total == 0 with a positive filled count shouldn't happen, but if the
+    # counter is ever missing, trust the evidence of work over the ratio.
+    return t <= 0 or (f / t) >= READY_FILL_RATIO
+
+
 def _requeue_class(detail):
     """How a needs_review row would fare on a second attempt.
 
@@ -3990,7 +4025,9 @@ def autopilot_status():
         "pending": [
             dict({k: _row_get(r, k) for k in
                   ("url", "title", "company", "detail", "filled", "total", "attempted_at")},
-                 ready_to_tick=_captcha_only(_row_get(r, "detail")))
+                 ready_to_tick=_ready_to_tick(_row_get(r, "detail"),
+                                              _row_get(r, "filled"),
+                                              _row_get(r, "total")))
             for r in pending],
         "day_start_utc":   since,
         "last_attempt_at": _row_get(last, "attempted_at") if last else None,

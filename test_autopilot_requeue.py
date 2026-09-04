@@ -199,6 +199,28 @@ check("a form-side rejection is not ready",
 check("empty detail is not ready", co("") is False)
 check("None detail is not ready", co(None) is False)
 
+# ── ...and whether the form was actually filled ─────────────────────────────
+# The blocker list names only REQUIRED controls left empty, so a page the
+# engine never read reports no required fields and _captcha_only reads that
+# silence as success. These four rows are the live Today list of 2026-09-03.
+
+rt = appmod._ready_to_tick
+check("a fully filled CAPTCHA-only row is ready (Zafran, 5/5)",
+      rt(CAPTCHA_ONLY, 5, 5) is True)
+check("a nearly filled one is ready too (Agave, 9/10)",
+      rt(CAPTCHA_ONLY, 9, 10) is True)
+check("a form the engine never filled is NOT ready (Stability AI, 0/8)",
+      rt(CAPTCHA_ONLY, 0, 8) is False)
+check("nor is one it barely touched (BTI, 1/11)",
+      rt(CAPTCHA_ONLY, 1, 11) is False)
+check("a filled form still needing answers is not ready", rt(BOTH, 9, 10) is False)
+check("exactly at the ratio floor counts as ready", rt(CAPTCHA_ONLY, 5, 10) is True)
+check("just under the floor does not", rt(CAPTCHA_ONLY, 4, 10) is False)
+check("missing counts are not ready", rt(CAPTCHA_ONLY, None, None) is False)
+check("a missing total falls back to the evidence of work",
+      rt(CAPTCHA_ONLY, 6, 0) is True)
+check("non-numeric counts are safe", rt(CAPTCHA_ONLY, "x", "y") is False)
+
 # The endpoint de-duplicates across jobs and ranks by how many each one cost.
 # Seeded fresh so the counts are unambiguous.
 with appmod._db_conn() as conn:
