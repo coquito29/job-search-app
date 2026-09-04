@@ -221,6 +221,47 @@ check("a missing total falls back to the evidence of work",
       rt(CAPTCHA_ONLY, 6, 0) is True)
 check("non-numeric counts are safe", rt(CAPTCHA_ONLY, "x", "y") is False)
 
+# ── Fixture capture ─────────────────────────────────────────────────────────
+# A form the engine could not fill is only useful if it survives the tab. The
+# capture endpoint stores its SHAPE so it can be replayed offline, and stores
+# nothing the applicant typed -- these rows leave the browser, and an
+# application form holds an address, work history and salary.
+
+CAP = {"url": "https://boards.greenhouse.io/acme/jobs/1?utm_source=x",
+       "hostname": "boards.greenhouse.io", "title": "Junior IT Support",
+       "filled": 0, "total": 8,
+       "fields": [{"type": "text", "id": "first_name", "label": "First Name*",
+                   "required": True, "value": "SHOULD-NOT-PERSIST"},
+                  {"type": "select-one", "name": "country", "label": "Country",
+                   "options": ["United States", "Canada"]},
+                  {"type": "text"}]}
+
+r = client.post("/api/autopilot/capture", json={"capture": CAP})
+check("a capture is accepted", r.status_code == 200, str(r.status_code))
+check("every field is stored", r.get_json()["stored_fields"] == 3, str(r.get_json()))
+
+caps = client.get("/api/autopilot/captures").get_json()
+key = next(iter(caps["fixtures"]))
+fx  = caps["fixtures"][key]
+check("the fixture is named for the ATS and the employer, not the board host",
+      key == "greenhouse_acme", key)
+check("the ATS is classified", fx["ats"] == "Greenhouse", str(fx["ats"]))
+check("a typed value is never stored",
+      "SHOULD-NOT-PERSIST" not in json.dumps(fx), json.dumps(fx)[:200])
+check("select options survive, since matching cannot be replayed without them",
+      fx["fields"][1]["options"] == ["United States", "Canada"], str(fx["fields"][1]))
+check("an anonymous field keeps its lack of identity, which is what makes "
+      "a Greenhouse value-holder twin recognisable offline",
+      fx["fields"][2] == {"type": "text"}, str(fx["fields"][2]))
+check("the notes carry the live fill counts",
+      "filled 0 of 8" in fx["notes"], fx["notes"])
+
+client.post("/api/autopilot/capture", json={"capture": CAP})
+check("re-capturing the same URL refines the row instead of stacking duplicates",
+      client.get("/api/autopilot/captures").get_json()["count"] == 1)
+check("a capture with no fields is rejected",
+      client.post("/api/autopilot/capture", json={"capture": {"url": "x"}}).status_code == 400)
+
 # The endpoint de-duplicates across jobs and ranks by how many each one cost.
 # Seeded fresh so the counts are unambiguous.
 with appmod._db_conn() as conn:

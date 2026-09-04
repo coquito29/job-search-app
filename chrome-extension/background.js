@@ -51,6 +51,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       .catch(e => sendResponse({ status: 0, body: { error: e.message || String(e) } }));
     return true;
   }
+  if (msg.type === "captureForm") {
+    captureFormRequest(msg)
+      .then(r => sendResponse(r))
+      .catch(e => sendResponse({ status: 0, body: { error: e.message || String(e) } }));
+    return true;
+  }
 });
 
 // Relay manually-typed answers to the server's qa_defaults ("Learn answers"
@@ -65,6 +71,29 @@ async function learnAnswersRequest({ appUrl, answers }) {
       credentials: "include",
       headers: { "Content-Type": "application/json", "Accept": "application/json" },
       body: JSON.stringify({ answers: answers || [] }),
+    });
+  } catch (e) {
+    return { status: 0, body: { error: "network: " + (e.message || String(e)) } };
+  }
+  let body = {};
+  try { body = await res.json(); } catch (_) { body = {}; }
+  return { status: res.status, body };
+}
+
+// Relay a low-fill form's SHAPE to the server, where it can be turned into an
+// offline fixture. Same cookie-credentialed pattern as the others. Failures are
+// swallowed by the caller on purpose: this is diagnostics, and a capture that
+// cannot be delivered must never cost the user the application it came from.
+async function captureFormRequest({ appUrl, capture }) {
+  if (!appUrl) return { status: 0, body: { error: "no appUrl configured" } };
+  const url = appUrl.replace(/\/+$/, "") + "/api/autopilot/capture";
+  let res;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json", "Accept": "application/json" },
+      body: JSON.stringify({ capture: capture || {} }),
     });
   } catch (e) {
     return { status: 0, body: { error: "network: " + (e.message || String(e)) } };

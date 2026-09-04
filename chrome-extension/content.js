@@ -113,6 +113,26 @@
       }
 
       const combined = (r1.filled || 0) + aiFilled;
+
+      // A run that filled almost nothing is the one worth keeping. Snapshot the
+      // form's shape and send it up, so a page that beat the engine becomes an
+      // offline fixture instead of closing with the tab -- without this, every
+      // attempt to understand a 0/8 costs another real application. Top frame
+      // only (all_frames means an ad iframe would otherwise report a 0/0), and
+      // only when there was a form to miss.
+      const CAPTURE_FILL_RATIO = 0.5;
+      const seenTotal = r1.total || 0;
+      if (window === window.top && appUrl && seenTotal > 0
+          && (combined / seenTotal) < CAPTURE_FILL_RATIO
+          && window.__jobTrackerAutofill.captureFormShape) {
+        try {
+          const capture = window.__jobTrackerAutofill.captureFormShape();
+          capture.filled = combined;
+          capture.total  = seenTotal;
+          // Fire-and-forget: a diagnostic must never delay or break a run.
+          sendMessage({ type: "captureForm", appUrl, capture }).catch(() => {});
+        } catch (_) { /* ignore */ }
+      }
       // In iframes (all_frames), stay quiet unless something actually filled —
       // otherwise every empty sub-frame pops a useless toast.
       if (combined > 0) {

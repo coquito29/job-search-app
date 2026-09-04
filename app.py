@@ -326,6 +326,25 @@ def _init_applications_db():
                 last_posted    TEXT
             )
         """)
+        # Shapes of forms the engine could not fill, uploaded by the extension.
+        # One row per low-fill attempt; `fields` is the JSON descriptor list
+        # that form_fixtures.json stores, so a row can be promoted to a fixture
+        # and fixed offline. Structure only -- the capture side never collects
+        # a value, so nothing the user typed is in here.
+        conn.execute(f"""
+            CREATE TABLE IF NOT EXISTS form_captures (
+                {id_col},
+                user_id     INTEGER NOT NULL DEFAULT 1,
+                url         TEXT NOT NULL,
+                hostname    TEXT,
+                title       TEXT,
+                filled      INTEGER NOT NULL DEFAULT 0,
+                total       INTEGER NOT NULL DEFAULT 0,
+                field_count INTEGER NOT NULL DEFAULT 0,
+                fields      TEXT NOT NULL,
+                captured_at TEXT NOT NULL
+            )
+        """)
 
     # Idempotent migrations. Each in its own connection so a "column exists"
     # error doesn't poison the broader CREATE TABLE transaction on Postgres.
@@ -3910,6 +3929,135 @@ def autopilot_requeue():
              "why": cls}
             for r, cls in picked],
     })
+
+
+@app.route("/api/autopilot/capture", methods=["POST", "OPTIONS"])
+def autopilot_capture():
+    """Store the SHAPE of a form the engine could not fill.
+
+    Greenhouse went from 13/25 to 25/25 because it has a fixture to test
+    against. Stability AI at 0/8 and iSoftStone at 0/6 do not, and every
+    attempt to understand them costs a real application -- the tab closes and
+    the evidence goes with it. The extension now uploads the descriptor list
+    for any form it filled less than half of, so the page can be replayed
+    offline as many times as it takes, for free.
+
+    Structure only. captureFormShape() is written never to read a value, and
+    the whitelist below enforces the same thing server-side, because this is
+    the last point where a bug on the page side could turn a diagnostic into
+    a leak of the user's address or salary.
+    """
+    if request.method == "OPTIONS":
+        return _autofill_cors_response(("", 204))
+    uid, err = _auth_required()
+    if err:
+        return _autofill_cors_response(err)
+
+    # Same drive-by guard as /api/qa/learn: a cross-origin caller that is not
+    # the extension must carry the bookmarklet token, or any page the user
+    # visits could POST junk captures into their account.
+    origin = request.headers.get("Origin", "")
+    own    = request.host_url.rstrip("/")
+    if origin and not origin.startswith("chrome-extension://") and origin.rstrip("/") != own:
+        tok = request.args.get("k", "")
+        if not (tok and secrets.compare_digest(tok, _bookmarklet_token(uid))):
+            return _autofill_cors_response(
+                (jsonify({"error": "bookmarklet outdated — reinstall from /bookmarklet"}), 403))
+
+    cap    = (request.get_json(force=True, silent=True) or {}).get("capture") or {}
+    fields = cap.get("fields")
+    if not isinstance(fields, list) or not fields:
+        return _autofill_cors_response((jsonify({"error": "no fields in capture"}), 400))
+
+    allowed = {"type", "id", "name", "label", "aria", "placeholder",
+               "required", "options", "section"}
+    clean = []
+    for f in fields[:300]:
+        if not isinstance(f, dict):
+            continue
+        row = {k: v for k, v in f.items() if k in allowed}
+        if not row:
+            continue
+        if isinstance(row.get("options"), list):
+            row["options"] = [str(o)[:120] for o in row["options"][:60]]
+        else:
+            row.pop("options", None)
+        for k in ("type", "id", "name", "label", "aria", "placeholder", "section"):
+            if k in row:
+                row[k] = str(row[k])[:200]
+        if row.get("required"):
+            row["required"] = True
+        else:
+            row.pop("required", None)
+        clean.append(row)
+    if not clean:
+        return _autofill_cors_response((jsonify({"error": "nothing storable"}), 400))
+
+    url = str(cap.get("url") or "")[:300]
+    now = datetime.utcnow().isoformat()
+    with _db_conn() as conn:
+        # One row per URL. A re-run of the same job should refine the capture,
+        # not stack duplicates that bury the distinct failures.
+        conn.execute("DELETE FROM form_captures WHERE user_id = ? AND url = ?", (uid, url))
+        conn.execute(
+            "INSERT INTO form_captures (user_id, url, hostname, title, filled, total, "
+            "field_count, fields, captured_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (uid, url, str(cap.get("hostname") or "")[:120],
+             str(cap.get("title") or "")[:200],
+             int(cap.get("filled") or 0), int(cap.get("total") or 0),
+             len(clean), json.dumps(clean), now))
+    return _autofill_cors_response(jsonify({"ok": True, "stored_fields": len(clean)}))
+
+
+@app.route("/api/autopilot/captures", methods=["GET"])
+def autopilot_captures():
+    """Captures shaped exactly like form_fixtures.json, ready to be merged in.
+
+    Returning the finished fixture shape rather than raw rows is the point:
+    promoting a live failure into the offline suite should be a copy, not a
+    transcription job, or it will not happen when it matters.
+    """
+    uid, err = _auth_required()
+    if err: return err
+
+    with _db_conn() as conn:
+        rows = conn.execute(
+            "SELECT url, hostname, title, filled, total, field_count, fields, captured_at "
+            "FROM form_captures WHERE user_id = ? ORDER BY captured_at DESC LIMIT 50",
+            (uid,)).fetchall()
+
+    out = {}
+    for r in rows:
+        url  = _row_get(r, "url") or ""
+        # _classify_ats returns (class, human_label); only the label is wanted.
+        ats  = (_classify_ats(url)[1] or "unknown")
+        # On a hosted board the hostname IS the ATS ("boards.greenhouse.io"),
+        # so naming the fixture after it gives every Greenhouse capture the
+        # same useless label. The employer is the first path segment there
+        # (/acme/jobs/123). Only fall back to the hostname when the ATS is
+        # unrecognised, which is exactly when the domain is the company's own.
+        seg  = re.match(r"https?://[^/]+/([^/?#]+)", url)
+        host = (_row_get(r, "hostname") or "unknown").split(".")[0]
+        company = seg.group(1) if (ats != "unknown" and seg) else host
+        key  = re.sub(r"[^a-z0-9]+", "_", f"{ats}_{company}".lower()).strip("_") or "capture"
+        n, base = 2, key
+        while key in out:
+            key, n = f"{base}_{n}", n + 1
+        try:
+            fields = json.loads(_row_get(r, "fields") or "[]")
+        except Exception:
+            fields = []
+        filled, total = _row_get(r, "filled") or 0, _row_get(r, "total") or 0
+        out[key] = {
+            "url":         url,
+            "ats":         ats,
+            "company":     company,
+            "field_count": _row_get(r, "field_count") or len(fields),
+            "notes":       f"Captured live {_row_get(r, 'captured_at')}: the engine "
+                           f"filled {filled} of {total} here.",
+            "fields":      fields,
+        }
+    return jsonify({"count": len(out), "fixtures": out})
 
 
 @app.route("/api/autopilot/blockers", methods=["GET"])

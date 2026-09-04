@@ -2460,9 +2460,86 @@
     return { applied, skipped };
   }
 
+  // ── Fixture capture ────────────────────────────────────────────────────────
+  // When a run fills almost nothing, the interesting object is the FORM, and it
+  // dies with the tab. Greenhouse is solved and Stability AI is not, and the
+  // only real difference between them is that one has a fixture. This
+  // snapshots the same descriptor set form_fixtures.json already stores, so a
+  // page that beat the engine becomes an offline test that can be fixed and
+  // re-run for free, instead of costing a real application per guess.
+  //
+  // STRUCTURE ONLY: type, identity, label, required flag, option TEXT. Never
+  // el.value, never el.checked, never anything typed. These uploads leave the
+  // page, and an application form holds an address, work history and salary —
+  // so nothing that could carry an answer is allowed into the payload.
+  function headingAbove(el) {
+    let node = el;
+    while (node && node !== document.body) {
+      let prev = node.previousElementSibling;
+      while (prev) {
+        if (/^H[1-6]$/.test(prev.tagName || "")) {
+          const t = (prev.textContent || "").trim();
+          if (t) return t.slice(0, 120);
+        }
+        prev = prev.previousElementSibling;
+      }
+      node = node.parentElement;
+    }
+    return null;
+  }
+
+  function captureFormShape(limit) {
+    const cap = Math.max(1, Math.min(300, limit || 150));
+    const els = querySelectorAllDeep("input, select, textarea").filter(isFillable);
+    const fields = [];
+    let section = null;
+    for (const el of els.slice(0, cap)) {
+      const f = {};
+      f.type = el.tagName === "SELECT"
+        ? (el.multiple ? "select-multiple" : "select-one")
+        : el.tagName === "TEXTAREA"
+          ? "textarea"
+          : String(el.getAttribute("type") || "text").toLowerCase();
+      // An id/name/label of "" is meaningful — Greenhouse's value-holder twins
+      // are recognizable ONLY by having no identity at all — so omit the keys
+      // rather than writing empty strings the fixture builder would treat as
+      // present. buildForm() relies on that same absence.
+      if (el.id) f.id = String(el.id).slice(0, 120);
+      if (el.name) f.name = String(el.name).slice(0, 120);
+      let lbl = "";
+      try { lbl = labelForText(el) || ""; } catch (_) { lbl = ""; }
+      if (lbl) f.label = lbl.trim().slice(0, 200);
+      const aria = el.getAttribute("aria-label");
+      if (aria) f.aria = aria.trim().slice(0, 200);
+      const ph = el.getAttribute("placeholder");
+      if (ph) f.placeholder = ph.trim().slice(0, 200);
+      if (el.required || el.getAttribute("aria-required") === "true") f.required = true;
+      if (el.tagName === "SELECT") {
+        // Option TEXT only. It is authored by the site, not the applicant, and
+        // the engine's matching cannot be reproduced offline without it.
+        f.options = Array.from(el.options || []).slice(0, 60)
+          .map(o => (o.textContent || "").trim().slice(0, 120))
+          .filter(Boolean);
+      }
+      const head = headingAbove(el);
+      if (head && head !== section) { section = head; f.section = head; }
+      fields.push(f);
+    }
+    return {
+      // Query string dropped: tracking parameters and one-time apply tokens
+      // live there, and the path is all the fixture needs to identify the ATS.
+      url: String(location.href).split("?")[0].slice(0, 300),
+      hostname: location.hostname,
+      title: (document.title || "").slice(0, 200),
+      field_count: fields.length,
+      truncated: els.length > cap,
+      fields,
+    };
+  }
+
   window.__jobTrackerAutofill = {
     run, collectUnfilledFields, applyAiFills, collectLearnableAnswers,
-    validateBeforeSubmit, findSubmitButton,
+    validateBeforeSubmit, findSubmitButton, captureFormShape,
     // Called by the popup AFTER the AI phase has had its turn — submitting
     // straight from run() would fire before those fields were filled.
     submitIfComplete: () => maybeAutoSubmit({ autoSubmit: true }),
