@@ -3975,7 +3975,8 @@ def autopilot_capture():
     allowed = {"type", "id", "name", "label", "aria", "placeholder",
                "required", "options", "section",
                "role", "aria_autocomplete", "aria_haspopup", "list",
-               "readonly", "disabled", "shadow_hosts", "combobox", "has_value"}
+               "readonly", "disabled", "shadow_hosts", "combobox", "has_value",
+               "not_fillable"}
     clean = []
     for f in fields[:300]:
         if not isinstance(f, dict):
@@ -3994,7 +3995,8 @@ def autopilot_capture():
                 row[k] = str(row[k])[:200]
         # Flags are stored only when true, so absence reads as "not set" rather
         # than as a false the capture never actually observed.
-        for k in ("required", "list", "readonly", "disabled", "combobox", "has_value"):
+        for k in ("required", "list", "readonly", "disabled", "combobox", "has_value",
+                  "not_fillable"):
             if row.get(k):
                 row[k] = True
             else:

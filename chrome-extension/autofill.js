@@ -2490,7 +2490,16 @@
 
   function captureFormShape(limit) {
     const cap = Math.max(1, Math.min(300, limit || 150));
-    const els = querySelectorAllDeep("input, select, textarea").filter(isFillable);
+    const all = querySelectorAllDeep("input, select, textarea");
+    const fillable = all.filter(isFillable);
+    // When isFillable rejected EVERYTHING, the fillable list is empty and a
+    // capture of it says nothing -- which is the no_form case, the one where
+    // the engine is most blind and the evidence matters most. Fall back to the
+    // raw list and mark what was rejected, so the capture answers "why did the
+    // engine see no fields here" instead of just restating that it didn't.
+    const usingRaw = fillable.length === 0 && all.length > 0;
+    const els = usingRaw ? all : fillable;
+    const fillableSet = new Set(fillable);
     const fields = [];
     let section = null;
     for (const el of els.slice(0, cap)) {
@@ -2554,11 +2563,17 @@
           .map(o => (o.textContent || "").trim().slice(0, 120))
           .filter(Boolean);
       }
+      if (!fillableSet.has(el)) f.not_fillable = true;
       const head = headingAbove(el);
       if (head && head !== section) { section = head; f.section = head; }
       fields.push(f);
     }
     return {
+      // Both counts, because their gap IS the diagnosis: controls present in
+      // the DOM versus controls the engine was willing to touch.
+      dom_controls: all.length,
+      engine_fillable: fillable.length,
+      raw_fallback: usingRaw,
       // Query string dropped: tracking parameters and one-time apply tokens
       // live there, and the path is all the fixture needs to identify the ATS.
       url: String(location.href).split("?")[0].slice(0, 300),

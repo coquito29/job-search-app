@@ -120,10 +120,17 @@
       // attempt to understand a 0/8 costs another real application. Top frame
       // only (all_frames means an ad iframe would otherwise report a 0/0), and
       // only when there was a form to miss.
+      // A total of 0 is not "nothing to see" -- it is the no_form failure, the
+      // one where the engine could not read the page at all, and it was the
+      // majority outcome of the 2026-09-04 sweep. Capturing only when
+      // total > 0 meant the worst failures were the ones leaving no evidence.
       const CAPTURE_FILL_RATIO = 0.5;
       const seenTotal = r1.total || 0;
-      if (window === window.top && appUrl && seenTotal > 0
-          && (combined / seenTotal) < CAPTURE_FILL_RATIO
+      const pageHasControls = !!document.querySelector("input, select, textarea, form");
+      const worthCapturing = seenTotal > 0
+        ? (combined / seenTotal) < CAPTURE_FILL_RATIO
+        : pageHasControls;
+      if (window === window.top && appUrl && worthCapturing
           && window.__jobTrackerAutofill.captureFormShape) {
         try {
           const capture = window.__jobTrackerAutofill.captureFormShape();
