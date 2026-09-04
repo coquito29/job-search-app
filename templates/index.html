@@ -3531,7 +3531,12 @@ async function refreshToday() {
   if (card && list) {
     if (pending.length) {
       if (cnt) cnt.textContent = pending.length;
-      list.innerHTML = pending.map(a => {
+      // Two piles, not one. A ready_to_tick row is a FINISHED application --
+      // the extension armed armCaptchaAutoSubmit, so the form sends itself the
+      // moment the box is ticked. The rest still want typed answers. Sorting
+      // them together by time buried the one-click jobs among the real work,
+      // which is why a 16-row list read as 16 chores when several were clicks.
+      const rowHtml = (a, tick) => {
         const filled = (a.total ? `${a.filled}/${a.total} fields` : `${a.filled || 0} fields`);
         return `<div class="today-pending-row">
           <div class="today-pending-main">
@@ -3541,10 +3546,21 @@ async function refreshToday() {
             </div>
             ${a.detail ? `<div class="today-pending-detail">↳ ${escHtml(a.detail)}</div>` : ''}
           </div>
-          <a class="btn btn-sm btn-outline-primary" style="font-size:.74rem;flex:none;"
-             href="${escHtml(a.url)}" target="_blank" rel="noopener">Open</a>
+          <a class="btn btn-sm ${tick ? 'btn-success' : 'btn-outline-primary'}"
+             style="font-size:.74rem;flex:none;"
+             href="${escHtml(a.url)}" target="_blank" rel="noopener">${tick ? 'Open &amp; tick' : 'Open'}</a>
         </div>`;
-      }).join('');
+      };
+      const group = (label, rows, tick) => rows.length
+        ? `<div style="font-size:.76rem;font-weight:700;margin:10px 0 4px;
+                       color:${tick ? '#198754' : '#6c757d'};">${label} (${rows.length})</div>`
+          + rows.map(a => rowHtml(a, tick)).join('')
+        : '';
+      list.innerHTML =
+        group('One tick from submitted — the form sends itself',
+              pending.filter(a => a.ready_to_tick), true) +
+        group('Still needs answers',
+              pending.filter(a => !a.ready_to_tick), false);
       card.style.display = '';
     } else {
       card.style.display = 'none';

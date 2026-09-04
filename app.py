@@ -3623,6 +3623,36 @@ def _blocker_questions(detail):
     return out
 
 
+def _captcha_only(detail):
+    """True when ticking a CAPTCHA is the ONLY thing left on a filled form.
+
+    These rows are finished applications, not failures. content.js calls
+    armCaptchaAutoSubmit before it returns needs_review, so the form submits
+    itself the moment the box is ticked -- one interaction, no hunting for the
+    Submit button. Rows that still want typed answers need real work instead,
+    and burying the first kind among the second is what makes a 16-row list
+    look like 16 chores when four of them are one click each.
+
+    Deliberately stricter than `not _blocker_questions(detail)`: that helper
+    drops labels the engine could not name ("required: field", from an
+    anonymous Greenhouse value-holder twin), and an unnameable required input
+    is still a real blocker. Anything that is not a CAPTCHA disqualifies.
+    """
+    text = re.sub(r"^\s*filled\s*[;,]?\s*waiting on you\s*[-–—]+\s*", "",
+                  str(detail or "").strip(), flags=re.I)
+    saw_captcha = False
+    for part in text.split(";"):
+        part = re.sub(r"^\s*waiting on you\s*[-–—]+\s*", "",
+                      part.strip(), flags=re.I).strip()
+        if not part:
+            continue
+        if _BLOCKER_CAPTCHA_RE.search(part):
+            saw_captcha = True
+            continue
+        return False
+    return saw_captcha
+
+
 def _requeue_class(detail):
     """How a needs_review row would fare on a second attempt.
 
@@ -3954,9 +3984,13 @@ def autopilot_status():
             "other":        sum(1 for r in results if r not in ("submitted", "needs_review")),
             "total":        len(results),
         },
+        # ready_to_tick splits the pile: True means the form is complete and a
+        # single CAPTCHA tick submits it, False means it still wants answers.
+        # The client sorts on it so the one-click jobs stop being buried.
         "pending": [
-            {k: _row_get(r, k) for k in
-             ("url", "title", "company", "detail", "filled", "total", "attempted_at")}
+            dict({k: _row_get(r, k) for k in
+                  ("url", "title", "company", "detail", "filled", "total", "attempted_at")},
+                 ready_to_tick=_captcha_only(_row_get(r, "detail")))
             for r in pending],
         "day_start_utc":   since,
         "last_attempt_at": _row_get(last, "attempted_at") if last else None,

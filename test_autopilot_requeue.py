@@ -175,6 +175,30 @@ check("an anonymous field carries no question to answer",
 check("empty detail is safe", bq("") == [])
 check("None detail is safe", bq(None) == [])
 
+# ── Which of those rows are already finished ────────────────────────────────
+# A CAPTCHA-only row is a complete application: content.js armed
+# armCaptchaAutoSubmit, so ticking the box submits it. The Today list shows
+# those first, separately from rows that still want typed answers, so one
+# click is never buried among several minutes of work.
+
+co = appmod._captcha_only
+check("a CAPTCHA alone means the form is ready to send", co(CAPTCHA_ONLY) is True)
+check("a CAPTCHA plus a real question is not ready", co(BOTH) is False)
+check("a question alone is not ready", co(REQUIRED_ONLY) is False)
+check("an empty upload slot is not ready", co(FILE_ONLY) is False)
+check("a consent box the engine must not tick is not ready", co(CONSENT_ONLY) is False)
+# Stricter than _blocker_questions on purpose: that helper drops "field" as
+# unnameable, but an anonymous required input still blocks the submit.
+check("an anonymous required field still blocks, even though it has no label",
+      co("filled; waiting on you — CAPTCHA present — needs a human; "
+         "required: field") is False)
+check("a missing submit button is not ready",
+      co("filled; waiting on you — no submit button found") is False)
+check("a form-side rejection is not ready",
+      co("filled; waiting on you — rejected by form: A full name is required") is False)
+check("empty detail is not ready", co("") is False)
+check("None detail is not ready", co(None) is False)
+
 # The endpoint de-duplicates across jobs and ranks by how many each one cost.
 # Seeded fresh so the counts are unambiguous.
 with appmod._db_conn() as conn:
