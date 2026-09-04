@@ -67,6 +67,22 @@ const PROFILE = {
     ['Are you currently employed?', 'Yes'],
     ['What timezone are you located in', 'Eastern Time'],
     ['Are you at least 18 years of age', 'Yes'],
+    // Mirrors QA_SEED in app.py — the server now ships these to every profile,
+    // so the diagnostic has to send them too or it measures a profile that no
+    // longer exists. Keep the two lists in step when either changes.
+    ['What programming language are you most proficient in?', 'Python'],
+    ['What AI tool or LLM are you most familiar with?', 'Claude'],
+    ['Are you located in one of the following countries?', 'Yes - United States'],
+    ['Country of residence', 'United States'],
+    ['Current location (city)', 'Egg Harbor Township, New Jersey'],
+    ['Where did you hear about this job?', 'LinkedIn'],
+    ['Headline', 'IT Support Specialist - 3+ years experience, Cybersecurity Masters in progress'],
+    ['Professional summary', 'Bilingual EN/ES IT support candidate with 3+ years of technical experience at Cholo Tech.'],
+    ['Why are you interested in this position?', 'This role lines up directly with the Cybersecurity Masters I am pursuing at Franklin University.'],
+    ['What style of management do you prefer from your supervisor?', 'Clear expectations and direct feedback.'],
+    ['When faced with an unexpected challenge at work, my first step is', 'Gather information and reproduce the problem before changing anything.'],
+    ['What is your comfort level escalating when you experience a problem?', 'Very comfortable. I escalate early.'],
+    ['When faced with a problem or a task, do you ask an AI tool first?', 'I use AI tools as a research aid, then verify against documentation.'],
   ],
 };
 

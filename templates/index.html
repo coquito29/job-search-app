@@ -6125,6 +6125,41 @@ const QA_CANONICAL = [
   ['Salary expectation',       'Negotiable / job posted range'],
   ['Notice period',            'Available immediately (2-week notice)'],
   ['E-signature',              'George Tupayachi'],
+  // Recurring screeners — mirrors QA_SEED in app.py, which is what the
+  // extension actually fills from. These are here so the answers are
+  // reviewable and editable; the opinion ones especially are drafts.
+  ['What programming language are you most proficient in?', 'Python'],
+  ['What AI tool or LLM are you most familiar with?',       'Claude'],
+  ['Are you located in one of the following countries?',    'Yes - United States'],
+  ['Country of residence',                                  'United States'],
+  ['Current location (city)',                               'Egg Harbor Township, New Jersey'],
+  ['Where did you hear about this job?',                    'LinkedIn'],
+  ['Headline',
+   'IT Support Specialist - 3+ years experience, Cybersecurity Masters in progress'],
+  ['Professional summary',
+   "Bilingual EN/ES IT support candidate with 3+ years of technical experience at Cholo Tech "
+   + "(development, troubleshooting, hardware and software support) plus 5+ years of high-volume "
+   + "customer-facing operations at Ocean Casino Resort and Harrah's. Currently pursuing a Masters "
+   + "in Cybersecurity at Franklin University with hands-on labs in Windows administration, "
+   + "networking (TCP/IP, DNS, DHCP), endpoint hardening, and incident response. Holds the Google "
+   + "Cybersecurity Professional Certificate."],
+  ['Why are you interested in this position?',
+   'This role lines up directly with the Cybersecurity Masters I am pursuing at Franklin University '
+   + 'and the hands-on troubleshooting and hardware/software support I built over 3+ years at Cholo '
+   + 'Tech. I am looking for a help desk or service desk role with a clear path toward Tier 2/3 and '
+   + 'SOC work, and this is that kind of launching pad.'],
+  ['What style of management do you prefer from your supervisor?',
+   'Clear expectations and direct feedback. I do my best work when priorities are explicit and I can '
+   + 'ask questions early rather than guess.'],
+  ['When faced with an unexpected challenge at work, my first step is',
+   'Gather information and reproduce the problem before changing anything, then escalate early if it '
+   + 'is affecting users.'],
+  ['What is your comfort level escalating when you experience a problem?',
+   'Very comfortable. I escalate early, with the steps I have already tried and the impact on users '
+   + 'spelled out.'],
+  ['When faced with a problem or a task, do you ask an AI tool first?',
+   'I use AI tools as a research aid, then verify against documentation and test before applying '
+   + 'anything.'],
 ];
 // Live copy — initialised from canonical, then overridden from /api/profile.
 let qaDefaults = QA_CANONICAL.map(([k, v]) => [k, v]);

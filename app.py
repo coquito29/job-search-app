@@ -4148,6 +4148,75 @@ def application_stats():
 
 # ── Profile export for the Chrome extension auto-fill ───────────────────────
 
+# Recurring screener questions the engine FINDS but has no answer for.
+#
+# Measured 2026-09-03 with chrome-extension/tests/fixture_runner.mjs: Greenhouse
+# filled 13 of 25 fields, and every miss was a screener like these -- not one
+# identity field among them. The engine was working; qa_defaults was empty,
+# because the only way to grow it is the extension's "Learn answers" button and
+# there was no desktop to run it on. So the answers below ship as a floor.
+#
+# These are merged BEHIND the user's own saved answers (see _profile_payload),
+# so anything edited in the app always wins and nothing here overwrites a real
+# answer. Opinion answers are drafted from the profile's actual background and
+# are meant to be reviewed in the app's Q&A editor, not treated as final.
+QA_SEED = [
+    # -- Factual: straight from the profile below, no judgement involved.
+    ["What programming language are you most proficient in?", "Python"],
+    ["What AI tool or LLM are you most familiar with?", "Claude"],
+    ["Are you located in one of the following countries?", "Yes - United States"],
+    ["Country of residence", "United States"],
+    ["Current location (city)", "Egg Harbor Township, New Jersey"],
+    ["Where did you hear about this job?", "LinkedIn"],
+    ["Headline",
+     "IT Support Specialist - 3+ years experience, Cybersecurity Masters in progress"],
+    ["Professional summary",
+     "Bilingual EN/ES IT support candidate with 3+ years of technical experience at "
+     "Cholo Tech (development, troubleshooting, hardware and software support) plus "
+     "5+ years of high-volume customer-facing operations at Ocean Casino Resort and "
+     "Harrah's. Currently pursuing a Masters in Cybersecurity at Franklin University "
+     "with hands-on labs in Windows administration, networking (TCP/IP, DNS, DHCP), "
+     "endpoint hardening, and incident response. Holds the Google Cybersecurity "
+     "Professional Certificate."],
+    # No {{placeholders}} anywhere in here: these are pasted verbatim into a
+    # real employer's form, so a template marker would ship as literal text.
+    ["Why are you interested in this position?",
+     "This role lines up directly with the Cybersecurity Masters I am pursuing at "
+     "Franklin University and the hands-on troubleshooting and hardware/software "
+     "support I built over 3+ years at Cholo Tech. I am looking for a help desk or "
+     "service desk role with a clear path toward Tier 2/3 and SOC work, and this is "
+     "that kind of launching pad."],
+    # -- Opinion: drafted from the same background. REVIEW THESE.
+    ["What style of management do you prefer from your supervisor?",
+     "Clear expectations and direct feedback. I do my best work when priorities are "
+     "explicit and I can ask questions early rather than guess."],
+    ["When faced with an unexpected challenge at work, my first step is",
+     "Gather information and reproduce the problem before changing anything, then "
+     "escalate early if it is affecting users."],
+    ["What is your comfort level escalating when you experience a problem?",
+     "Very comfortable. I escalate early, with the steps I have already tried and "
+     "the impact on users spelled out."],
+    ["When faced with a problem or a task, do you ask an AI tool first?",
+     "I use AI tools as a research aid, then verify against documentation and test "
+     "before applying anything."],
+]
+
+
+def _merge_qa_seed(saved):
+    """User's saved answers first, then any QA_SEED question they lack.
+
+    Order is the whole point: lookupQACandidates walks the list and takes the
+    first question that matches the field label, so the user's own wording has
+    to come first or a seed would shadow an answer they deliberately edited.
+    """
+    out = [e for e in (saved or []) if isinstance(e, (list, tuple)) and len(e) == 2]
+    have = {str(q).strip().lower() for q, _ in out}
+    for q, a in QA_SEED:
+        if q.strip().lower() not in have:
+            out.append([q, a])
+    return out
+
+
 def _qa_pick(qa_defaults, needles, default):
     """First saved answer whose QUESTION contains any of `needles`.
 
@@ -4194,6 +4263,11 @@ def _build_full_profile(uid):
                     qa_defaults = qa
     except Exception:
         pass
+
+    # Top up with QA_SEED. Outside the try/except on purpose: a profile that
+    # has never been edited -- or a settings read that just failed -- should
+    # still hand the engine a usable answer list rather than an empty one.
+    qa_defaults = _merge_qa_seed(qa_defaults)
 
     # Build a flat dict of common-label → answer lookup from the user's
     # Q&A defaults. The extension can use this to match by label substring.
