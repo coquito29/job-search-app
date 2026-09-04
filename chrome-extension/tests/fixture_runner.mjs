@@ -113,6 +113,19 @@ function buildForm(fixture) {
       f.placeholder ? `placeholder="${esc(f.placeholder)}"` : '',
       f.aria ? `aria-label="${esc(f.aria)}"` : '',
       f.required ? 'required' : '',
+      // The attributes captureFormShape() records precisely BECAUSE they
+      // decide which fill path the engine takes. Dropping them here rebuilt
+      // every Greenhouse combobox as a plain text input - which the engine
+      // fills by assigning .value, and which the live page then throws away.
+      // That is why chainguard read 15 of 16 offline against 4 of 17 live on
+      // 2026-09-04. A fixture easier than the page it came from reports a
+      // pass the sweep cannot reproduce, which is worse than no fixture.
+      f.role ? `role="${esc(f.role)}"` : '',
+      f.aria_autocomplete ? `aria-autocomplete="${esc(f.aria_autocomplete)}"` : '',
+      f.aria_haspopup ? `aria-haspopup="${esc(f.aria_haspopup)}"` : '',
+      f.list && id ? `list="dl_${esc(id)}"` : '',
+      f.readonly ? 'readonly' : '',
+      f.disabled ? 'disabled' : '',
     ].filter(Boolean).join(' ');
 
     parts.push('<div class="field">');
@@ -123,7 +136,17 @@ function buildForm(fixture) {
     else if (f.type === 'select-one') {
       const opts = (f.options || ['', 'Yes', 'No']).map(o => `<option>${esc(o)}</option>`).join('');
       parts.push(`<select ${attrs}>${opts}</select>`);
-    } else parts.push(`<input type="${esc(f.type || 'text')}" ${attrs} />`);
+    } else {
+      parts.push(`<input type="${esc(f.type || 'text')}" ${attrs} />`);
+      // An input carrying list= without the datalist it names is a dangling
+      // reference, not a picker: the engine reads the attribute and then finds
+      // nothing behind it.
+      if (f.list && id) {
+        parts.push(`<datalist id="dl_${esc(id)}">` +
+          (f.options || []).map(o => `<option>${esc(o)}</option>`).join('') +
+          '</datalist>');
+      }
+    }
     parts.push('</div>');
   });
 

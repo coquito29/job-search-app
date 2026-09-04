@@ -239,5 +239,76 @@
       {"type": "select-one", "id": "source", "label": "How did you hear about us?", "options": ["Please select", "LinkedIn", "Job Board", "Employee Referral", "Other"]},
       {"type": "select-one", "id": "previously_employed", "label": "Have you previously been employed by this company?", "options": ["Please select", "Yes", "No"]}
     ]
+  },
+  "greenhouse_chainguard": {
+    "url": "https://job-boards.greenhouse.io/chainguard/jobs/4710554006",
+    "ats": "Greenhouse",
+    "company": "chainguard",
+    "field_count": 16,
+    "notes": "Captured live 2026-09-04T04:46:33.741802: the engine filled 4 of 17 here. Captured by v0.19.0, six minutes before v0.19.1 began recording role/aria-autocomplete, so every combobox here is stored as a plain text input and the offline count runs optimistic against the live one. Re-sweep this URL to refine the row in place.",
+    "fields": [
+      {"type": "text", "id": "first_name", "label": "First Name*", "aria": "First Name", "required": true},
+      {"type": "text", "id": "last_name", "label": "Last Name*", "aria": "Last Name", "required": true},
+      {"type": "text", "id": "preferred_name", "label": "Preferred First Name*", "aria": "Preferred First Name", "required": true},
+      {"type": "text", "id": "email", "label": "Email*", "aria": "Email", "required": true},
+      {"type": "text", "id": "country", "label": "Country*", "required": true},
+      {"type": "tel", "id": "phone", "label": "Phone*", "aria": "Phone", "required": true},
+      {"type": "text", "id": "candidate-location", "label": "Location (City)*", "required": true},
+      {"type": "text", "id": "question_8668823006", "label": "LinkedIn Profile*", "aria": "LinkedIn Profile", "required": true},
+      {"type": "text", "id": "question_8668824006", "label": "What city, state (if applicable), and country do you intend to work out of?*", "aria": "What city, state (if applicable), and country do you intend to work out of?", "required": true},
+      {"type": "text", "id": "question_8668825006", "label": "At this time, Chainguard is unable to provide employment sponsorship. Will you now, or in the future, require Chainguard to provide employment sponsorship for the country in which you are applying? (f", "required": true},
+      {"type": "textarea", "id": "question_8668826006", "label": "Why are you interested in this position?*", "aria": "Why are you interested in this position?", "required": true},
+      {"type": "textarea", "id": "question_8668827006", "label": "Is there anything else you would like us to know as we review your application?", "aria": "Is there anything else you would like us to know as we review your application?"},
+      {"type": "text", "id": "gender", "label": "Gender"},
+      {"type": "text", "id": "hispanic_ethnicity", "label": "Are you Hispanic/Latino?"},
+      {"type": "text", "id": "veteran_status", "label": "Veteran Status"},
+      {"type": "text", "id": "disability_status", "label": "Disability Status"}
+    ]
+  },
+  "greenhouse_onenergy": {
+    "url": "https://job-boards.greenhouse.io/onenergy/jobs/4391904009",
+    "ats": "Greenhouse",
+    "company": "onenergy",
+    "field_count": 19,
+    "notes": "Captured live 2026-09-04T04:44:48.750749: the engine filled 7 of 20 here. Captured by v0.19.0, six minutes before v0.19.1 began recording role/aria-autocomplete, so every combobox here is stored as a plain text input and the offline count runs optimistic against the live one. Re-sweep this URL to refine the row in place.",
+    "fields": [
+      {"type": "text", "id": "first_name", "label": "First Name*", "aria": "First Name", "required": true},
+      {"type": "text", "id": "last_name", "label": "Last Name*", "aria": "Last Name", "required": true},
+      {"type": "text", "id": "preferred_name", "label": "Preferred First Name", "aria": "Preferred First Name"},
+      {"type": "text", "id": "email", "label": "Email*", "aria": "Email", "required": true},
+      {"type": "text", "id": "country", "label": "Country*", "required": true},
+      {"type": "tel", "id": "phone", "label": "Phone*", "aria": "Phone", "required": true},
+      {"type": "textarea", "id": "question_7445982009", "label": "Brag a Little (We Won’t Judge)!\n\nWhat’s one achievement, skill, or story that proves you’d crush this role? This is your moment (We do read them)!", "aria": "Brag a Little (We Won’t Judge)!\n\nWhat’s one achievement, skill, or story that proves you’d crush this role? This is your moment (We do read them)!"},
+      {"type": "text", "id": "question_7445983009", "label": "Please provide your LinkedIn profile.", "aria": "Please provide your LinkedIn profile."},
+      {"type": "text", "id": "question_7445984009", "label": "Will you now or in the future require employer sponsorship for employment visa status (e.g., H-1B visa)?*", "required": true},
+      {"type": "text", "id": "4007961009", "label": "How would you describe your gender identity?", "section": "U.S. Standard Demographic Questions"},
+      {"type": "text", "id": "4007962009", "label": "How would you describe your racial/ethnic background?"},
+      {"type": "text", "id": "4007963009", "label": "How would you describe your sexual orientation?"},
+      {"type": "text", "id": "4007964009", "label": "Do you identify as transgender?"},
+      {"type": "text", "id": "4007965009", "label": "Do you have a disability or chronic condition (physical, visual, auditory, cognitive, mental, emotional, or other) that substantially limits one or more of your major life activities, including mobili"},
+      {"type": "text", "id": "4007966009", "label": "Are you a veteran or active member of the United States Armed Forces?"},
+      {"type": "text", "id": "gender", "label": "Gender"},
+      {"type": "text", "id": "hispanic_ethnicity", "label": "Are you Hispanic/Latino?"},
+      {"type": "text", "id": "veteran_status", "label": "Veteran Status"},
+      {"type": "text", "id": "disability_status", "label": "Disability Status"}
+    ]
+  },
+  "rippling_cardiff": {
+    "url": "https://ats.rippling.com/cardiff/jobs/bb3e5b78-3195-4452-bfba-1cbf70922b9c/apply",
+    "ats": "Rippling",
+    "company": "cardiff",
+    "field_count": 9,
+    "notes": "Captured live 2026-09-04T04:51:05.550406: the engine filled 1 of 10 here. Captured by v0.19.0, six minutes before v0.19.1 began recording role/aria-autocomplete, so every combobox here is stored as a plain text input and the offline count runs optimistic against the live one. Re-sweep this URL to refine the row in place.",
+    "fields": [
+      {"type": "text", "id": "field-12", "name": "leQEHRJYtA", "placeholder": "First name", "required": true, "section": "Application: IT Support and Salesforce Administrator"},
+      {"type": "text", "id": "field-16", "name": "F6v3Dq-Wssr", "placeholder": "Last name", "required": true},
+      {"type": "text", "id": "field-20", "name": "eqbRKSJCLYb", "placeholder": "Email", "required": true},
+      {"type": "text", "id": "field-24", "name": "_RJJ_Yv7Bfq", "aria": "Search", "placeholder": "Search"},
+      {"type": "text", "id": "field-31", "name": "lXc0fbaS2t0", "placeholder": "Current company"},
+      {"type": "text", "id": "field-38", "name": "iJIjk9Xjia9", "aria": "Search", "placeholder": "Search", "required": true},
+      {"type": "text", "id": "field-35", "name": "w1SdYKYjTM9", "placeholder": "Phone number", "required": true},
+      {"type": "text", "id": "field-46", "name": "4_5xRQZhCfQ", "aria": "textbox", "required": true},
+      {"type": "text", "id": "field-101", "name": "46J0jHavbH6", "aria": "Select...", "placeholder": "Select..."}
+    ]
   }
 }
