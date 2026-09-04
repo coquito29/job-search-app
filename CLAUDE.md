@@ -29,7 +29,20 @@ and that is the path to extend.
 If a task genuinely cannot be done within this constraint, say so and stop —
 do not reach for a second provider.
 
-## The product is desktop autopilot. He is currently building from a phone
+## The product is desktop autopilot. He is at a desktop again since 2026-09-04
+
+**Update 2026-09-04:** he is working from a Windows PC with the extension
+loaded and running. Sweeps happen, `/api/autopilot/blockers` and Re-queue
+return live rows, and extension changes ARE testable -- reload at
+`chrome://extensions` and check `manifest.json`'s version. The phone-era
+guidance below still applies whenever he goes back to mobile; treat it as
+conditional, not current.
+
+Live captures now feed the offline suite: any form the engine fills less
+than half of is uploaded by `captureFormShape()` and served back in fixture
+shape by `GET /api/autopilot/captures`. Promote those into
+`chrome-extension/form_fixtures.json` rather than spending real
+applications to study a page.
 
 Two different things, and conflating them sends work in the wrong direction.
 
@@ -104,7 +117,7 @@ and checked out CRLF. **Five files are stored WITH CRLF in the blob itself**
 ```
 app.py                            templates/index.html
 chrome-extension/popup.html       chrome-extension/popup.js
-chrome-extension/tests/README.md
+chrome-extension/tests/README.md   CLAUDE.md
 ```
 
 An earlier version of this section named only the first two — popup.js and

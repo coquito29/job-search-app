@@ -2514,6 +2514,39 @@
       const ph = el.getAttribute("placeholder");
       if (ph) f.placeholder = ph.trim().slice(0, 200);
       if (el.required || el.getAttribute("aria-required") === "true") f.required = true;
+      // The attributes that decide WHICH FILL PATH the engine takes. Without
+      // them a capture cannot tell "the engine skipped this" from "the engine
+      // wrote a value and the page threw it away" -- and those need opposite
+      // fixes. Greenhouse's demographic questions arrive as type="text" backed
+      // by a popup listbox, indistinguishable from a plain input without these.
+      const role = el.getAttribute("role");
+      if (role) f.role = role.slice(0, 40);
+      const aac = el.getAttribute("aria-autocomplete");
+      if (aac) f.aria_autocomplete = aac.slice(0, 40);
+      const ahp = el.getAttribute("aria-haspopup");
+      if (ahp) f.aria_haspopup = ahp.slice(0, 40);
+      if (el.getAttribute("list")) f.list = true;
+      if (el.readOnly) f.readonly = true;
+      if (el.disabled) f.disabled = true;
+      // SmartRecruiters-style components put no combobox ARIA on the inner
+      // input; the host element's tag name is the only signal.
+      try {
+        const hosts = shadowHostChain(el).map(h => (h.tagName || "").toLowerCase())
+                        .filter(Boolean).slice(0, 6);
+        if (hosts.length) f.shadow_hosts = hosts;
+      } catch (_) { /* not in a shadow root */ }
+      // The engine's OWN verdict, which is the fastest way to see a
+      // misclassification: a listbox-backed input reported as plain text is
+      // the bug, stated directly instead of inferred.
+      try { if (isComboboxLike(el)) f.combobox = true; } catch (_) {}
+      // Whether the control ended up non-empty -- the BOOLEAN only, never the
+      // content. This is the datum that separates "never touched" from
+      // "filled, then rejected", and it carries nothing the user typed.
+      try {
+        const v = el.type === "checkbox" || el.type === "radio"
+          ? el.checked : (el.value || "");
+        if (v === true || (typeof v === "string" && v.trim() !== "")) f.has_value = true;
+      } catch (_) {}
       if (el.tagName === "SELECT") {
         // Option TEXT only. It is authored by the site, not the applicant, and
         // the engine's matching cannot be reproduced offline without it.

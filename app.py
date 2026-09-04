@@ -3969,8 +3969,13 @@ def autopilot_capture():
     if not isinstance(fields, list) or not fields:
         return _autofill_cors_response((jsonify({"error": "no fields in capture"}), 400))
 
+    # Descriptor keys only. has_value is a BOOLEAN -- whether the control ended
+    # up non-empty -- and never the content: it is what separates "the engine
+    # skipped this" from "the engine filled it and the page rejected it".
     allowed = {"type", "id", "name", "label", "aria", "placeholder",
-               "required", "options", "section"}
+               "required", "options", "section",
+               "role", "aria_autocomplete", "aria_haspopup", "list",
+               "readonly", "disabled", "shadow_hosts", "combobox", "has_value"}
     clean = []
     for f in fields[:300]:
         if not isinstance(f, dict):
@@ -3978,17 +3983,22 @@ def autopilot_capture():
         row = {k: v for k, v in f.items() if k in allowed}
         if not row:
             continue
-        if isinstance(row.get("options"), list):
-            row["options"] = [str(o)[:120] for o in row["options"][:60]]
-        else:
-            row.pop("options", None)
-        for k in ("type", "id", "name", "label", "aria", "placeholder", "section"):
+        for list_key, cap_len, item_len in (("options", 60, 120), ("shadow_hosts", 6, 40)):
+            if isinstance(row.get(list_key), list):
+                row[list_key] = [str(o)[:item_len] for o in row[list_key][:cap_len]]
+            else:
+                row.pop(list_key, None)
+        for k in ("type", "id", "name", "label", "aria", "placeholder", "section",
+                  "role", "aria_autocomplete", "aria_haspopup"):
             if k in row:
                 row[k] = str(row[k])[:200]
-        if row.get("required"):
-            row["required"] = True
-        else:
-            row.pop("required", None)
+        # Flags are stored only when true, so absence reads as "not set" rather
+        # than as a false the capture never actually observed.
+        for k in ("required", "list", "readonly", "disabled", "combobox", "has_value"):
+            if row.get(k):
+                row[k] = True
+            else:
+                row.pop(k, None)
         clean.append(row)
     if not clean:
         return _autofill_cors_response((jsonify({"error": "nothing storable"}), 400))
