@@ -1,12 +1,15 @@
 name: Daily Job Digest
 
 on:
-  schedule:
-    # 4:00 AM Eastern (EDT) = 08:00 UTC. GitHub cron is fixed UTC and does
-    # NOT adjust for DST: once EST starts in November this fires at 3:00 AM
-    # Eastern — change to "0 9 * * *" then if 4 AM should hold year-round.
-    - cron: "0 8 * * *"
-  workflow_dispatch:   # allows manual trigger from GitHub Actions tab
+  # PAUSED 2026-09-08 while the job hunt is on hold. Each run spends ~$0.60 of
+  # the Apify plan (~$18/mo), and nothing reads the digest right now. The
+  # schedule is commented out rather than deleted so restarting is one edit.
+  # schedule:
+  #   # 4:00 AM Eastern (EDT) = 08:00 UTC. GitHub cron is fixed UTC and does
+  #   # NOT adjust for DST: once EST starts in November this fires at 3:00 AM
+  #   # Eastern — change to "0 9 * * *" then if 4 AM should hold year-round.
+  #   - cron: "0 8 * * *"
+  workflow_dispatch:   # still allows a manual one-off run from the Actions tab
 
 jobs:
   send-digest:
