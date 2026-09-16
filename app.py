@@ -1156,18 +1156,15 @@ def score_job(job, profile):
         block_bonus += -40
         block_labels.append("Call center role")
 
-    # Work eligibility by location. Remote != US-remote: the digest kept
-    # surfacing Poznan, Malta, Bucharest and Bengaluru roles that are perfectly
-    # remote and perfectly unusable, and George only found out at the
-    # application form. Penalize + tag here; the sort in /api/search also parks
-    # these below everything applyable. UNKNOWN locations are left alone on
-    # purpose -- upstream falls back to a bare "Remote", so that bucket is
-    # large, and penalizing it is exactly how the old US-state whitelist broke.
+    # Worldwide remote roles belong in the search results, but the robot must
+    # never infer cross-border work eligibility. Keep a country-limited role
+    # visible for relocation/manual review and mark it as human-owned; the
+    # autopilot queue below excludes every blocker.
     loc_class, loc_country = classify_location(job.get("location"))
     if loc_class == "NON_US":
-        block_bonus += -35
         block_labels.append(
-            f"Non-US ({loc_country})" if loc_country else "Non-US location")
+            f"Location eligibility to verify ({loc_country})" if loc_country
+            else "Location eligibility to verify")
 
     # Scam red flags: penalties stack across distinct signals but are capped
     # so a single false positive (e.g. a legit small shop with a gmail contact)
@@ -3779,7 +3776,9 @@ def autopilot_queue():
 
     queue = []
     for j in digest_jobs:
-        # Hard safety gate: only clean, fast-apply, US-eligible jobs. Scam
+        # Hard safety gate: only clean, fast-apply jobs with confirmed location
+        # eligibility. Worldwide remote roles stay visible in the app for
+        # manual review, but never reach unattended autofill.
         # flags, blockers (clearance/language/CS role/ghost), walled ATSes
         # and anything below the match floor never reach the robot — those
         # stay in the app for human review.

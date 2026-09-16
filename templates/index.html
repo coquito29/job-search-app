@@ -119,6 +119,25 @@
       background: var(--bs-body-bg);
       padding-bottom: 40px;
       min-height: 100vh;
+      background-image: radial-gradient(circle at 15% -10%, rgba(30,99,216,.14), transparent 32%),
+                        radial-gradient(circle at 90% 0%, rgba(22,163,74,.08), transparent 24%);
+    }
+
+    @keyframes rise-in {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes soft-pulse {
+      0%, 100% { box-shadow: var(--shadow-sm); }
+      50% { box-shadow: 0 10px 24px -14px rgba(30,99,216,.42), 0 0 0 1px rgba(30,99,216,.09); }
+    }
+    .section-card { animation: rise-in .42s var(--ease-out) both; }
+    .section-card:nth-of-type(2) { animation-delay: .05s; }
+    .section-card:nth-of-type(3) { animation-delay: .1s; }
+    .section-card:hover { transform: translateY(-2px); transition: transform .2s var(--ease-out); }
+    #todayCard { animation: rise-in .42s var(--ease-out) both, soft-pulse 4s ease-in-out 1s infinite; }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
     }
 
     /* ── Header ─────────────────────────────────────────── */
