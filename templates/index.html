@@ -4689,6 +4689,17 @@ async function searchJobs() {
     updateStepIndicators();
     // Persist results so a reload/navigation doesn't nuke the ~$1.20 Apify pull
     saveResultsToStorage(data);
+    // A manual search used to be browser-only, while the extension's
+    // autopilot could only see the scheduled Daily Digest. Keep this exact
+    // result set on the app so “Run autopilot now” can consider its safe,
+    // fast-apply entries immediately. The server applies the same safety,
+    // location and scam gates before anything is opened.
+    fetch('/api/autopilot/manual-search', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({jobs: allJobs}),
+    }).catch(() => {});
     // Hide the "restored from cache" banner on a fresh search
     const banner = document.getElementById('savedResultsBanner');
     if (banner) banner.style.display = 'none';

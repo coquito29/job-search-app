@@ -250,6 +250,17 @@ def _init_applications_db():
                 emailed_to     TEXT
             )
         """)
+        # Manual searches are normally an on-screen, one-time list. Keep a
+        # short server-side copy too so the Chrome extension can use the new
+        # list immediately instead of waiting for tomorrow's Daily Digest.
+        conn.execute(f"""
+            CREATE TABLE IF NOT EXISTS autopilot_manual_searches (
+                {id_col},
+                user_id      INTEGER NOT NULL,
+                run_at       TEXT NOT NULL,
+                jobs         TEXT NOT NULL
+            )
+        """)
         # OAuth2 token store: access + refresh tokens per user/provider.
         # Currently only provider='outlook'. expires_at is a float Unix timestamp.
         conn.execute(f"""
@@ -3692,6 +3703,40 @@ def _requeue_class(detail):
     return "captcha_too" if _BLOCKER_CAPTCHA_RE.search(d) else "answerable"
 
 
+@app.route("/api/autopilot/manual-search", methods=["POST"])
+def autopilot_manual_search():
+    """Store the latest on-screen search for the extension's safe queue.
+
+    The browser has already received these jobs from /api/search; this does
+    not start applications or broaden the queue. It only lets a user-triggered
+    autopilot run consider the same new results after the normal safety gates.
+    """
+    uid, err = _auth_required()
+    if err: return err
+    data = request.get_json(force=True) or {}
+    raw_jobs = data.get("jobs") or []
+    if not isinstance(raw_jobs, list):
+        return jsonify({"error": "jobs must be a list"}), 400
+    # Preserve only ordinary job-result data, cap it, and let the queue
+    # endpoint re-score it before it can ever reach the extension.
+    jobs = [j for j in raw_jobs[:100] if isinstance(j, dict)]
+    now = datetime.utcnow().isoformat()
+    with _db_conn() as conn:
+        conn.execute(
+            "INSERT INTO autopilot_manual_searches (user_id, run_at, jobs) VALUES (?, ?, ?)",
+            (uid, now, json.dumps(jobs)),
+        )
+        # Retain a few recent lists for a sweep/catch-up run, not an unbounded
+        # archive of manual searches.
+        conn.execute(
+            "DELETE FROM autopilot_manual_searches WHERE user_id = ? AND id NOT IN "
+            "(SELECT id FROM autopilot_manual_searches WHERE user_id = ? "
+            "ORDER BY run_at DESC, id DESC LIMIT 5)",
+            (uid, uid),
+        )
+    return jsonify({"ok": True, "stored": len(jobs), "run_at": now})
+
+
 @app.route("/api/autopilot/queue", methods=["GET"])
 def autopilot_queue():
     uid, err = _auth_required()
@@ -3729,6 +3774,9 @@ def autopilot_queue():
         rows = conn.execute(
             "SELECT jobs, run_at FROM daily_searches WHERE user_id = ? "
             "ORDER BY run_at DESC LIMIT 5", (uid,)).fetchall()
+        manual_rows = conn.execute(
+            "SELECT jobs, run_at FROM autopilot_manual_searches WHERE user_id = ? "
+            "ORDER BY run_at DESC, id DESC LIMIT 5", (uid,)).fetchall()
         row = rows[0] if rows else None
         app_rows = conn.execute(
             "SELECT url FROM applications WHERE user_id = ?", (uid,)).fetchall()
@@ -3738,17 +3786,18 @@ def autopilot_queue():
         tried_rows = conn.execute(
             "SELECT url FROM autopilot_attempts WHERE user_id = ? AND result != ?",
             (uid, REQUEUED_RESULT)).fetchall()
-    if not row:
-        return jsonify({"jobs": [], "reason": "no digest run yet"})
+    if not row and not manual_rows:
+        return jsonify({"jobs": [], "reason": "no digest or manual search yet"})
 
     skip = {(_row_get(r, "url") or "").strip() for r in app_rows}
     skip |= {(_row_get(r, "url") or "").strip() for r in tried_rows}
     skip.discard("")
 
-    # Newest first, de-duplicated by URL so a job repeated across runs keeps
-    # its most recent scoring.
+    # Manual searches lead so “Run autopilot now” actually works on the list
+    # the user just made. Daily digest rows remain the fallback for overnight
+    # and catch-up runs. Everything is still de-duplicated and re-scored.
     digest_jobs, seen = [], set()
-    for r in rows:
+    for r in list(manual_rows) + list(rows):
         try:
             batch = json.loads(_row_get(r, "jobs") or "[]")
         except Exception:
@@ -3799,7 +3848,11 @@ def autopilot_queue():
         if len(queue) >= cap:
             break
 
-    return jsonify({"jobs": queue, "digest_run_at": _row_get(row, "run_at")})
+    return jsonify({
+        "jobs": queue,
+        "digest_run_at": _row_get(row, "run_at") if row else None,
+        "manual_run_at": _row_get(manual_rows[0], "run_at") if manual_rows else None,
+    })
 
 
 @app.route("/api/autopilot/attempts", methods=["GET"])
