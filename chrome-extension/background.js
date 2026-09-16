@@ -29,6 +29,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     // the run reported needs_review. Upgrade it to submitted so the tracker
     // reflects what actually went out.
     reportLateSubmit(msg)
+      .then(async r => {
+        if (r && r.ok) await clearReviewPause(msg.url);
+        return r;
+      })
       .then(r => sendResponse(r))
       .catch(e => sendResponse({ ok: false, error: e.message || String(e) }));
     return true;
@@ -198,12 +202,11 @@ const CATCHUP_DELAY_MIN = 2;    // settle after browser start before catching up
 const TAB_LOAD_TIMEOUT  = 45_000;   // page load wait
 const TAB_SETTLE_MS     = 5_000;    // extra beat for SPA form render
 const FILL_TIMEOUT      = 180_000;  // fill + AI + submit, per job
-// Every ATS form tested on 2026-08-31 (BambooHR ×2, Ashby ×2) carries a
-// visible CAPTCHA, so "needs review" is the NORMAL outcome, not the
-// exception: autopilot fills the application completely and the user only
-// ticks the box and submits. Closing those tabs threw away finished work —
-// keep the whole day's batch open.
-const MAX_REVIEW_TABS   = 20;       // filled applications left open to finish
+// A review-required form is the stop sign, not a reason to build a pile of
+// tabs. Keep exactly one open, tell the user what is missing, and resume only
+// after they finish it or close it. This keeps a real application from being
+// buried beneath a batch of half-completed forms.
+const MAX_REVIEW_TABS   = 1;
 
 // Today's 09:30 as a timestamp.
 function todaysSlot() {
@@ -273,6 +276,35 @@ chrome.runtime.onStartup.addListener(scheduleSweep);
 
 let apRunning = false;
 
+function getTab(tabId) {
+  return new Promise(resolve => {
+    try { chrome.tabs.get(tabId, tab => resolve(chrome.runtime.lastError ? null : tab)); }
+    catch (_) { resolve(null); }
+  });
+}
+
+async function activeReviewPause() {
+  const { autopilotReviewPause } = await chrome.storage.local.get("autopilotReviewPause");
+  if (!autopilotReviewPause?.tabId) return null;
+  const tab = await getTab(autopilotReviewPause.tabId);
+  if (tab) return autopilotReviewPause;
+  await chrome.storage.local.remove("autopilotReviewPause");
+  return null;
+}
+
+async function clearReviewPause(url) {
+  const { autopilotReviewPause } = await chrome.storage.local.get("autopilotReviewPause");
+  if (!autopilotReviewPause || !url || autopilotReviewPause.url === url) {
+    await chrome.storage.local.remove("autopilotReviewPause");
+  }
+}
+
+chrome.tabs.onRemoved.addListener(tabId => {
+  chrome.storage.local.get("autopilotReviewPause", ({ autopilotReviewPause }) => {
+    if (autopilotReviewPause?.tabId === tabId) chrome.storage.local.remove("autopilotReviewPause");
+  });
+});
+
 async function autopilotRun(trigger) {
   if (apRunning) return;
   apRunning = true;
@@ -286,6 +318,11 @@ async function autopilotRun(trigger) {
     if (trigger !== "manual" && autopilotEnabled === false) return; // default ON
     if (!appUrl || !profile) {
       notifySummary("Autopilot can't run", "Open the extension popup and sign in to your job app first.");
+      return;
+    }
+    const paused = await activeReviewPause();
+    if (paused) {
+      notifySummary("Autopilot paused", "Finish or close the one application waiting for you before another one opens.");
       return;
     }
     const base = appUrl.replace(/\/+$/, "");
@@ -344,17 +381,23 @@ async function autopilotRun(trigger) {
       return;
     }
 
-    let submitted = 0, review = 0, failed = 0, reviewTabs = 0;
+    let submitted = 0, review = 0, failed = 0, pausedForReview = false;
     for (const job of queue) {
       const outcome = await attemptJob(job);
       if (outcome.result === "submitted") submitted++;
       else if (outcome.result === "needs_review") review++;
       else failed++;
 
-      // Keep a few needs-review tabs open so the morning starts with the
-      // forms already filled; close everything else.
-      const keepOpen = outcome.result === "needs_review" && reviewTabs < MAX_REVIEW_TABS;
-      if (keepOpen) reviewTabs++;
+      // Keep the one incomplete form open. Do not open a second application
+      // until the user has dealt with it; that makes the remaining answer or
+      // CAPTCHA obvious instead of leaving a pile of unfinished tabs.
+      const keepOpen = outcome.result === "needs_review" && MAX_REVIEW_TABS === 1;
+      if (keepOpen) {
+        pausedForReview = true;
+        await chrome.storage.local.set({ autopilotReviewPause: {
+          tabId: outcome.tabId, url: job.url, title: job.title || "", at: Date.now(),
+        }});
+      }
       else if (outcome.tabId != null) {
         try { await chrome.tabs.remove(outcome.tabId); } catch (_) {}
       }
@@ -370,13 +413,16 @@ async function autopilotRun(trigger) {
           }),
         });
       } catch (_) { /* report is best-effort; attempt table catches up next run */ }
+      if (pausedForReview) break;
     }
 
     await chrome.storage.local.set({ lastAutopilotRun: {
       at: Date.now(), submitted, review, failed } });
     notifySummary(
-      `Autopilot: ${submitted} submitted`,
-      `${review} left open for review, ${failed} failed. Details in the app's tracker.`);
+      pausedForReview ? "Autopilot paused for your review" : `Autopilot: ${submitted} submitted`,
+      pausedForReview
+        ? "One application is open and needs your answer or CAPTCHA. Finish or close it to continue."
+        : `${review} left open for review, ${failed} failed. Details in the app's tracker.`);
   } finally {
     clearInterval(keepalive);
     apRunning = false;
