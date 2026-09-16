@@ -17,8 +17,12 @@ import json
 import os
 import tempfile
 
-os.environ["APPLICATIONS_DB"] = os.path.join(
-    tempfile.mkdtemp(prefix="bookmarklet-test-"), "test.db")
+# Keep the DB at the repository root.  SQLite cannot always write within the
+# system temp folder or a newly-created child directory on sandboxed Windows.
+_fd, _db_path = tempfile.mkstemp(prefix=".test-bookmarklet-", suffix=".db",
+                                    dir=os.path.dirname(__file__))
+os.close(_fd)
+os.environ["APPLICATIONS_DB"] = _db_path
 
 import app as appmod  # noqa: E402
 

@@ -50,6 +50,13 @@ async function withDom(html, fn, opts = {}) {
   const dom = new JSDOM(`<!doctype html><html><body>${html}</body></html>`,
     { runScripts: "outside-only", pretendToBeVisual: true });
   const w = dom.window;
+  // jsdom does not always expose CSS.escape, while Chrome does.  The engine
+  // uses it for selectors built from a field id, so supply the same minimal
+  // polyfill used by the main autofill suite.
+  if (!w.CSS) w.CSS = {};
+  if (!w.CSS.escape) {
+    w.CSS.escape = (s) => String(s).replace(/[^a-zA-Z0-9_-]/g, c => "\\" + c);
+  }
   // jsdom has no layout: offsetParent is always null and
   // getBoundingClientRect() returns all-zeros, so isVisible() would reject
   // every element and the button-group / dropdown passes would find nothing.

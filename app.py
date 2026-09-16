@@ -17,6 +17,7 @@ from work_history import normalize_work_experience, work_experience_for
 import requests as http_req
 from flask import Flask, request, jsonify, render_template, send_file, session, redirect
 from werkzeug.security import generate_password_hash, check_password_hash
+from security import install_security
 
 # Billing helpers live in their own module so app.py stays focused on
 # search/AI/applications logic. billing.py is import-safe even when the
@@ -95,38 +96,7 @@ if os.environ.get("RENDER") or os.environ.get("FLASK_SAMESITE_NONE") == "1":
     app.config["SESSION_COOKIE_SAMESITE"] = "None"
     app.config["SESSION_COOKIE_SECURE"]   = True
 
-# Routes that the Chrome extension hits cross-origin. Preflights and credentials
-# need a precise Allow-Origin (reflected from the request) rather than '*'.
-_CORS_PATHS = ("/api/auth/login", "/api/auth/logout", "/api/auth/status",
-               "/api/profile/full")
-
-@app.after_request
-def _extension_cors(resp):
-    origin = request.headers.get("Origin", "")
-    if origin.startswith("chrome-extension://") and request.path in _CORS_PATHS:
-        resp.headers["Access-Control-Allow-Origin"]      = origin
-        resp.headers["Access-Control-Allow-Credentials"] = "true"
-        resp.headers["Vary"]                             = "Origin"
-        resp.headers["Access-Control-Allow-Methods"]     = "GET, POST, OPTIONS"
-        resp.headers["Access-Control-Allow-Headers"]     = "Content-Type"
-    return resp
-
-@app.route("/api/auth/login",   methods=["OPTIONS"])
-@app.route("/api/auth/logout",  methods=["OPTIONS"])
-@app.route("/api/auth/status",  methods=["OPTIONS"])
-@app.route("/api/profile/full", methods=["OPTIONS"])
-def _extension_preflight():
-    return ("", 204)
-
-
-@app.after_request
-def _security_headers(resp):
-    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
-    resp.headers.setdefault("X-Frame-Options", "DENY")
-    resp.headers.setdefault("Referrer-Policy", "same-origin")
-    if os.environ.get("RENDER"):
-        resp.headers.setdefault("Strict-Transport-Security", "max-age=15552000")
-    return resp
+install_security(app)
 
 # ── Applications tracker (Postgres on Render, SQLite locally) ────────────────
 # If DATABASE_URL is set (Render auto-injects this when you attach a Postgres
@@ -7688,10 +7658,10 @@ def bookmarklet_run_js():
   // boundary must be written with a DOUBLED backslash. A single one is an
   // escape Python turns into a BACKSPACE byte, shipping a regex that silently
   // matches nothing -- the same failure that killed fillRadioOrCheckbox's
-  // step 3b in 0bfecbf. \s is not a recognised escape, so it survives
+  // step 3b in 0bfecbf. \\s is not a recognised escape, so it survives
   // unescaped, which is exactly what hides the bug: half the regex looks
   // fine. test_bookmarklet.py fails on any control character in the response.
-  const APPLY_RE   = /^(apply\\b|start\s+(your\s+)?application\\b|begin\s+application\\b|submit\s+(your\s+|an?\s+)?application\\b|i'?m\s+interested\\b|application$)/i;
+  const APPLY_RE   = /^(apply\\b|start\\s+(your\\s+)?application\\b|begin\\s+application\\b|submit\\s+(your\\s+|an?\\s+)?application\\b|i'?m\\s+interested\\b|application$)/i;
   const APPLY_SKIP = /\\b(linkedin|indeed|google|facebook|seek|xing|glassdoor)\\b/i;
   // Only ever the privacy-preserving option. Accepting cookies is the user's
   // decision, not ours -- if a banner offers nothing but acceptance we leave
@@ -8013,11 +7983,11 @@ if __name__ == "__main__":
     local_ip = _get_local_ip()
     ai_enabled = bool(os.environ.get("ANTHROPIC_API_KEY") and _anthropic)
     print("=" * 56)
-    print("  Remote Job Search — Mobile PWA")
+    print("  Job Search Workspace — PWA")
     print("=" * 56)
     print(f"  Local:    http://localhost:{port}")
     print(f"  Network:  http://{local_ip}:{port}  << open on phone")
     print("  Sources:  Apify only")
-    print(f"  AI (Claude Sonnet): {'Enabled — cover letters, CV parsing, job scoring' if ai_enabled else 'Disabled (set ANTHROPIC_API_KEY)'}")
+    print(f"  Rules engine: {'Enabled' if ai_enabled else 'Enabled (no external AI provider)'}")
     print("=" * 56)
     app.run(host="0.0.0.0", port=port, debug=False)

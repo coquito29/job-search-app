@@ -5,6 +5,7 @@ __pycache__/
 
 # Local test data — production uses Postgres via DATABASE_URL
 applications.db
+.test-*.db
 
 # Editor / OS
 .DS_Store
@@ -18,3 +19,7 @@ applications.db
 # Local secrets / env files (never commit)
 .env
 *.env
+
+# JavaScript test dependencies (the lockfile is tracked for repeatable tests)
+chrome-extension/tests/node_modules/
+chrome-extension/tests/.npm-cache/

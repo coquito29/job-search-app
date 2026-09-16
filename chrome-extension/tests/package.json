@@ -1,0 +1,11 @@
+{
+  "name": "job-search-autofill-tests",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "jsdom": "^26.1.0"
+  },
+  "scripts": {
+    "test": "node autofill.accuracy.test.mjs && node autofill.test.mjs"
+  }
+}

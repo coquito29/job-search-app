@@ -17,8 +17,13 @@ import json
 import os
 import tempfile
 
-_TMP = tempfile.mkdtemp(prefix="requeue-test-")
-os.environ["APPLICATIONS_DB"] = os.path.join(_TMP, "test.db")
+# A top-level temporary DB works in sandboxed Windows environments where
+# SQLite cannot write inside the system temp folder or a newly created child
+# directory.  The ignored name keeps it out of commits.
+_fd, _db_path = tempfile.mkstemp(prefix=".test-requeue-", suffix=".db",
+                                    dir=os.path.dirname(__file__))
+os.close(_fd)
+os.environ["APPLICATIONS_DB"] = _db_path
 
 import app as appmod  # noqa: E402  (must follow the env var)
 

@@ -1,7 +1,7 @@
 {
-  "name": "Remote Job Search",
-  "short_name": "JobSearch",
-  "description": "Find remote jobs matched to your CV — direct employer links",
+  "name": "Job Search Workspace",
+  "short_name": "Job Search",
+  "description": "A private workspace for CV-matched job search and application tracking",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#f0f4f8",
