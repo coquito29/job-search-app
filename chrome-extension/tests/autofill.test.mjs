@@ -648,6 +648,24 @@ async function runAssertions(name, html, getExpected) {
     };
   });
 
+  // Greenhouse's international-phone component can call its country input
+  // `phone_country`. The visible label is still simply "Country", so it must
+  // win over the generic phone rule and never receive the applicant's number.
+  await runAssertions("Country picker is never filled as a phone field", `
+    <form>
+      <label for="gh_country">Country</label>
+      <input id="gh_country" name="phone_country" role="combobox" />
+      <label for="gh_phone">Phone</label>
+      <input id="gh_phone" name="phone" />
+    </form>`, (w) => {
+    const $ = (id) => w.document.getElementById(id);
+    return {
+      "country is United States": [$("gh_country").value, "United States"],
+      "phone is not written into country": [$("gh_country").value.includes("553-6215"), false],
+      "phone remains complete": [$("gh_phone").value, "+1 (609) 553-6215"],
+    };
+  }, { autocomplete: false });
+
   // ── Native date inputs (v0.8) — YYYY-MM → YYYY-MM-DD conversion ────
   await runAssertions("Native date inputs", NATIVE_DATES, (w) => {
     const $ = (id) => w.document.getElementById(id);

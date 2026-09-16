@@ -52,6 +52,17 @@
 
       { value: p.email,            patterns: [/\bemail\b/i, /\be-?mail[\s_-]*address\b/i] },
 
+      // Some Greenhouse phone widgets label their country picker simply
+      // "Country" but give the underlying input a phone-ish name. Match the
+      // visible country label before the generic phone rule below; otherwise
+      // a phone number gets typed into the country combobox (for example
+      // "553-6215"), leaving an invalid, option-less selector.
+      { value: addr.country,
+        // A combined "City, State, Country" location field needs the
+        // location rule below, not just the country name.
+        skipIf: /\bcountry[\s_-]*(code|calling[\s_-]*code|dial)\b|\b(city|state|province|region|location|address)\b/i,
+        patterns: [/\bcountry\b/i] },
+
       // Country code first — explicit country_code/dial_code labels get "+1"
       { value: "+1",               patterns: [
           /\bcountry[\s_-]*(code|calling[\s_-]*code|dial[\s_-]*code)\b/i,
@@ -63,6 +74,7 @@
       // (they parse the country code from the front of the number anyway).
       // Single-input forms (the common case) get the proper formatted value.
       { value: p.phone,
+        skipIf: /\bcountry\b|\b(dial|calling)[\s_-]*code\b/i,
         patterns: [/\bphone\b/i, /\bmobile\b/i, /\btelephone\b/i, /\bcontact[\s_-]*number\b/i] },
 
       // Pronouns — increasingly common DEI field. Selects usually have
@@ -77,7 +89,6 @@
       // Bare "postal" (JazzHR placeholder style) must resolve to zip — but not
       // "postal address", which is a full-address label.
       { value: addr.zip,           patterns: [/\bzip\b/i, /\bpostal[\s_-]*code\b/i, /\bpostcode\b/i, /\bpostal\b(?![\s_-]*address)/i] },
-      { value: addr.country,       patterns: [/\bcountry\b/i] },
       { value: addr.street,
         // Address line 2 / apartment is not interchangeable with a street
         // address. Filling it with the street makes a form look complete but
