@@ -78,7 +78,13 @@
       // "postal address", which is a full-address label.
       { value: addr.zip,           patterns: [/\bzip\b/i, /\bpostal[\s_-]*code\b/i, /\bpostcode\b/i, /\bpostal\b(?![\s_-]*address)/i] },
       { value: addr.country,       patterns: [/\bcountry\b/i] },
-      { value: addr.street,        patterns: [/\b(street|address)[\s_-]*(line)?[\s_-]*1?\b/i, /\bstreet[\s_-]*address\b/i, /^address$/i] },
+      { value: addr.street,
+        // Address line 2 / apartment is not interchangeable with a street
+        // address. Filling it with the street makes a form look complete but
+        // creates a false address, so leave it empty unless the profile gains
+        // a real unit value.
+        skipIf: /\b(address[\s_-]*line[\s_-]*2|apt\.?|apartment|suite|unit)\b/i,
+        patterns: [/\b(street|address)[\s_-]*(line)?[\s_-]*1?\b/i, /\bstreet[\s_-]*address\b/i, /^address$/i] },
 
       // "Current location" (Lever, Ashby) — the applicant's own whereabouts,
       // built from the address so it fills even before any answer is saved.
@@ -120,7 +126,7 @@
       { value: ans.hispanic_latino,          patterns: [/\bhispanic\b/i, /\blatino\b/i, /\blatinx\b/i] },
       { value: ans.race,                     patterns: [/\brace\b/i, /\bethnicity\b/i, /\bethnic\b/i] },
       { value: ans.salary_expectation,       patterns: [/\b(salary|compensation|pay)[\s_-]*(expectation|requirement|range|desired)\b/i, /\bdesired[\s_-]*(salary|pay|compensation|wage)\b/i, /\bexpected[\s_-]*(salary|pay|compensation)\b/i] },
-      { value: ans.notice_period,            patterns: [/\b(notice|start)[\s_-]*period\b/i, /\bwhen[\s_-]*can[\s_-]*you[\s_-]*start\b/i, /\bavailability\b/i] },
+      { value: ans.notice_period,            patterns: [/\b(notice|start)[\s_-]*period\b/i, /\bwhen[\s_-]*can[\s_-]*you[\s_-]*start\b/i, /\b(date|day)[\s_-]*available\b/i, /\bavailability\b/i] },
       { value: ans.esignature,               patterns: [/\b(e[\s_-]*signature|signature|sign[\s_-]*here)\b/i, /\btype[\s_-]*your[\s_-]*name\b/i] },
       { value: ans.willing_to_relocate,      patterns: [/\brelocat/i] },
       { value: ans.previously_employed,      patterns: [

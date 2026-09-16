@@ -2040,6 +2040,29 @@
   </div>
 </div>
 
+<!-- ══ Section: Autofill Answer Library ═════════════════════════════════ -->
+<div id="answerLibrarySection" class="section-card">
+  <div class="card-title"><i class="bi bi-patch-question-fill"></i> Autofill Answer Library</div>
+  <p class="text-muted mb-2" style="font-size:.8rem">
+    Save a truthful answer once and the extension can reuse it when another
+    application asks the same question. New or unclear questions stay for your review.
+  </p>
+  <div class="d-flex gap-2 mb-2">
+    <input type="text" id="setupQaQuestion" class="form-control form-control-sm"
+           placeholder="Question from an application" maxlength="160" />
+    <input type="text" id="setupQaAnswer" class="form-control form-control-sm"
+           placeholder="Your answer" maxlength="500" />
+    <button class="btn btn-sm btn-primary text-nowrap" type="button" onclick="addSetupQaDefault()">
+      <i class="bi bi-plus-lg"></i> Save
+    </button>
+  </div>
+  <div id="setupQaStatus" class="text-muted mb-2" style="font-size:.76rem"></div>
+  <details>
+    <summary style="cursor:pointer;font-size:.8rem">View and edit saved answers</summary>
+    <div id="setupQaList" class="mt-2"></div>
+  </details>
+</div>
+
 <!-- ══ Section 3: Search ═════════════════════════════════════════════════════ -->
 <div id="searchSection" class="section-card">
   <!-- Collapsible: with results already on screen, opening Jobs should show
@@ -2996,6 +3019,7 @@ document.addEventListener('DOMContentLoaded', () => {
   updateSourcesCount();
   updateTrackerBadge();
   renderApifyCostPill();
+  renderSetupQa();
 
   // Auth gate first — if a passcode is set and we're not logged in, show the
   // lock screen before any user-data fetches that would 401.
@@ -3067,6 +3091,7 @@ async function loadServerProfile() {
     const qa = p.settings && p.settings.qa_defaults;
     if (Array.isArray(qa) && qa.length) {
       qaDefaults = qa.filter(x => Array.isArray(x) && x.length === 2);
+      if (typeof renderSetupQa === 'function') renderSetupQa();
     }
       // Work history lives alongside qa_defaults in settings. Empty means the
       // user has never saved one, so seed the editor from what autofill is
@@ -5397,13 +5422,13 @@ const TAB_SECTIONS = {
   today:   ['todaySection'],
   jobs:    ['searchSection', 'resultsSection'],
   tracker: ['trackerSection', 'statsSection'],
-  setup:   ['tokenSection', 'cvSection', 'workHistorySection'],
+  setup:   ['tokenSection', 'cvSection', 'workHistorySection', 'answerLibrarySection'],
 };
 // Plenty of call sites still say showTab('results') / ('search') / ('stats').
 // Point the old names at their new homes instead of chasing every caller.
 const TAB_ALIASES = { search: 'jobs', results: 'jobs', stats: 'tracker' };
 const ALL_TAB_SECTIONS = ['todaySection', 'tokenSection', 'cvSection',
-                          'workHistorySection', 'searchSection',
+                          'workHistorySection', 'answerLibrarySection', 'searchSection',
                           'resultsSection', 'trackerSection', 'statsSection'];
 let currentTab = 'today';
 
@@ -6249,9 +6274,45 @@ function renderPrepQa() {
     </li>`;
 }
 
+// The same saved answers are available from Setup, not only inside an
+// individual job's preparation panel. Keeping a single qaDefaults array means
+// edits made here immediately become the extension's cross-site answer bank.
+function renderSetupQa() {
+  const list = document.getElementById('setupQaList');
+  const status = document.getElementById('setupQaStatus');
+  if (status) status.textContent = `${qaDefaults.length} saved answers ready for autofill.`;
+  if (!list) return;
+  list.innerHTML = qaDefaults.map(([q, a], i) => `
+    <div class="d-flex gap-2 align-items-start border-bottom py-1">
+      <div class="flex-grow-1" style="font-size:.77rem">
+        <strong>${escHtml(q)}</strong><br><span class="text-muted">${escHtml(a)}</span>
+      </div>
+      <button class="btn btn-sm btn-outline-danger" type="button" title="Remove this answer"
+              style="font-size:.65rem; padding:1px 6px" onclick="removeQaDefault(${i})">&times;</button>
+    </div>`).join('');
+}
+
+function addSetupQaDefault() {
+  const qEl = document.getElementById('setupQaQuestion');
+  const aEl = document.getElementById('setupQaAnswer');
+  const q = ((qEl && qEl.value) || '').trim();
+  const a = ((aEl && aEl.value) || '').trim();
+  if (!q || !a) {
+    showToast('Enter both the question and your truthful answer.', 'warning');
+    return;
+  }
+  upsertQaDefault(q, a);
+  qEl.value = '';
+  aEl.value = '';
+  renderPrepQa();
+  renderSetupQa();
+  saveQaToProfile();
+  showToast('Answer saved for future applications.', 'success');
+}
 function updateQaDefault(i, value) {
   if (i < 0 || i >= qaDefaults.length) return;
   qaDefaults[i][1] = value;
+  renderSetupQa();
   saveQaToProfile();
 }
 
@@ -6270,6 +6331,7 @@ function addQaDefault() {
   if (!q || !a) return;
   upsertQaDefault(q, a);
   renderPrepQa();
+  renderSetupQa();
   saveQaToProfile();
 }
 
@@ -6277,6 +6339,7 @@ function removeQaDefault(i) {
   if (i < 0 || i >= qaDefaults.length) return;
   qaDefaults.splice(i, 1);
   renderPrepQa();
+  renderSetupQa();
   saveQaToProfile();
 }
 
@@ -6302,6 +6365,7 @@ function importQaBulk() {
   if (!added) return;
   el.value = '';
   renderPrepQa();   // also hides the bulk row again (display:none default)
+  renderSetupQa();
   saveQaToProfile();
 }
 
@@ -6309,6 +6373,7 @@ function resetQaDefaults() {
   if (!confirm('Reset all Q&A defaults to canonical values?')) return;
   qaDefaults = QA_CANONICAL.map(([k, v]) => [k, v]);
   renderPrepQa();
+  renderSetupQa();
   saveQaToProfile();
 }
 
