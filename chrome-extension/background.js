@@ -300,10 +300,48 @@ async function clearReviewPause(url) {
 }
 
 chrome.tabs.onRemoved.addListener(tabId => {
-  chrome.storage.local.get("autopilotReviewPause", ({ autopilotReviewPause }) => {
-    if (autopilotReviewPause?.tabId === tabId) chrome.storage.local.remove("autopilotReviewPause");
+  chrome.storage.local.get(["autopilotReviewPause", "autopilotTabId"], data => {
+    const clear = [];
+    if (data.autopilotReviewPause?.tabId === tabId) clear.push("autopilotReviewPause");
+    if (data.autopilotTabId === tabId) clear.push("autopilotTabId");
+    if (clear.length) chrome.storage.local.remove(clear);
   });
 });
+
+function lastFocusedWindow() {
+  return new Promise(resolve => {
+    try {
+      chrome.windows.getLastFocused({}, win => {
+        resolve(chrome.runtime.lastError || !win || win.id == null ? null : win.id);
+      });
+    } catch (_) { resolve(null); }
+  });
+}
+
+// The autopilot owns one reusable tab. It stays in the user's existing Chrome
+// window and is navigated to the next job only after the previous one submits.
+// That prevents a batch from creating a trail of application tabs/windows.
+async function openInAutopilotTab(url) {
+  const { autopilotTabId } = await chrome.storage.local.get("autopilotTabId");
+  let tab = autopilotTabId ? await getTab(autopilotTabId) : null;
+  try {
+    if (tab) {
+      tab = await chrome.tabs.update(tab.id, { url, active: false });
+    } else {
+      const windowId = await lastFocusedWindow();
+      const create = { url, active: false };
+      if (windowId != null) create.windowId = windowId;
+      tab = await chrome.tabs.create(create);
+      await chrome.storage.local.set({ autopilotTabId: tab.id });
+    }
+    return tab;
+  } catch (e) {
+    // A stale tab id can race its onRemoved event. Forget it so the next run
+    // creates one clean tab instead of being stuck forever.
+    await chrome.storage.local.remove("autopilotTabId");
+    throw e;
+  }
+}
 
 async function autopilotRun(trigger) {
   if (apRunning) return;
@@ -398,9 +436,7 @@ async function autopilotRun(trigger) {
           tabId: outcome.tabId, url: job.url, title: job.title || "", at: Date.now(),
         }});
       }
-      else if (outcome.tabId != null) {
-        try { await chrome.tabs.remove(outcome.tabId); } catch (_) {}
-      }
+      // Submitted/failed jobs keep using this same tab on the next loop.
 
       try {
         await fetch(base + "/api/autopilot/report", {
@@ -429,12 +465,12 @@ async function autopilotRun(trigger) {
   }
 }
 
-// Open one job in a background tab, drive the content script, classify the
-// outcome. Always resolves — never throws.
+// Navigate the one reusable background tab to a job, drive the content script,
+// and classify the outcome. Always resolves — never throws.
 async function attemptJob(job) {
   let tab = null;
   try {
-    tab = await chrome.tabs.create({ url: job.url, active: false });
+    tab = await openInAutopilotTab(job.url);
   } catch (e) {
     return { result: "error", detail: "tab open failed: " + (e.message || e), tabId: null };
   }
