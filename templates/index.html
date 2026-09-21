@@ -4654,10 +4654,7 @@ async function searchJobs() {
     return;
   }
 
-  // Warn if Apify selected but no token
-  if (selectedSources.includes('apify') && !token) {
-    showToast('Apify selected but no token saved — Apify results will be skipped', 'info');
-  }
+  // The server can also supply the Apify token; it reports missing setup.
 
   const timeRange = document.querySelector('input[name="timeRange"]:checked')?.value || '7d';
 
@@ -4682,7 +4679,7 @@ async function searchJobs() {
     lastSourceData = data.source_counts || {};
     sortMode = 'match';
     // Count this as a paid Apify search if Apify was actually used & returned data
-    if (selectedSources.includes('apify') && token && (data.source_counts || {}).Apify !== undefined) {
+    if (selectedSources.includes('apify') && (data.source_counts || {}).Apify !== undefined) {
       bumpApifyCost();
     }
     renderResults(data);

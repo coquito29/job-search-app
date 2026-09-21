@@ -35,6 +35,7 @@ PYTHON_SUITES = [
     "test_autopilot_requeue.py",
     "test_bookmarklet.py",
     "test_ats_classify.py",
+    "test_app_regressions.py",
 ]
 
 NODE_SUITES = [

@@ -2612,7 +2612,19 @@ def parse_cv():
 
 @app.route("/api/search", methods=["POST"])
 def search_jobs():
-    data = request.get_json(force=True)
+    uid, err = _auth_required()
+    if err: return err
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"error": "Search settings must be a JSON object"}), 400
+    if not isinstance(data.get("token", ""), str):
+        return jsonify({"error": "The Apify token must be text"}), 400
+    skills = data.get("skills")
+    if not isinstance(skills, list) or any(not isinstance(s, str) for s in skills):
+        return jsonify({"error": "Skills must be a list of text values"}), 400
+    data["skills"] = list(dict.fromkeys(s.strip() for s in skills if s.strip()))
+    if not isinstance(data.get("time_range", DEFAULT_TIMERANGE), str):
+        return jsonify({"error": "The search time range must be text"}), 400
     # Env-var fallback for every key — the client used to send raw secrets
     # received from /api/config, but /api/config now returns booleans only.
     token        = (data.get("token") or os.environ.get("APIFY_TOKEN", "")).strip()
@@ -2621,6 +2633,9 @@ def search_jobs():
 
     if not skills:
         return jsonify({"error": "At least one skill is required"}), 400
+
+    if not token:
+        return jsonify({"error": "Add your Apify token in Setup before searching"}), 400
 
     # Apify is the sole source (Adzuna/JSearch removed 2026-07-06)
     fetch_tasks = {}
@@ -2641,7 +2656,6 @@ def search_jobs():
                 # "no jobs today" otherwise (the digest hid this for weeks).
                 # Surface it in the response too: Render logs rot, the user
                 # sees "0 jobs" and blames the filters.
-                print(f"[fetch] {src} failed: {exc}")
                 detail = str(exc)
                 body = getattr(getattr(exc, "response", None), "text", "")
                 if body:
@@ -2649,8 +2663,17 @@ def search_jobs():
                 # Requests exceptions embed the full URL incl. ?token= — never
                 # let credentials reach the client.
                 detail = re.sub(r"(token|key|apiKey|api_key)=[^&\s\"']+", r"\1=***", detail)
+                detail = detail.replace(token, "***")
                 source_errors[src] = detail[:300]
+                print(f"[fetch] {src} failed: {source_errors[src]}")
                 source_results[src] = []
+
+    if source_errors and len(source_errors) == len(fetch_tasks):
+        return jsonify({
+            "error": "Job search failed. Your previous results have been kept. "
+                     + source_errors.get("apify", "Please try again."),
+            "source_errors": source_errors,
+        }), 502
 
     # Merge, deduplicate by URL, remove sign-in-wall / aggregator domains.
     # Remote filtering happens in ONE place downstream (is_remote_job, below) —
@@ -4302,11 +4325,17 @@ def autopilot_report():
 def update_application(app_id):
     uid, err = _auth_required()
     if err: return err
-    data = request.get_json(force=True) or {}
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"error": "Application changes must be a JSON object"}), 400
     fields = []
     values = []
     for f in ("company", "title", "url", "ats", "location", "salary", "source", "status", "notes"):
         if f in data:
+            if data[f] is not None and not isinstance(data[f], str):
+                return jsonify({"error": f"{f} must be text"}), 400
+            if f in ("company", "title") and not (data[f] or "").strip():
+                return jsonify({"error": f"{f} is required"}), 400
             if f == "status" and data[f] not in APP_STATUSES:
                 return jsonify({"error": f"status must be one of {APP_STATUSES}"}), 400
             fields.append(f"{f} = ?")

@@ -28,12 +28,9 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
-      # jsdom is deliberately untracked (chrome-extension/tests/.gitignore
-      # ignores package.json), so CI installs it by name rather than from a
-      # lockfile. Pinned to the major the suites were written against.
-      - name: Install jsdom
+      - name: Install extension test dependencies
         working-directory: chrome-extension/tests
-        run: npm install jsdom@^30 --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
 
       # One command, the same one used locally, so a green run here means
       # the same thing as a green run on the desktop.
