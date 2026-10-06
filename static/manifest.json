@@ -4,8 +4,8 @@
   "description": "A private workspace for CV-matched job search and application tracking",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#f0f4f8",
-  "theme_color": "#0d6efd",
+  "background_color": "#f7f8fa",
+  "theme_color": "#247a61",
   "orientation": "portrait-primary",
   "icons": [
     {

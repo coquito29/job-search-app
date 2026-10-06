@@ -2,12 +2,12 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="Job Search" />
-  <meta name="theme-color" content="#0d6efd" />
+  <meta name="theme-color" content="#247a61" />
   <title>Job Search Workspace</title>
   <link rel="manifest" href="/static/manifest.json" />
 
@@ -1728,6 +1728,7 @@
     #jobsList .job-why strong { color: var(--ink); font-weight: 500; }
     #jobsList .job-why .bi { opacity: .55; }
   </style>
+  <link rel="stylesheet" href="/static/workspace.css?v=20261006" />
 </head>
 <body>
 
@@ -1763,17 +1764,48 @@
   </button>
 </div>
 
-<!-- ══ Header ═══════════════════════════════════════════════════════════════ -->
+<a class="workspace-skip" href="#workspaceMain">Skip to workspace</a>
+<div class="workspace-shell">
+<aside class="workspace-sidebar" aria-label="Workspace navigation">
+  <a class="workspace-brand" href="/" aria-label="Job Search home">
+    <span class="brand-mark"><i class="bi bi-arrow-up-right" aria-hidden="true"></i></span>
+    <span><span class="brand-name">Job Search<span class="brand-dot">.</span></span><span class="brand-caption">A little closer, every day.</span></span>
+  </a>
+  <div class="sidebar-label">YOUR WORKSPACE</div>
+  <nav class="step-bar" id="stepBar" aria-label="Main navigation">
+    <button type="button" class="step-item active" id="stepTodayIndicator" data-tab="today" onclick="showTab('today')" aria-current="page">
+      <i class="bi bi-grid-1x2" aria-hidden="true"></i><span class="nav-label">Overview<span class="nav-hint">Your daily starting point</span></span>
+      <span class="badge bg-warning text-dark" id="todayBadge" style="display:none;">0</span>
+    </button>
+    <button type="button" class="step-item" id="step4Indicator" data-tab="jobs" onclick="showTab('jobs')">
+      <i class="bi bi-search" aria-hidden="true"></i><span class="nav-label">Find jobs<span class="nav-hint">Discover your next chapter</span></span>
+    </button>
+    <button type="button" class="step-item" id="step5Indicator" data-tab="tracker" onclick="showTab('tracker')">
+      <i class="bi bi-bookmark" aria-hidden="true"></i><span class="nav-label">Applications<span class="nav-hint">Keep your progress together</span></span>
+      <span class="badge bg-primary" id="trackerBadge">0</span>
+    </button>
+    <button type="button" class="step-item" id="step2Indicator" data-tab="setup" onclick="showTab('setup')">
+      <i class="bi bi-person" aria-hidden="true"></i><span class="nav-label">My profile<span class="nav-hint">Put your best self forward</span></span>
+      <span class="badge bg-success" id="cvCountBadge">0</span>
+    </button>
+    <div class="step-item d-none" id="step1Indicator"></div>
+    <div class="step-item d-none" id="step3Indicator"></div>
+    <div class="step-item d-none" id="step6Indicator"></div>
+    <div class="step-item d-none" id="step7Indicator"></div>
+  </nav>
+  <div class="sidebar-coach">
+    <span class="coach-icon"><i class="bi bi-stars" aria-hidden="true"></i></span>
+    <h3>Your next chapter<br>starts with you.</h3>
+    <p>A complete profile helps you find roles that fit.</p>
+    <button type="button" onclick="showTab('setup')">Refine my profile <i class="bi bi-arrow-up-right" aria-hidden="true"></i></button>
+  </div>
+  <div class="sidebar-footer"><span class="footer-dot"></span>Made for your next move</div>
+</aside>
 <header class="app-header">
   <div class="d-flex align-items-center justify-content-between gap-2">
+    <div class="workspace-breadcrumb"><span>Workspace</span><i class="bi bi-chevron-right" aria-hidden="true"></i><strong id="workspaceBreadcrumb">Overview</strong></div>
     <div class="d-flex align-items-center gap-2">
-      <i class="bi bi-search fs-5"></i>
-      <div>
-        <h1>Job Search Workspace</h1>
-        <p class="subtitle">Private · CV-matched · Direct apply</p>
-      </div>
-    </div>
-    <div class="d-flex align-items-center gap-2">
+      <span class="workspace-date" id="workspaceDate"></span>
       <span class="ai-badge" id="aiBadge">
         <i class="bi bi-stars"></i> AI
       </span>
@@ -1830,37 +1862,41 @@
   </div>
 </header>
 
-<!-- ══ Tab bar ═══════════════════════════════════════════════════════════════ -->
-<div class="step-bar" id="stepBar">
-  <div class="step-item active" id="stepTodayIndicator" data-tab="today" onclick="showTab('today')">
-    <i class="bi bi-sun"></i>Today
-    <span class="badge bg-warning text-dark ms-1" id="todayBadge" style="display:none;">0</span>
-  </div>
-  <div class="step-item" id="step4Indicator" data-tab="jobs" onclick="showTab('jobs')">
-    <i class="bi bi-list-ul"></i>Jobs
-  </div>
-  <div class="step-item" id="step5Indicator" data-tab="tracker" onclick="showTab('tracker')">
-    <i class="bi bi-bookmark-check"></i>Tracker
-    <span class="badge bg-primary ms-1" id="trackerBadge">0</span>
-  </div>
-  <div class="step-item" id="step2Indicator" data-tab="setup" onclick="showTab('setup')">
-    <i class="bi bi-sliders"></i>Setup
-    <span class="badge bg-success ms-1" id="cvCountBadge">0</span>
-  </div>
-  <!-- Retired tabs. Search folded into Jobs, Stats into Tracker, and Plan was
-       a duplicate of "Plan & billing" in the account menu. Kept as hidden
-       stubs so nothing that still looks them up by id throws. -->
-  <div class="step-item d-none" id="step1Indicator"></div>
-  <div class="step-item d-none" id="step3Indicator"></div>
-  <div class="step-item d-none" id="step6Indicator"></div>
-  <div class="step-item d-none" id="step7Indicator"></div>
-</div>
+<main id="workspaceMain" class="workspace-main" tabindex="-1">
+  <section class="workspace-hero" id="workspaceHero" aria-labelledby="workspaceTitle">
+    <div class="hero-copy">
+      <div class="hero-eyebrow" id="heroEyebrow"><span></span>YOUR NEXT CHAPTER</div>
+      <h1 id="workspaceTitle">Make your next move.</h1>
+      <p id="workspaceDescription">Good opportunities start with a little momentum. Find your fit, keep track, and move forward with confidence.</p>
+      <div class="hero-actions">
+        <button type="button" class="btn btn-primary" id="heroPrimaryBtn"><i class="bi bi-search me-2" aria-hidden="true"></i>Explore jobs<i class="bi bi-arrow-right ms-3" aria-hidden="true"></i></button>
+        <button type="button" class="btn btn-outline-secondary" id="heroSecondaryBtn">View my profile</button>
+      </div>
+    </div>
+    <div class="hero-art" aria-hidden="true">
+      <div class="orbit-ring ring-one"></div><div class="orbit-ring ring-two"></div>
+      <div class="orbit-center"><i class="bi bi-arrow-up-right"></i></div>
+      <div class="orbit-chip chip-one"><i class="bi bi-briefcase"></i></div>
+      <div class="orbit-chip chip-two"><i class="bi bi-check2"></i></div>
+      <div class="orbit-chip chip-three"><i class="bi bi-stars"></i></div>
+      <span class="orbit-spark spark-one"></span><span class="orbit-spark spark-two"></span>
+      <span class="hero-art-label">ROOM TO GROW</span>
+    </div>
+  </section>
+  <div class="workspace-content">
 
 <!-- ══ Today ════════════════════════════════════════════════════════════════
      The landing tab. One card that answers "what do I do right now?", the
      list of applications waiting on a human, and anything that is broken.
      This replaces two banners that used to stack above every other tab. -->
 <div id="todaySection">
+  <div class="overview-metrics" aria-label="Your workspace at a glance">
+    <button type="button" class="overview-metric" onclick="showTab('jobs')"><span class="metric-icon"><i class="bi bi-briefcase" aria-hidden="true"></i></span><span class="metric-value" id="overviewMatches">0</span><span class="metric-label">Job matches</span><i class="bi bi-arrow-up-right metric-arrow" aria-hidden="true"></i></button>
+    <button type="button" class="overview-metric metric-accent" onclick="showTab('jobs')"><span class="metric-icon"><i class="bi bi-lightning-charge" aria-hidden="true"></i></span><span class="metric-value" id="overviewReady">0</span><span class="metric-label">Apply-ready roles</span><i class="bi bi-arrow-up-right metric-arrow" aria-hidden="true"></i></button>
+    <button type="button" class="overview-metric" onclick="showTab('tracker')"><span class="metric-icon"><i class="bi bi-bookmark-check" aria-hidden="true"></i></span><span class="metric-value" id="overviewApplications">0</span><span class="metric-label">Tracked applications</span><i class="bi bi-arrow-up-right metric-arrow" aria-hidden="true"></i></button>
+    <button type="button" class="overview-metric" onclick="showTab('setup')"><span class="metric-icon"><i class="bi bi-file-earmark-person" aria-hidden="true"></i></span><span class="metric-value" id="overviewCvs">0</span><span class="metric-label">CVs in your library</span><i class="bi bi-arrow-up-right metric-arrow" aria-hidden="true"></i></button>
+  </div>
+  <div class="overview-heading"><h2>Your daily brief</h2><p>A clear view of what needs your attention.</p></div>
 
   <div class="section-card" id="todayCard" style="margin-bottom:10px;">
     <div class="d-flex align-items-start gap-3 flex-wrap">
@@ -1911,6 +1947,13 @@
     </button>
     <span id="digestEmailTestResult" style="margin-left:6px"></span>
   </div>
+  <div class="overview-heading"><h2>Keep your momentum</h2><p>Everything you need for the next step.</p></div>
+  <div class="quick-actions">
+    <button type="button" class="quick-action" onclick="showTab('jobs')"><span class="quick-icon"><i class="bi bi-compass" aria-hidden="true"></i></span><span class="quick-copy"><strong>Find your fit</strong><span>Discover roles matched to your skills.</span></span><i class="bi bi-arrow-up-right quick-arrow" aria-hidden="true"></i></button>
+    <button type="button" class="quick-action" onclick="showTab('tracker')"><span class="quick-icon"><i class="bi bi-columns-gap" aria-hidden="true"></i></span><span class="quick-copy"><strong>Stay on track</strong><span>Keep applications and follow-ups in view.</span></span><i class="bi bi-arrow-up-right quick-arrow" aria-hidden="true"></i></button>
+    <button type="button" class="quick-action" onclick="showTab('setup')"><span class="quick-icon"><i class="bi bi-file-earmark-richtext" aria-hidden="true"></i></span><span class="quick-copy"><strong>Tell your story</strong><span>Fine-tune your CVs and experience.</span></span><i class="bi bi-arrow-up-right quick-arrow" aria-hidden="true"></i></button>
+  </div>
+  <div class="workspace-note"><span class="note-icon"><i class="bi bi-flower1" aria-hidden="true"></i></span><div class="note-copy"><h3>Small steps. Big possibilities.</h3><p>A new role, a saved application, a stronger profile. It all adds up.</p></div><button type="button" onclick="showTab('jobs')">Take the next step<i class="bi bi-arrow-right" aria-hidden="true"></i></button></div>
 </div>
 
 <!-- ══ Section 1: Token ══════════════════════════════════════════════════════ -->
@@ -2110,7 +2153,7 @@
     <i class="bi bi-rocket-takeoff-fill me-2"></i>Find My Top Jobs
   </button>
   <p class="text-muted mt-2 mb-1 text-center" style="font-size:.75rem;">
-    API sources only · Direct employer links · AI scores every result against your CV
+    Matched to your skills · Direct employer links · Your next opportunity
   </p>
 
   <!-- External board shortcuts — open searches with your skills pre-filled -->
@@ -2425,10 +2468,14 @@
   </div>
 </div>
 
+  </div><!-- /.workspace-content -->
+</main>
+</div><!-- /.workspace-shell -->
+
 <!-- ══ Loading overlay ═══════════════════════════════════════════════════════ -->
 <div class="loading-overlay" id="loadingOverlay">
   <div class="spinner-border text-light" role="status"></div>
-  <p id="loadingMessage">Searching all sources in parallel...<br/><small>This takes 20–60 seconds</small></p>
+  <p id="loadingMessage">Finding opportunities for you...<br/><small>This takes 20–60 seconds</small></p>
   <small id="loadingTimer" style="opacity:.6;"></small>
 </div>
 
@@ -4467,7 +4514,9 @@ async function uploadCV(input) {
 // ════════════════════════════════════════════════════════════════════════
 function renderSkills() {
   const container = document.getElementById('skillsContainer');
-  const empty     = document.getElementById('skillsEmpty');
+  const empty     = document.getElementById('skillsEmpty') || Object.assign(document.createElement('span'), {
+    id: 'skillsEmpty', className: 'skills-empty', textContent: 'Upload your CV or add skills manually'
+  });
   const count     = document.getElementById('skillCount');
   const clearBtn  = document.getElementById('clearSkillsBtn');
 
@@ -5385,7 +5434,7 @@ function setLoading(on) {
     overlay.classList.add('active');
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Searching...';
-    msgEl.innerHTML = 'Searching all sources in parallel...<br/><small>This takes 20–60 seconds</small>';
+    msgEl.innerHTML = 'Finding opportunities for you...<br/><small>This takes 20–60 seconds</small>';
     timerEl.textContent = '';
     const start = Date.now();
     // After 10s hint about Render cold start
@@ -5443,31 +5492,37 @@ let currentTab = 'today';
 function showTab(name) {
   name = TAB_ALIASES[name] || name;
   if (!TAB_SECTIONS[name]) name = 'today';
-  currentTab = name;
-  // Toggle a class, not inline display. Several places set
-  // resultsSection.style.display = 'block' when data arrives, and on load that
-  // raced showTab() and left the whole job list sitting under the Search tab.
-  // .tab-hidden carries !important, so it wins regardless of who ran last.
-  ALL_TAB_SECTIONS.forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.classList.add('tab-hidden');
-  });
-  TAB_SECTIONS[name].forEach(id => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    el.classList.remove('tab-hidden');
-    // Tracker and Stats ship with inline display:none in the markup, which the
-    // class alone cannot undo — clear it so the tab is not blank.
-    if (el.style.display === 'none') el.style.display = '';
-  });
-  document.querySelectorAll('.step-item').forEach(s => s.classList.remove('active'));
-  const btn = document.querySelector('.step-item[data-tab="' + name + '"]');
-  if (btn) btn.classList.add('active');
-  window.scrollTo(0, 0);
-  try { localStorage.setItem('job_search_tab', name); } catch (e) {}
-  syncResultsChrome();
-  if (name === 'today')   refreshToday();
-  if (name === 'tracker') { renderTrackerTab(); loadStats(); }
+  const previousTab = currentTab;
+  const render = () => {
+    currentTab = name;
+    // Toggle a class, not inline display. Several places set
+    // resultsSection.style.display = 'block' when data arrives, and on load that
+    // raced showTab() and left the whole job list sitting under the Search tab.
+    // .tab-hidden carries !important, so it wins regardless of who ran last.
+    ALL_TAB_SECTIONS.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.classList.add('tab-hidden');
+    });
+    TAB_SECTIONS[name].forEach(id => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.classList.remove('tab-hidden');
+      // Tracker and Stats ship with inline display:none in the markup, which the
+      // class alone cannot undo — clear it so the tab is not blank.
+      if (el.style.display === 'none') el.style.display = '';
+    });
+    document.querySelectorAll('.step-item').forEach(s => { s.classList.remove('active'); s.removeAttribute('aria-current'); });
+    const btn = document.querySelector('.step-item[data-tab="' + name + '"]');
+    if (btn) { btn.classList.add('active'); btn.setAttribute('aria-current', 'page'); }
+    window.scrollTo(0, 0);
+    try { localStorage.setItem('job_search_tab', name); } catch (e) {}
+    syncResultsChrome();
+    if (name === 'today')   refreshToday();
+    if (name === 'tracker') { renderTrackerTab(); loadStats(); }
+    document.dispatchEvent(new CustomEvent('workspace:tabchange', { detail: { tab: name, previousTab } }));
+  };
+  if (window.workspaceUI) window.workspaceUI.transition(render, previousTab !== name);
+  else render();
 }
 
 // Land on Search, except when the last visit ended somewhere else.
@@ -6628,5 +6683,6 @@ async function prepMarkSubmitted() {
   ensurePrepPanelModal().hide();
 }
 </script>
+<script src="/static/workspace.js?v=20261006"></script>
 </body>
 </html>
