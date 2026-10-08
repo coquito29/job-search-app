@@ -1,10 +1,7 @@
 name: Daily Job Digest
 
 on:
-  # Runs at 08:00 UTC: 4:00 AM during U.S. Eastern daylight time.
-  # Each run calls Apify and costs about $0.60 (~$18/month).
-  schedule:
-    - cron: "0 8 * * *"
+  # Automatic daily searches are paused to avoid unnecessary API usage.
   workflow_dispatch:   # still allows a manual one-off run from the Actions tab
 
 jobs:
