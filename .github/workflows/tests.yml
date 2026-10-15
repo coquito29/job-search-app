@@ -36,3 +36,27 @@ jobs:
       # the same thing as a green run on the desktop.
       - name: Run all suites
         run: python run_tests.py
+
+      # A development-only recording for this redesign PR. No production secrets.
+      - name: Install motion preview tools
+        if: github.event_name == 'pull_request' && github.head_ref == 'polish/responsive-workspace'
+        run: |
+          npm install --prefix "$RUNNER_TEMP/workspace-preview" --no-save --package-lock=false --ignore-scripts playwright@1.56.1
+          node "$RUNNER_TEMP/workspace-preview/node_modules/playwright/cli.js" install --with-deps chromium
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+
+      - name: Verify and record isolated animated workspace
+        if: github.event_name == 'pull_request' && github.head_ref == 'polish/responsive-workspace'
+        env:
+          WORKSPACE_PLAYWRIGHT: ${{ runner.temp }}/workspace-preview/node_modules/playwright
+        run: node scripts/record-workspace-preview.cjs
+
+      - name: Upload downloadable motion preview
+        if: github.event_name == 'pull_request' && github.head_ref == 'polish/responsive-workspace'
+        uses: actions/upload-artifact@v4
+        with:
+          name: workspace-motion-preview
+          path: workspace-preview/
+          retention-days: 7
+          if-no-files-found: error

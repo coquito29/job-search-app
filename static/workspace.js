@@ -27,7 +27,38 @@ function updateFilterSummary() {
   if (summary) summary.textContent = text.join(' · ');
 }
 
+
+function syncWorkspaceMotion() {
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let paused = false;
+  try { paused = localStorage.getItem('workspace_motion_paused') === '1'; } catch (_) {}
+  document.body.classList.toggle('motion-paused', reduced || paused);
+  const button = document.getElementById('workspaceMotionToggle');
+  if (!button) return;
+  button.disabled = reduced;
+  button.setAttribute('aria-pressed', String(reduced || paused));
+  button.setAttribute('aria-label', reduced ? 'Decorative animation disabled by reduced motion setting' : paused ? 'Play decorative animation' : 'Pause decorative animation');
+  button.innerHTML = '<i class="bi bi-' + (reduced || paused ? 'play' : 'pause') + '-fill" aria-hidden="true"></i><span>' + (reduced ? 'Motion off' : paused ? 'Play motion' : 'Pause motion') + '</span>';
+}
+
+function toggleWorkspaceMotion() {
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const paused = !document.body.classList.contains('motion-paused');
+  try { localStorage.setItem('workspace_motion_paused', paused ? '1' : '0'); } catch (_) {}
+  // Keep the immediate control useful even if storage is unavailable.
+  syncWorkspaceMotion();
+  document.body.classList.toggle('motion-paused', paused);
+  const button = document.getElementById('workspaceMotionToggle');
+  if (button) {
+    button.setAttribute('aria-pressed', String(paused));
+    button.setAttribute('aria-label', paused ? 'Play decorative animation' : 'Pause decorative animation');
+    button.innerHTML = '<i class="bi bi-' + (paused ? 'play' : 'pause') + '-fill" aria-hidden="true"></i><span>' + (paused ? 'Play motion' : 'Pause motion') + '</span>';
+  }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
+  syncWorkspaceMotion();
+  window.matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', syncWorkspaceMotion);
   const panel = document.getElementById('resultsFilterPanel');
   const wideScreen = window.matchMedia('(min-width: 768px)');
   const setDefaultDisclosure = () => { if (panel) panel.open = wideScreen.matches; };

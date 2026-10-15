@@ -255,6 +255,83 @@ body.dark-mode .job-actions .btn-primary { color: #fff; }
   .filter-chevron { margin-left: auto; }
   .workspace-section-heading > span { display: none; }
 }
+
+/* Ambient motion stays on decorative layers; task text and forms remain still. */
+.workspace-hero::before {
+  content: ""; position: absolute; z-index: -1; pointer-events: none;
+  width: 120%; height: 150%; left: -10%; top: -25%;
+  background: radial-gradient(ellipse at 78% 30%, #8076e86b, transparent 43%),
+              radial-gradient(ellipse at 28% 88%, #2c84be44, transparent 45%);
+  animation: aurora-flow 16s ease-in-out infinite alternate;
+  will-change: transform;
+}
+.hero-orb { animation: orb-drift 12s ease-in-out infinite alternate; }
+.hero-orbit { animation: orbit-turn 28s linear infinite; }
+.hero-orbit::after { animation: orbit-counterturn 20s linear infinite; }
+.sheet-back { animation: sheet-back-float 8s ease-in-out infinite; }
+.sheet-middle { animation: sheet-middle-float 7s ease-in-out infinite; }
+.sheet-front { animation: sheet-arrive .8s ease-out both, sheet-front-float 6s ease-in-out infinite; }
+.chip-spark { animation: spark-float 5s ease-in-out infinite; }
+.chip-check { animation: check-float 6.5s ease-in-out infinite; }
+.floating-sheet, .floating-chip { will-change: transform; }
+.motion-toggle {
+  position: absolute; z-index: 3; right: 20px; top: 18px;
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid #b8caff40; border-radius: 999px; padding: 6px 10px;
+  color: #d2dcf1; background: #101d3b80; font-size: .68rem;
+}
+.motion-toggle:hover { color: #fff; background: #263762; }
+.motion-toggle:disabled { opacity: .7; cursor: default; }
+.motion-paused .workspace-hero::before,
+.motion-paused .workspace-hero *,
+.motion-paused .workspace-hero *::after { animation-play-state: paused !important; }
+.step-item { transition: color .2s ease, background .2s ease, box-shadow .2s ease, transform .2s ease; }
+.step-item:hover { transform: translateY(-2px); }
+.step-item:active { transform: scale(.97); }
+.shortcut-icon, .shortcut-arrow, .hero-actions .btn i {
+  display: inline-grid; transition: transform .25s ease;
+}
+.workspace-shortcut:hover .shortcut-icon { transform: translateY(-2px) rotate(-7deg); }
+.workspace-shortcut:hover .shortcut-arrow { transform: translate(2px,-2px); }
+.hero-actions .btn:hover i { transform: translate(3px,-3px); }
+@keyframes aurora-flow {
+  from { transform: translate3d(-3%, 2%, 0) rotate(-8deg) scale(.96); }
+  to { transform: translate3d(5%, -4%, 0) rotate(8deg) scale(1.1); }
+}
+@keyframes orb-drift {
+  from { transform: translate3d(-8px, 0, 0) scale(.94); }
+  to { transform: translate3d(14px, 24px, 0) scale(1.09); }
+}
+@keyframes orbit-turn {
+  from { transform: rotateX(30deg) rotateZ(-20deg); }
+  to { transform: rotateX(30deg) rotateZ(340deg); }
+}
+@keyframes orbit-counterturn { to { transform: rotate(-360deg); } }
+@keyframes sheet-back-float {
+  0%,100% { transform: translateX(-40%) translateY(0) rotate(-17deg) rotateY(-15deg); }
+  50% { transform: translateX(-42%) translateY(12px) rotate(-22deg) rotateY(-10deg); }
+}
+@keyframes sheet-middle-float {
+  0%,100% { transform: translateX(-42%) translateY(0) rotate(-5deg) rotateY(-15deg); }
+  50% { transform: translateX(-39%) translateY(-10px) rotate(-1deg) rotateY(-20deg); }
+}
+@keyframes sheet-front-float {
+  0%,100% { transform: translateX(-46%) translateY(0) rotate(8deg) rotateY(-15deg); }
+  50% { transform: translateX(-48%) translateY(-16px) rotate(3deg) rotateY(-8deg); }
+}
+@keyframes spark-float {
+  0%,100% { transform: translateY(0) rotate(14deg); }
+  50% { transform: translateY(-15px) rotate(29deg); }
+}
+@keyframes check-float {
+  0%,100% { transform: translateY(0) rotate(-12deg); }
+  50% { transform: translateY(13px) rotate(4deg); }
+}
+@media (max-width: 767px) {
+  .motion-toggle { top: 16px; right: 16px; width: 30px; height: 30px; justify-content: center; padding: 0; }
+  .motion-toggle span { display: none; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation: none !important; transition: none !important; }
   .workspace-shortcut:hover, #jobsList .job-card:hover { transform: none; }
