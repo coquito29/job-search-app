@@ -83,7 +83,7 @@ async function main() {
       .replace(/<script[^>]*src="\/static\/workspace\.js"[^>]*><\/script>/,()=>"<script>"+js+"</script>")
       .replace(/<script[^>]*src="https:\/\/cdn\.jsdelivr\.net\/npm\/bootstrap@[^"]*"[^>]*><\/script>/,()=>"<script>"+bootstrapJs+"</script>");
     const seed = {ts:Date.now(),skills:["Cybersecurity","Technical Support","SQL"],time_range:"7d",data};
-    const mock = "window.fetch=async function(url,options){var key=new URL(String(url),location.href).pathname;var method=(options&&options.method||'GET').toUpperCase();return new Response(JSON.stringify(method==='GET'&&Object.prototype.hasOwnProperty.call(window.__previewReplies,key)?window.__previewReplies[key]:{error:'Preview only: live actions are disabled'}),{status:method==='GET'?200:405,headers:{'Content-Type':'application/json'}});};window.open=function(){return null;};document.addEventListener('click',function(e){var a=e.target.closest('a');if(a&&a.getAttribute('href')&&!a.getAttribute('href').startsWith('#'))e.preventDefault();},true);try{localStorage.setItem('last_search_results',JSON.stringify(window.__previewSeed));localStorage.setItem('job_search_tab','today');localStorage.removeItem('workspace_motion_paused');}catch(e){};";
+    const mock = "window.fetch=async function(url,options){var key=new URL(String(url),location.href).pathname;var method=(options&&options.method||'GET').toUpperCase();return new Response(JSON.stringify(method==='GET'&&Object.prototype.hasOwnProperty.call(window.__previewReplies,key)?window.__previewReplies[key]:{error:'Preview only: live actions are disabled'}),{status:method==='GET'?200:405,headers:{'Content-Type':'application/json'}});};window.open=function(){return null;};document.addEventListener('click',function(e){var a=e.target.closest('a');if(a&&a.getAttribute('href')&&!a.getAttribute('href').startsWith('#'))e.preventDefault();},true);try{localStorage.setItem('last_search_results',JSON.stringify(window.__previewSeed));localStorage.setItem('job_search_tab','today');}catch(e){};";
     demo=demo.replace("<head>","<head><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; font-src data:; img-src data:; connect-src 'none';\"><script>window.__previewReplies="+JSON.stringify(replies)+";window.__previewSeed="+JSON.stringify(seed)+";"+mock+"</script>");
     fs.writeFileSync(path.join(out,"interactive-preview.html"),demo);
     browser=await chromium.launch({headless:true});
@@ -93,7 +93,7 @@ async function main() {
       await c.addInitScript(seed=>{
         localStorage.setItem("last_search_results",JSON.stringify(seed));
         localStorage.setItem("job_search_tab","today");
-        localStorage.removeItem("workspace_motion_paused");
+        
       },seed);
       await c.route("**/*",r=>{
         const u=new URL(r.request().url()),method=r.request().method();
