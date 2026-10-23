@@ -1,4 +1,17 @@
+<div align="center">
+
 # Job Search App
+### Find opportunities. Organize applications. Keep moving.
+
+**Python · Flask · Chrome extension**
+
+[Quick start](#run-locally) · [Features](#what-it-does) · [Project layout](#project-layout) · [Testing](#test)
+
+</div>
+
+---
+
+> **Project status:** Development is paused while certification study takes priority. This repository preserves the existing application; live integrations and deployment availability are not guaranteed.
 
 A personal job-search workspace for finding relevant roles, tailoring a CV,
 tracking applications, and reducing repetitive form work. It combines a Flask
@@ -72,3 +85,7 @@ The Flask service is configured for Render through `Procfile`. Configure
 production secrets as environment variables rather than checking them into the
 repository. The Chrome extension is loaded separately from a local checkout
 and needs a reload after extension changes.
+
+## More projects
+
+Browse [George’s portfolio and project directory](https://github.com/coquito29/George-Tupayachi).
