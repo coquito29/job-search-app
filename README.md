@@ -17,6 +17,12 @@ A personal job-search workspace for finding relevant roles, tailoring a CV,
 tracking applications, and reducing repetitive form work. It combines a Flask
 web app with an optional Chrome extension for rule-based application autofill.
 
+## Design preview
+
+![Job Search interface design preview using sample data](docs/images/job-search-design-preview.jpg)
+
+*Screenshot of the separate interactive design preview, captured October 23, 2026. It uses sample data and does not send applications. It is not a screenshot of a verified running Flask checkout or evidence that every displayed feature is implemented.*
+
 ## What it does
 
 - Searches job boards through Apify and ranks results against the saved profile.
