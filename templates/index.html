@@ -1728,8 +1728,10 @@
     #jobsList .job-why strong { color: var(--ink); font-weight: 500; }
     #jobsList .job-why .bi { opacity: .55; }
   </style>
+  <link rel="stylesheet" href="{{ url_for('static', filename='workspace.css') }}" />
+  <script defer src="{{ url_for('static', filename='workspace.js') }}"></script>
 </head>
-<body>
+<body class="ai-unavailable">
 
 <!-- Lock screen — covers everything until the user logs in -->
 <div id="lockOverlay" class="lock-overlay">
@@ -1767,7 +1769,7 @@
 <header class="app-header">
   <div class="d-flex align-items-center justify-content-between gap-2">
     <div class="d-flex align-items-center gap-2">
-      <i class="bi bi-search fs-5"></i>
+      <span class="workspace-brand" aria-hidden="true"><i class="bi bi-briefcase-fill"></i></span>
       <div>
         <h1>Job Search Workspace</h1>
         <p class="subtitle">Private · CV-matched · Direct apply</p>
@@ -1862,9 +1864,59 @@
      This replaces two banners that used to stack above every other tab. -->
 <div id="todaySection">
 
+  <section class="workspace-hero" aria-labelledby="workspaceHeroTitle">
+    <button id="workspaceMotionToggle" class="motion-toggle" type="button" onclick="toggleWorkspaceMotion()" aria-label="Pause decorative animation" aria-pressed="false"><i class="bi bi-pause-fill" aria-hidden="true"></i><span>Pause motion</span></button>
+    <div class="hero-orb" aria-hidden="true"></div>
+    <div class="hero-copy">
+      <span class="hero-eyebrow"><span></span> YOUR NEXT CHAPTER</span>
+      <h2 id="workspaceHeroTitle">Good work.<br><span>A little closer.</span></h2>
+      <p>Your space to discover a role, prepare with confidence, and keep your next move in view.</p>
+      <div class="hero-actions">
+        <button class="btn btn-primary" type="button" onclick="showTab('jobs')">Explore matches <i class="bi bi-arrow-up-right"></i></button>
+        <button class="hero-secondary" type="button" onclick="showTab('setup')">Update your profile <i class="bi bi-arrow-right"></i></button>
+      </div>
+      <div class="hero-footnote"><i class="bi bi-pause-circle"></i> Automatic searches paused · You're in control</div>
+    </div>
+    <div class="hero-visual" aria-hidden="true">
+      <div class="hero-orbit"></div>
+      <div class="floating-sheet sheet-back"></div>
+      <div class="floating-sheet sheet-middle"></div>
+      <div class="floating-sheet sheet-front">
+        <span class="sheet-icon"><i class="bi bi-briefcase"></i></span>
+        <span class="sheet-kicker">A FRESH PERSPECTIVE</span>
+        <strong>Your next<br>opportunity.</strong>
+        <span class="sheet-line"></span><span class="sheet-line short"></span>
+        <span class="sheet-tag"><i class="bi bi-check-circle-fill"></i> Make your next move</span>
+      </div>
+      <span class="floating-chip chip-spark"><i class="bi bi-stars"></i></span>
+      <span class="floating-chip chip-check"><i class="bi bi-check-lg"></i></span>
+    </div>
+  </section>
+
+  <div class="workspace-section-heading"><h3>Your workspace</h3><span>Small steps. Real progress.</span></div>
+  <div class="workspace-shortcuts">
+    <button class="workspace-shortcut" type="button" onclick="showTab('jobs')">
+      <span class="shortcut-icon icon-blue"><i class="bi bi-search"></i></span>
+      <span class="shortcut-copy"><strong>Find your fit</strong><span id="overviewMatches">Review matches or start a search</span></span>
+      <i class="bi bi-arrow-up-right shortcut-arrow"></i>
+    </button>
+    <button class="workspace-shortcut" type="button" onclick="showTab('setup')">
+      <span class="shortcut-icon icon-violet"><i class="bi bi-file-earmark-person"></i></span>
+      <span class="shortcut-copy"><strong>Put your best forward</strong><span id="overviewCvs">Add your CV and build your profile</span></span>
+      <i class="bi bi-arrow-up-right shortcut-arrow"></i>
+    </button>
+    <button class="workspace-shortcut" type="button" onclick="showTab('tracker')">
+      <span class="shortcut-icon icon-mint"><i class="bi bi-bar-chart"></i></span>
+      <span class="shortcut-copy"><strong>Keep moving</strong><span id="overviewPending">Track applications and next steps</span></span>
+      <i class="bi bi-arrow-up-right shortcut-arrow"></i>
+    </button>
+  </div>
+
+  <div class="workspace-section-heading activity-heading"><h3>Activity & next steps</h3><span>From your desktop extension</span></div>
+
   <div class="section-card" id="todayCard" style="margin-bottom:10px;">
     <div class="d-flex align-items-start gap-3 flex-wrap">
-      <span id="todayIcon" class="today-icon">🤖</span>
+      <span id="todayIcon" class="today-icon"><i class="bi bi-robot" aria-hidden="true"></i></span>
       <div style="flex:1;min-width:220px;">
         <div id="todayHeadline" class="today-headline">Loading…</div>
         <div id="todaySubline" class="today-sub"></div>
@@ -2047,7 +2099,7 @@
     Save a truthful answer once and the extension can reuse it when another
     application asks the same question. New or unclear questions stay for your review.
   </p>
-  <div class="d-flex gap-2 mb-2">
+  <div class="d-flex gap-2 mb-2 answer-entry">
     <input type="text" id="setupQaQuestion" class="form-control form-control-sm"
            placeholder="Question from an application" maxlength="160" />
     <input type="text" id="setupQaAnswer" class="form-control form-control-sm"
@@ -2110,7 +2162,7 @@
     <i class="bi bi-rocket-takeoff-fill me-2"></i>Find My Top Jobs
   </button>
   <p class="text-muted mt-2 mb-1 text-center" style="font-size:.75rem;">
-    API sources only · Direct employer links · AI scores every result against your CV
+    Apify job listings · Direct employer links · Rule-based matching to your skills
   </p>
 
   <!-- External board shortcuts — open searches with your skills pre-filled -->
@@ -2172,6 +2224,15 @@
   <div class="results-summary" id="resultsChrome">
     <div class="results-summary-top">
       <span id="resultsSummary">No results yet</span>
+      <div class="sort-btns btn-group" role="group" aria-label="Sort jobs">
+        <button class="btn btn-outline-secondary active" id="sortMatch" onclick="sortJobs('match')">Match %</button>
+        <button class="btn btn-outline-secondary" id="sortDate" onclick="sortJobs('date')">Date</button>
+        <button class="btn btn-outline-secondary" id="sortSalary" onclick="sortJobs('salary')">Salary</button>
+      </div>
+    </div>
+    <details class="results-filters" id="resultsFilterPanel">
+      <summary><span><i class="bi bi-sliders2"></i> Filters & actions</span><span id="activeFilterSummary">Last 7 days · Easy apply</span><i class="bi bi-chevron-down filter-chevron"></i></summary>
+      <div class="results-filter-body">
       <!-- Batch apply: opens the top N fast-apply jobs at once so the
            extension can fill them in parallel instead of one round trip
            per job. Walled/blocked ATSes and already-applied jobs are
@@ -2187,18 +2248,6 @@
           <option value="10">10 jobs</option>
         </select>
       </div>
-      <div class="sort-btns btn-group" role="group">
-        <button class="btn btn-outline-secondary active" id="sortMatch" onclick="sortJobs('match')">
-          Match %
-        </button>
-        <button class="btn btn-outline-secondary" id="sortDate" onclick="sortJobs('date')">
-          Date
-        </button>
-        <button class="btn btn-outline-secondary" id="sortSalary" onclick="sortJobs('salary')">
-          Salary
-        </button>
-      </div>
-    </div>
     <div class="source-counts-bar" id="sourceCountsBar"></div>
     <!-- Freshness filter chips — combat ghost jobs by limiting to recent posts.
          Default = Last 7 days (avoids 30d+ stale postings cluttering the list). -->
@@ -2221,7 +2270,6 @@
               onclick="setAtsFilter('all')">All</button>
       <span id="atsFilterCount" style="color:#6c757d;margin-left:auto;"></span>
     </div>
-  </div>
   <!-- Salary filter bar -->
   <div class="salary-filter-bar" id="salaryFilterBar" style="display:none;">
     <i class="bi bi-currency-dollar text-success"></i>
@@ -2233,15 +2281,18 @@
     <button class="clear-filter" onclick="clearSalaryFilter()">Clear</button>
     <span id="salaryFilterCount" style="font-size:.75rem; color:#6c757d; margin-left:auto;"></span>
   </div>
+      </div>
+    </details>
+  </div>
   <div id="jobsList"></div>
   <div id="jobsEmpty" class="section-card" style="display:none;text-align:center;padding:26px 18px;">
     <div style="font-size:1.7rem;line-height:1;">🔍</div>
     <div class="today-empty-title">No jobs loaded</div>
     <div class="today-empty-hint">
-      The daily search runs each morning. Run one now to fill this list.
+      Automatic searches are paused. Add your CV and skills in Setup, then choose when to run a search.
     </div>
-    <button class="btn btn-sm btn-primary" style="margin-top:12px;" onclick="searchJobs()">
-      <i class="bi bi-search me-1"></i>Search now
+    <button class="btn btn-sm btn-primary" style="margin-top:12px;" onclick="showTab('setup')">
+      <i class="bi bi-person-check me-1"></i>Prepare your profile
     </button>
   </div>
 </div>
@@ -2318,8 +2369,8 @@
     <div id="autopilotSummaryLine" style="font-size:.75rem;color:var(--ink-muted);margin-bottom:6px;"></div>
     <div id="autopilotBlockers" style="display:none;margin-bottom:10px;"></div>
     <div id="autopilotList" style="font-size:.85rem;color:#6c757d;">
-      The Chrome extension applies to up to 20 safe jobs daily at 9:30 AM.
-      Every attempt shows here — submitted, left for review, or failed.
+      Desktop extension activity appears here — submitted, left for review, or failed.
+      Manage autopilot from the Chrome extension.
       Loading…
     </div>
   </div>
@@ -2399,7 +2450,7 @@
         </div>
         <div class="stat-tile">
           <div class="stat-num" id="statApifySpend">$0.00</div>
-          <div class="stat-lbl">Apify (cron 30d)</div>
+          <div class="stat-lbl">Digest search cost (30d)</div>
         </div>
       </div>
       <!-- Status breakdown -->
@@ -2548,7 +2599,7 @@
         <div class="cl-source-picker mb-3" id="clSourcePicker">
           <div class="d-flex gap-2">
             <button class="btn btn-success btn-sm flex-fill" id="clBtnAi" onclick="loadCoverLetterAi()">
-              <i class="bi bi-stars me-1"></i>Generate from scratch (AI)
+              <i class="bi bi-file-earmark-text me-1"></i>Create template
             </button>
             <button class="btn btn-outline-success btn-sm flex-fill" id="clBtnReuse" onclick="loadCoverLetterReuse()">
               <i class="bi bi-folder-symlink me-1"></i>Reuse existing letter
@@ -2786,6 +2837,7 @@ async function refreshCvLibrary() {
     const data = await r.json();
     cvLibrary = Array.isArray(data.cvs) ? data.cvs : [];
   } catch (e) { cvLibrary = []; }
+  if (typeof renderWorkspaceOverview === 'function') renderWorkspaceOverview();
 }
 
 // Monthly Apify cost tracker — each /api/search that includes Apify is ~$1.20
@@ -3137,11 +3189,11 @@ function renderWorkHistory() {
   wrap.innerHTML = workHistory.map((e, i) => [
     '<div class="border rounded p-2 mb-2">',
     '  <div class="row g-2">',
-    whField(i, 'company',    'Company',        e.company,    'col-6'),
-    whField(i, 'title',      'Job title',      e.title,      'col-6'),
-    whField(i, 'start_date', 'Start YYYY-MM',  e.start_date, 'col-4'),
-    whField(i, 'end_date',   'End YYYY-MM',    e.end_date,   'col-4'),
-    whField(i, 'location',   'Location',       e.location,   'col-4'),
+    whField(i, 'company',    'Company',        e.company,    'col-12 col-sm-6'),
+    whField(i, 'title',      'Job title',      e.title,      'col-12 col-sm-6'),
+    whField(i, 'start_date', 'Start YYYY-MM',  e.start_date, 'col-6 col-sm-4'),
+    whField(i, 'end_date',   'End YYYY-MM',    e.end_date,   'col-6 col-sm-4'),
+    whField(i, 'location',   'Location',       e.location,   'col-12 col-sm-4'),
     '  </div>',
     '  <div class="d-flex align-items-center gap-2 mt-2">',
     '    <div class="form-check mb-0">',
@@ -3163,7 +3215,8 @@ function renderWorkHistory() {
 
 function whField(i, key, placeholder, value, cls) {
   return '<div class="' + cls + '">' +
-    '<input type="text" class="form-control form-control-sm" placeholder="' + placeholder + '"' +
+    '<label class="work-field-label" for="wh-' + i + '-' + key + '">' + placeholder.replace(' YYYY-MM', '') + '</label>' +
+    '<input id="wh-' + i + '-' + key + '" type="text" class="form-control form-control-sm" placeholder="' + placeholder + '"' +
     ' value="' + escHtml(value || '') + '"' +
     ' onchange="updateWorkEntry(' + i + ', \'' + key + '\', this.value)"></div>';
 }
@@ -3310,7 +3363,8 @@ function showAiBadge() {
 }
 
 function applySourceConfig(cfg) {
-  // Apify is the only source — nothing to toggle (Adzuna/JSearch removed 2026-07-06)
+  // AI-only actions should not advertise unavailable features.
+  document.body.classList.toggle('ai-unavailable', !cfg.ai_enabled);
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -3487,6 +3541,7 @@ function fmtWhen(iso) {
 // reassuring. Separate from refreshToday() because the job list usually lands
 // after the status call, and redrawing this must not cost another request.
 function renderTodayStats() {
+  if (typeof renderWorkspaceOverview === 'function') renderWorkspaceOverview();
   const stats = document.getElementById('todayStats');
   if (!stats) return;
   const s = lastTodayStatus;
@@ -3556,12 +3611,15 @@ async function refreshToday() {
     msg  = 'Autopilot ran today but landed nothing.';
     note = `${t.total} attempt${t.total === 1 ? '' : 's'} — the listings were dead or blocked.`;
   } else {
-    mark = '🤖';
-    msg  = 'Autopilot has not run yet today.';
-    note = 'It runs at 9:30 AM when Chrome is open'
-         + (s.last_attempt_at ? ` · last attempt ${escHtml(fmtWhen(s.last_attempt_at))}.` : '.');
+    mark = 'bi-robot';
+    msg  = 'No desktop activity today.';
+    note = 'Review saved matches or update your profile. Autopilot is managed in your Chrome extension.'
+         + (s.last_attempt_at ? ` Last attempt ${escHtml(fmtWhen(s.last_attempt_at))}.` : '');
   }
-  if (icon) icon.textContent = mark;
+  if (icon) {
+    if (mark === 'bi-robot') icon.innerHTML = '<i class="bi bi-robot" aria-hidden="true"></i>';
+    else icon.textContent = mark;
+  }
   headline.textContent = msg;
   if (sub) sub.innerHTML = note;
 
@@ -3845,8 +3903,7 @@ async function loadAutopilotLog(force) {
     const { attempts } = await res.json();
     autopilotLoadedAt = Date.now();
     if (!attempts || !attempts.length) {
-      listEl.innerHTML = `No runs yet. The extension runs daily at 9:30 AM when Chrome is open —
-        or click the extension icon and hit <strong>Run autopilot now</strong> to start one.`;
+      listEl.textContent = 'No desktop activity yet. Manage autopilot from your Chrome extension; its activity will appear here.';
       sumEl.textContent = '';
       cntEl.textContent = '0';
       return;
